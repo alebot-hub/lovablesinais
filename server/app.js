@@ -156,7 +156,7 @@ class TradingBotApp {
   /**
    * Configura rotas da API
    */
-  setupRoutes() {
+  async setupRoutes() {
     // Status do bot
     this.app.get('/api/status', (req, res) => {
       res.json({
@@ -892,7 +892,7 @@ class TradingBotApp {
 
       // Configura Express (async)
       await this.setupExpress();
-      this.setupRoutes();
+      await this.setupRoutes();
       this.setupScheduledTasks();
 
       // Inicia servidor
