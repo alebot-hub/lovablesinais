@@ -84,16 +84,72 @@ class TradingBotApp {
       next();
     });
     
-    // Serve arquivos estáticos apenas se existir a pasta dist
-    const path = await import('path');
-    const fs = await import('fs');
-    const distPath = path.join(process.cwd(), 'dist');
+    // Importa módulos necessários
+    const pathModule = await import('path');
+    const fsModule = await import('fs');
+    const distPath = pathModule.join(process.cwd(), 'dist');
     
-    if (fs.existsSync(distPath)) {
+    // Serve arquivos estáticos se existir a pasta dist
+    if (fsModule.existsSync(distPath)) {
       this.app.use(express.static('dist'));
       console.log('✅ Servindo arquivos estáticos da pasta dist');
     } else {
       console.log('⚠️ Pasta dist não encontrada - apenas API ativa');
+      
+      // Fallback: serve uma página simples se não tiver build
+      this.app.get('/', (req, res) => {
+        res.send(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Bot Lobo Cripto - API</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+              .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+              .status { padding: 15px; background: #e8f5e8; border-left: 4px solid #4caf50; margin: 20px 0; }
+              .api-link { display: inline-block; padding: 10px 20px; background: #2196f3; color: white; text-decoration: none; border-radius: 5px; margin: 5px; }
+              .api-link:hover { background: #1976d2; }
+              h1 { color: #333; }
+              h2 { color: #666; margin-top: 30px; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>🤖 Bot Lobo Cripto Oficial V.10</h1>
+              <div class="status">
+                ✅ <strong>Bot está ONLINE e funcionando!</strong>
+              </div>
+              
+              <h2>📊 APIs Disponíveis:</h2>
+              <a href="/api/status" class="api-link">📈 Status do Bot</a>
+              <a href="/api/signals/latest" class="api-link">🎯 Últimos Sinais</a>
+              <a href="/api/market/sentiment" class="api-link">🌍 Sentimento do Mercado</a>
+              <a href="/api/volatility/alerts" class="api-link">🔥 Alertas de Volatilidade</a>
+              <a href="/api/macro/data" class="api-link">🏛️ Dados Macroeconômicos</a>
+              
+              <h2>⚙️ Configuração:</h2>
+              <p>Configure as variáveis de ambiente no Render:</p>
+              <ul>
+                <li><code>TELEGRAM_TOKEN</code> - Token do seu bot</li>
+                <li><code>TELEGRAM_CHAT_ID</code> - ID do seu chat</li>
+              </ul>
+              
+              <h2>🚀 Funcionalidades Ativas:</h2>
+              <ul>
+                <li>✅ Análise técnica automática (a cada hora)</li>
+                <li>✅ Análise do Bitcoin (a cada 4 horas)</li>
+                <li>✅ Sentimento do mercado (a cada 6 horas)</li>
+                <li>✅ Alertas de volatilidade (a cada 15 minutos)</li>
+                <li>✅ Machine Learning integrado</li>
+                <li>✅ Monitoramento em tempo real</li>
+              </ul>
+              
+              <p><strong>Desenvolvido com ❤️ para a comunidade de trading</strong></p>
+            </div>
+          </body>
+          </html>
+        `);
+      });
     }
   }
 
@@ -249,17 +305,21 @@ class TradingBotApp {
     });
 
     // Rota catch-all para SPA
-    // Serve arquivos estáticos do build
-    this.app.use(express.static(path.join(process.cwd(), 'dist')));
+    // Fallback para SPA - serve index.html para rotas não encontradas (apenas se dist existir)
+    const pathModule = await import('path');
+    const fsModule = await import('fs');
+    const distPath = pathModule.join(process.cwd(), 'dist');
+    const indexPath = pathModule.join(distPath, 'index.html');
     
-    // Fallback para SPA - serve index.html para rotas não encontradas
-    this.app.use((req, res, next) => {
-      if (!req.path.startsWith('/api')) {
-        res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
-      } else {
-        next();
-      }
-    });
+    if (fsModule.existsSync(indexPath)) {
+      this.app.use((req, res, next) => {
+        if (!req.path.startsWith('/api')) {
+          res.sendFile(indexPath);
+        } else {
+          next();
+        }
+      });
+    }
   }
 
   /**
