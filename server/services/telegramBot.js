@@ -113,6 +113,14 @@ class TelegramBotService {
       message += `${targetEmoji} ${targetLabel}: $${formatPrice(target)}\n`;
     });
 
+    // Adiciona aviso especial para sinais contra-tendência
+    if (analysis.isCounterTrend) {
+      message += `\n⚠️ *SINAL CONTRA-TENDÊNCIA APROVADO*\n`;
+      message += `🔄 Padrões de reversão extremamente fortes detectados\n`;
+      message += `📊 Força de reversão: ${analysis.reversalStrength}/100\n`;
+      message += `💡 Gestão de risco ainda mais importante\n`;
+    }
+    
     message += `\n🛑 Stop Loss: $${formatPrice(stopLoss)}\n\n`;
     
     message += `👑 Sinais Lobo Cripto`;

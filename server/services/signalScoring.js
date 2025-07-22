@@ -405,10 +405,14 @@ class SignalScoringService {
       } else if (signalTrend === 'BEARISH') {
         // Tendência de alta + sinal de venda = EXCEÇÃO (precisa ser muito forte)
         const reversalStrength = this.calculateReversalStrength(indicators, patterns);
-        if (reversalStrength < 80) {
+        if (reversalStrength < 85) {
           adjustedScore *= 0.6; // -40% penalidade
           details.adjustment = -40;
           details.reason = 'Sinal contra tendência - padrão de reversão fraco';
+        } else if (reversalStrength >= 90) {
+          adjustedScore *= 1.20; // +20% se reversão extremamente forte
+          details.adjustment = 20;
+          details.reason = 'Padrão de reversão extremamente forte detectado';
         } else {
           adjustedScore *= 1.10; // +10% se reversão muito forte
           details.adjustment = 10;
@@ -424,15 +428,26 @@ class SignalScoringService {
       } else if (signalTrend === 'BULLISH') {
         // Tendência de baixa + sinal de compra = EXCEÇÃO (precisa ser muito forte)
         const reversalStrength = this.calculateReversalStrength(indicators, patterns);
-        if (reversalStrength < 80) {
+        if (reversalStrength < 85) {
           adjustedScore *= 0.6; // -40% penalidade
           details.adjustment = -40;
           details.reason = 'Sinal contra tendência - padrão de reversão fraco';
+        } else if (reversalStrength >= 90) {
+          adjustedScore *= 1.20; // +20% se reversão extremamente forte
+          details.adjustment = 20;
+          details.reason = 'Padrão de reversão extremamente forte detectado';
         } else {
           adjustedScore *= 1.10; // +10% se reversão muito forte
           details.adjustment = 10;
           details.reason = 'Padrão de reversão muito forte detectado';
         }
+      }
+    } else {
+      // Mercado lateral - sinais de breakout são favorecidos
+      if (patterns.breakout && patterns.breakout.strength === 'HIGH') {
+        adjustedScore *= 1.25; // +25% para breakouts em mercado lateral
+        details.adjustment = 25;
+        details.reason = 'Breakout forte em mercado lateral';
       }
     }
 
@@ -517,29 +532,29 @@ class SignalScoringService {
 
     // RSI extremo
     if (indicators.rsi < 15 || indicators.rsi > 85) {
-      strength += 30; // RSI muito extremo
+      strength += 35; // RSI muito extremo
     } else if (indicators.rsi < 25 || indicators.rsi > 75) {
-      strength += 20; // RSI extremo
+      strength += 25; // RSI extremo
     }
 
     // Divergência de RSI
     if (indicators.rsiDivergence) {
-      strength += 25; // Divergência é sinal muito forte
+      strength += 30; // Divergência é sinal muito forte
     }
 
     // Padrões de reversão fortes
     if (patterns.double && (patterns.double.type === 'DOUBLE_TOP' || patterns.double.type === 'DOUBLE_BOTTOM')) {
-      strength += 30; // Topo/Fundo duplo muito confiável
+      strength += 35; // Topo/Fundo duplo muito confiável
     }
 
     if (patterns.headShoulders) {
-      strength += 35; // Cabeça e ombros padrão clássico
+      strength += 40; // Cabeça e ombros padrão clássico
     }
 
     // Rompimento de níveis importantes com volume
     if (patterns.breakout && patterns.breakout.strength === 'HIGH') {
       if (patterns.breakout.type === 'BEARISH_BREAKOUT' || patterns.breakout.type === 'BULLISH_BREAKOUT') {
-        strength += 25; // Rompimento forte contra tendência
+        strength += 30; // Rompimento forte contra tendência
       }
     }
 
@@ -550,9 +565,9 @@ class SignalScoringService {
       
       patterns.candlestick.forEach(pattern => {
         if (strongReversalPatterns.includes(pattern.type)) {
-          strength += 20; // Engolfos são muito fortes
+          strength += 25; // Engolfos são muito fortes
         } else if (moderateReversalPatterns.includes(pattern.type)) {
-          strength += 15;
+          strength += 20;
         }
       });
     }
@@ -561,8 +576,28 @@ class SignalScoringService {
     if (indicators.macd && indicators.macd.MACD && indicators.macd.signal) {
       const macdCrossover = Math.abs(indicators.macd.MACD - indicators.macd.signal);
       if (macdCrossover > 0.001) { // Cruzamento significativo
+        strength += 20;
+      }
+    }
+
+    // Volume extremo confirmando reversão
+    if (indicators.volumeMA && indicators.currentVolume) {
+      const volumeRatio = indicators.currentVolume / indicators.volumeMA;
+      if (volumeRatio > 3.0) { // Volume 3x acima da média
+        strength += 25;
+      } else if (volumeRatio > 2.0) {
         strength += 15;
       }
+    }
+
+    // Múltiplos indicadores extremos convergindo
+    let extremeIndicators = 0;
+    if (indicators.rsi && (indicators.rsi < 20 || indicators.rsi > 80)) extremeIndicators++;
+    if (indicators.rsiDivergence) extremeIndicators++;
+    if (patterns.double || patterns.headShoulders) extremeIndicators++;
+    
+    if (extremeIndicators >= 3) {
+      strength += 20; // Bônus por convergência de sinais
     }
 
     // Múltiplos timeframes confirmando reversão (simulado)

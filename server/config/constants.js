@@ -56,7 +56,17 @@ export const TRADING_CONFIG = {
   MIN_SIGNAL_PROBABILITY: 70, // Threshold mínimo para sinais de alta qualidade
   TARGET_PERCENTAGES: [1.5, 3.0, 4.5, 6.0, 7.5, 9.0],
   STOP_LOSS_PERCENTAGE: -4.5,
-  VOLATILITY_THRESHOLD: 5.0 // Threshold para alertas de volatilidade
+  VOLATILITY_THRESHOLD: 5.0, // Threshold para alertas de volatilidade
+  
+  // Configurações específicas para sinais contra-tendência
+  COUNTER_TREND: {
+    MIN_REVERSAL_STRENGTH: 85, // Força mínima para aceitar contra-tendência
+    EXTREME_REVERSAL_THRESHOLD: 90, // Threshold para reversão extrema
+    PENALTY_WEAK_REVERSAL: 0.6, // Penalidade para reversões fracas (40% redução)
+    BONUS_STRONG_REVERSAL: 1.10, // Bônus para reversões fortes (10% aumento)
+    BONUS_EXTREME_REVERSAL: 1.20, // Bônus para reversões extremas (20% aumento)
+    SIDEWAYS_BREAKOUT_BONUS: 1.25 // Bônus para breakouts em mercado lateral
+  }
 };
 
 // Configurações de agendamento
