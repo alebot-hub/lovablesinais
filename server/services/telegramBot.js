@@ -547,7 +547,6 @@ class TelegramBotService {
       const timeElapsed = this.calculateTimeElapsed(signalTime);
       
       // Função para formatar preços
-      const symbolName = symbol.split('/')[0];
       const formatPrice = (price) => {
         if (['BTC', 'ETH', 'SOL', 'LTC'].includes(symbolName)) {
           return price.toFixed(2);
@@ -621,7 +620,6 @@ class TelegramBotService {
       const timeElapsed = this.calculateTimeElapsed(signalTime);
       
       // Função para formatar preços
-      const symbolName = symbol.split('/')[0];
       const formatPrice = (price) => {
         if (['BTC', 'ETH', 'SOL', 'LTC'].includes(symbolName)) {
           return price.toFixed(2);
@@ -672,7 +670,6 @@ class TelegramBotService {
       const timeElapsed = this.calculateTimeElapsed(signalTime);
       
       // Função para formatar preços
-      const symbolName = symbol.split('/')[0];
       const formatPrice = (price) => {
         if (['BTC', 'ETH', 'SOL', 'LTC'].includes(symbolName)) {
           return price.toFixed(2);
