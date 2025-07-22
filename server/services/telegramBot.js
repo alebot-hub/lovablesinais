@@ -117,7 +117,7 @@ class TelegramBotService {
     
     message += `👑 Sinais Lobo Cripto`;
 
-    message += `\n⏰ ${new Date().toLocaleString('pt-BR')}`;
+    message += `\n⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
 
     return message;
   }

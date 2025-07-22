@@ -103,48 +103,178 @@ class TradingBotApp {
           <html>
           <head>
             <title>Bot Lobo Cripto - API</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-              body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-              .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-              .status { padding: 15px; background: #e8f5e8; border-left: 4px solid #4caf50; margin: 20px 0; }
-              .api-link { display: inline-block; padding: 10px 20px; background: #2196f3; color: white; text-decoration: none; border-radius: 5px; margin: 5px; }
-              .api-link:hover { background: #1976d2; }
-              h1 { color: #333; }
-              h2 { color: #666; margin-top: 30px; }
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                color: #333;
+              }
+              .container { 
+                max-width: 1200px; 
+                margin: 0 auto; 
+                padding: 20px;
+              }
+              .header {
+                background: rgba(255,255,255,0.95);
+                backdrop-filter: blur(10px);
+                border-radius: 20px;
+                padding: 30px;
+                margin-bottom: 30px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                text-align: center;
+              }
+              .status { 
+                display: inline-flex;
+                align-items: center;
+                padding: 15px 25px; 
+                background: linear-gradient(135deg, #4CAF50, #45a049);
+                color: white;
+                border-radius: 50px; 
+                margin: 20px 0;
+                font-weight: 600;
+                box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+              }
+              .status::before {
+                content: '✅';
+                margin-right: 10px;
+                font-size: 1.2em;
+              }
+              .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 20px;
+                margin-bottom: 30px;
+              }
+              .card {
+                background: rgba(255,255,255,0.95);
+                backdrop-filter: blur(10px);
+                border-radius: 15px;
+                padding: 25px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                transition: transform 0.3s ease;
+              }
+              .card:hover {
+                transform: translateY(-5px);
+              }
+              .api-links {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+                margin: 20px 0;
+              }
+              .api-link { 
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 15px 20px; 
+                background: linear-gradient(135deg, #2196F3, #1976D2);
+                color: white; 
+                text-decoration: none; 
+                border-radius: 10px; 
+                font-weight: 600;
+                transition: all 0.3s ease;
+                box-shadow: 0 4px 15px rgba(33, 150, 243, 0.3);
+              }
+              .api-link:hover { 
+                background: linear-gradient(135deg, #1976D2, #1565C0);
+                transform: translateY(-2px);
+                box-shadow: 0 6px 20px rgba(33, 150, 243, 0.4);
+              }
+              .feature-list {
+                list-style: none;
+                padding: 0;
+              }
+              .feature-list li {
+                padding: 8px 0;
+                border-bottom: 1px solid #eee;
+                display: flex;
+                align-items: center;
+              }
+              .feature-list li:last-child {
+                border-bottom: none;
+              }
+              .feature-list li::before {
+                content: '🚀';
+                margin-right: 10px;
+              }
+              h1 { 
+                color: #333; 
+                font-size: 2.5em;
+                margin-bottom: 10px;
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+              }
+              h2 { 
+                color: #555; 
+                margin: 20px 0 15px 0;
+                font-size: 1.4em;
+              }
+              .footer {
+                text-align: center;
+                margin-top: 40px;
+                padding: 20px;
+                color: rgba(255,255,255,0.8);
+                font-weight: 500;
+              }
+              @media (max-width: 768px) {
+                .container { padding: 10px; }
+                h1 { font-size: 2em; }
+                .api-links { grid-template-columns: 1fr; }
+              }
             </style>
           </head>
           <body>
             <div class="container">
-              <h1>🤖 Bot Lobo Cripto Oficial V.10</h1>
-              <div class="status">
-                ✅ <strong>Bot está ONLINE e funcionando!</strong>
+              <div class="header">
+                <h1>🤖 Bot Lobo Cripto Oficial V.10</h1>
+                <div class="status">
+                  Bot está ONLINE e funcionando!
+                </div>
               </div>
               
-              <h2>📊 APIs Disponíveis:</h2>
-              <a href="/api/status" class="api-link">📈 Status do Bot</a>
-              <a href="/api/signals/latest" class="api-link">🎯 Últimos Sinais</a>
-              <a href="/api/market/sentiment" class="api-link">🌍 Sentimento do Mercado</a>
-              <a href="/api/volatility/alerts" class="api-link">🔥 Alertas de Volatilidade</a>
-              <a href="/api/macro/data" class="api-link">🏛️ Dados Macroeconômicos</a>
+              <div class="grid">
+                <div class="card">
+                  <h2>📊 APIs Disponíveis</h2>
+                  <div class="api-links">
+                    <a href="/api/status" class="api-link">📈 Status do Bot</a>
+                    <a href="/api/signals/latest" class="api-link">🎯 Últimos Sinais</a>
+                    <a href="/api/market/sentiment" class="api-link">🌍 Sentimento do Mercado</a>
+                    <a href="/api/volatility/alerts" class="api-link">🔥 Alertas de Volatilidade</a>
+                    <a href="/api/macro/data" class="api-link">🏛️ Dados Macroeconômicos</a>
+                  </div>
+                </div>
+                
+                <div class="card">
+                  <h2>⚙️ Configuração</h2>
+                  <p style="margin-bottom: 15px;">Configure as variáveis de ambiente no Render:</p>
+                  <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; font-family: monospace;">
+                    <div style="margin-bottom: 8px;"><strong>TELEGRAM_TOKEN</strong> = seu_token_do_bot</div>
+                    <div><strong>TELEGRAM_CHAT_ID</strong> = seu_chat_id</div>
+                  </div>
+                </div>
+                
+                <div class="card">
+                  <h2>🚀 Funcionalidades Ativas</h2>
+                  <ul class="feature-list">
+                    <li>Análise técnica automática (a cada hora)</li>
+                    <li>Análise do Bitcoin (a cada 4 horas)</li>
+                    <li>Sentimento do mercado (a cada 6 horas)</li>
+                    <li>Alertas de volatilidade (a cada 15 minutos)</li>
+                    <li>Machine Learning integrado</li>
+                    <li>Monitoramento em tempo real</li>
+                  </ul>
+                </div>
+              </div>
               
-              <h2>⚙️ Configuração:</h2>
-              <p>Configure as variáveis de ambiente no Render:</p>
-              <ul>
-                <li><code>TELEGRAM_TOKEN</code> - Token do seu bot</li>
-                <li><code>TELEGRAM_CHAT_ID</code> - ID do seu chat</li>
-              </ul>
-              
-              <h2>🚀 Funcionalidades Ativas:</h2>
-              <ul>
-                <li>✅ Análise técnica automática (a cada hora)</li>
-                <li>✅ Análise do Bitcoin (a cada 4 horas)</li>
-                <li>✅ Sentimento do mercado (a cada 6 horas)</li>
-                <li>✅ Alertas de volatilidade (a cada 15 minutos)</li>
-                <li>✅ Machine Learning integrado</li>
-                <li>✅ Monitoramento em tempo real</li>
-              </ul>
-              
-              <p><strong>Desenvolvido com ❤️ para a comunidade de trading</strong></p>
+              <div class="footer">
+                <strong>Desenvolvido com ❤️ para a comunidade de trading</strong>
+              </div>
             </div>
           </body>
           </html>
