@@ -4,17 +4,34 @@ import { TrendingUp, TrendingDown, Activity, Volume2, AlertCircle } from 'lucide
 interface MarketSentiment {
   overall: string;
   fearGreedIndex: number;
+  fearGreedLabel?: string;
+  isRealFearGreed?: boolean;
   totalVolume: number;
   volatility: number;
   assetsUp: number;
   assetsDown: number;
   volumeVsAverage: number;
+  altcoinSeason?: {
+    index: number;
+    status: string;
+    description: string;
+    isAltcoinSeason: boolean;
+    isBitcoinSeason: boolean;
+    isRealData: boolean;
+  };
   topMovers?: Array<{
     symbol: string;
     change: number;
     volume: number;
   }>;
   analysis?: string[];
+  cryptoMarketCap?: {
+    totalMarketCap: number;
+    btcDominance: number;
+    change24h: number;
+    altcoinSeason: boolean;
+    isRealData: boolean;
+  };
 }
 
 const MarketSentiment: React.FC = () => {
@@ -137,7 +154,14 @@ const MarketSentiment: React.FC = () => {
 
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-gray-600">Fear & Greed Index</h3>
+            <h3 className="text-sm font-medium text-gray-600">
+              Fear & Greed Index
+              {sentiment.isRealFearGreed && (
+                <span className="ml-2 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                  DADOS REAIS
+                </span>
+              )}
+            </h3>
             <Activity className="w-5 h-5 text-gray-400" />
           </div>
           <div className="space-y-2">
@@ -153,6 +177,11 @@ const MarketSentiment: React.FC = () => {
                 style={{ width: `${sentiment.fearGreedIndex}%` }}
               />
             </div>
+            {sentiment.isRealFearGreed && (
+              <p className="text-xs text-green-600 mt-1">
+                Dados obtidos da alternative.me
+              </p>
+            )}
           </div>
         </div>
 
@@ -181,7 +210,8 @@ const MarketSentiment: React.FC = () => {
       {sentiment.cryptoMarketCap && (
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Mercado Cripto Global {sentiment.cryptoMarketCap.isRealData && (
+            Mercado Cripto Global
+            {sentiment.cryptoMarketCap.isRealData && (
               <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full ml-2">
                 DADOS REAIS
               </span>
@@ -222,10 +252,64 @@ const MarketSentiment: React.FC = () => {
             </div>
           </div>
           
-          {sentiment.cryptoMarketCap.altcoinSeason && (
+          {/* Altcoin Season Index */}
+          {sentiment.altcoinSeason && (
+            <div className="mt-4">
+              <div className={`border rounded-lg p-3 ${
+                sentiment.altcoinSeason.isAltcoinSeason ? 'bg-purple-50 border-purple-200' :
+                sentiment.altcoinSeason.isBitcoinSeason ? 'bg-orange-50 border-orange-200' :
+                'bg-gray-50 border-gray-200'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className={`font-medium ${
+                    sentiment.altcoinSeason.isAltcoinSeason ? 'text-purple-800' :
+                    sentiment.altcoinSeason.isBitcoinSeason ? 'text-orange-800' :
+                    'text-gray-800'
+                  }`}>
+                    {sentiment.altcoinSeason.isAltcoinSeason ? '🚀' :
+                     sentiment.altcoinSeason.isBitcoinSeason ? '₿' : '⚖️'} 
+                    {sentiment.altcoinSeason.description}
+                  </p>
+                  {sentiment.altcoinSeason.isRealData && (
+                    <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                      REAL
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="flex-1 bg-gray-200 rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full ${
+                        sentiment.altcoinSeason.isAltcoinSeason ? 'bg-purple-500' :
+                        sentiment.altcoinSeason.isBitcoinSeason ? 'bg-orange-500' :
+                        'bg-gray-500'
+                      }`}
+                      style={{ width: `${sentiment.altcoinSeason.index}%` }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium text-gray-700">
+                    {sentiment.altcoinSeason.index}/100
+                  </span>
+                </div>
+                <p className={`text-sm mt-1 ${
+                  sentiment.altcoinSeason.isAltcoinSeason ? 'text-purple-600' :
+                  sentiment.altcoinSeason.isBitcoinSeason ? 'text-orange-600' :
+                  'text-gray-600'
+                }`}>
+                  {sentiment.altcoinSeason.isRealData ? 
+                    'Dados da blockchaincenter.net' : 
+                    'Baseado em dominância BTC'
+                  }
+                </p>
+              </div>
+            </div>
+          )}
+          
+          {/* Fallback para altcoin season baseado em dominância */}
+          {!sentiment.altcoinSeason && sentiment.cryptoMarketCap.altcoinSeason && (
             <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-3">
-              <p className="text-purple-800 font-medium">🚀 Altcoin Season Ativa</p>
-              <p className="text-purple-600 text-sm">Dominância do Bitcoin abaixo de 45%</p>
+              <p className="text-purple-800 font-medium">🚀 Possível Altcoin Season</p>
+              <p className="text-purple-600 text-sm">Dominância do Bitcoin: {sentiment.cryptoMarketCap.btcDominance.toFixed(1)}%</p>
             </div>
           )}
         </div>

@@ -250,8 +250,8 @@ class SocialSentimentService {
         sources.push({
           platform: data.platform,
           sentiment: data.sentiment,
-          score: data.score,
-          confidence: data.confidence
+          score: data.score || 50,
+          confidence: data.confidence || 0.5
         });
 
         const weight = weights[platform] || 0.1;
@@ -260,10 +260,10 @@ class SocialSentimentService {
         // Converte sentimento para score numérico
         let sentimentScore = 50; // Neutro
         if (data.sentiment === 'BULLISH') {
-          sentimentScore = 70 + (data.score * 0.3);
+          sentimentScore = 70 + ((data.score || 50) * 0.3);
           bullishCount++;
         } else if (data.sentiment === 'BEARISH') {
-          sentimentScore = 30 - (data.score * 0.3);
+          sentimentScore = 30 - ((data.score || 50) * 0.3);
           bearishCount++;
         } else {
           sentimentScore = 45 + (Math.random() * 10);
@@ -313,7 +313,7 @@ class SocialSentimentService {
     // Análise do Twitter
     if (socialData.twitter) {
       const twitter = socialData.twitter;
-      analysis.push(`🐦 Twitter: ${twitter.mentions.toLocaleString()} menções, sentimento ${twitter.sentiment}`);
+      analysis.push(`🐦 Twitter: ${twitter.mentions ? twitter.mentions.toLocaleString('pt-BR') : '0'} menções, sentimento ${twitter.sentiment}`);
       
       if (twitter.trending && twitter.trending.length > 0) {
         analysis.push(`📈 Trending: ${twitter.trending.slice(0, 3).join(', ')}`);
@@ -323,7 +323,7 @@ class SocialSentimentService {
     // Análise do Reddit
     if (socialData.reddit) {
       const reddit = socialData.reddit;
-      analysis.push(`📱 Reddit: ${reddit.posts} posts, ${reddit.comments.toLocaleString()} comentários`);
+      analysis.push(`📱 Reddit: ${reddit.posts || 0} posts, ${reddit.comments ? reddit.comments.toLocaleString('pt-BR') : '0'} comentários`);
       analysis.push(`👍 Upvote ratio: ${(reddit.upvoteRatio * 100).toFixed(1)}%`);
     }
 

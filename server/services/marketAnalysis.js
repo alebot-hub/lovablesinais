@@ -18,12 +18,19 @@ class MarketAnalysisService {
     try {
       console.log('Analisando sentimento do mercado...');
 
-      const marketData = await this.getMarketOverview();
-      const realFearGreed = await this.getRealFearGreedIndex();
+      const [marketData, realFearGreed, altcoinSeasonData] = await Promise.allSettled([
+        this.getMarketOverview(),
+        this.getRealFearGreedIndex(),
+        this.getAltcoinSeasonIndex()
+      ]);
+      
+      const marketOverview = marketData.status === 'fulfilled' ? marketData.value : this.getFallbackMarketData();
+      const fearGreedData = realFearGreed.status === 'fulfilled' ? realFearGreed.value : null;
+      const altcoinSeason = altcoinSeasonData.status === 'fulfilled' ? altcoinSeasonData.value : null;
       
       // Garante que valores numéricos são válidos
-      if (!marketData.totalVolume || isNaN(marketData.totalVolume)) {
-        marketData.totalVolume = 0;
+      if (!marketOverview.totalVolume || isNaN(marketOverview.totalVolume)) {
+        marketOverview.totalVolume = 0;
       }
       
       // Obtém sentimento das redes sociais
@@ -37,25 +44,28 @@ class MarketAnalysisService {
         }
       }
       
-      const sentiment = this.calculateSentiment(marketData);
+      const sentiment = this.calculateSentiment(marketOverview, fearGreedData);
 
       return {
         overall: sentiment.overall,
         fearGreedIndex: sentiment.fearGreedIndex,
         fearGreedLabel: sentiment.fearGreedLabel,
-        totalVolume: Number(marketData.totalVolume) || 0,
+        isRealFearGreed: fearGreedData?.isRealData || false,
+        totalVolume: Number(marketOverview.totalVolume) || 0,
         volatility: sentiment.volatility || 0,
-        assetsUp: marketData.assetsUp,
-        assetsDown: marketData.assetsDown,
+        assetsUp: marketOverview.assetsUp,
+        assetsDown: marketOverview.assetsDown,
         volumeVsAverage: sentiment.volumeVsAverage || 1,
-        topMovers: marketData.topMovers,
+        topMovers: marketOverview.topMovers,
         analysis: sentiment.analysis,
         socialSentiment: socialSentiment,
+        altcoinSeason: altcoinSeason,
         cryptoMarketCap: {
-          totalMarketCap: marketData.totalMarketCap,
-          btcDominance: marketData.btcDominance,
-          change24h: (Math.random() - 0.5) * 4, // -2% a +2%
-          altcoinSeason: marketData.btcDominance < 45
+          totalMarketCap: marketOverview.totalMarketCap,
+          btcDominance: marketOverview.btcDominance,
+          change24h: marketOverview.change24h || 0,
+          altcoinSeason: altcoinSeason?.isAltcoinSeason || marketOverview.btcDominance < 45,
+          isRealData: marketOverview.isRealData || false
         }
       };
     } catch (error) {
@@ -71,24 +81,45 @@ class MarketAnalysisService {
     try {
       console.log('Obtendo Fear & Greed Index real...');
       
-      const response = await fetch('https://api.alternative.me/fng/');
-      const data = await response.json();
+      const response = await fetch('https://api.alternative.me/fng/?limit=1', {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        signal: AbortSignal.timeout(10000)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      console.log('📊 Fear & Greed API response preview:', responseText.substring(0, 150));
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ Erro ao parsear Fear & Greed JSON:', parseError.message);
+        throw new Error('Resposta inválida da API Fear & Greed');
+      }
       
       if (data && data.data && data.data[0]) {
         const fngData = data.data[0];
-        console.log(`Fear & Greed Index: ${fngData.value} (${fngData.value_classification})`);
+        console.log(`✅ Fear & Greed Index obtido: ${fngData.value}/100 (${fngData.value_classification})`);
         
         return {
           value: parseInt(fngData.value),
           classification: this.translateFearGreedLabel(fngData.value_classification),
-          timestamp: fngData.timestamp
+          timestamp: fngData.timestamp,
+          isRealData: true
         };
       }
       
       throw new Error('Dados inválidos da API');
     } catch (error) {
-      console.error('Erro ao obter Fear & Greed Index real:', error.message);
-      console.log('Usando valor simulado como fallback');
+      console.error('❌ Erro ao obter Fear & Greed da alternative.me:', error.message);
+      console.log('⚠️ Usando valor simulado como fallback');
       
       // Fallback para valor simulado
       return {
@@ -99,6 +130,84 @@ class MarketAnalysisService {
       };
     }
   }
+  /**
+   * Obtém Altcoin Season Index da BlockchainCenter
+   */
+  async getAltcoinSeasonIndex() {
+    try {
+      console.log('🚀 Obtendo Altcoin Season Index da blockchaincenter.net...');
+      
+      const response = await fetch('https://www.blockchaincenter.net/altcoin-season-index/data.json', {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://www.blockchaincenter.net/'
+        },
+        signal: AbortSignal.timeout(10000)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      console.log('🚀 Altcoin Season API response preview:', responseText.substring(0, 150));
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ Erro ao parsear Altcoin Season JSON:', parseError.message);
+        throw new Error('Resposta inválida da API BlockchainCenter');
+      }
+      
+      if (data && data.altcoin_season_index !== undefined) {
+        const index = parseFloat(data.altcoin_season_index);
+        const isAltcoinSeason = index >= 75;
+        const isBitcoinSeason = index <= 25;
+        
+        let status = 'NEUTRO';
+        let description = 'Mercado equilibrado';
+        
+        if (isAltcoinSeason) {
+          status = 'ALTCOIN_SEASON';
+          description = 'Temporada de Altcoins ativa';
+        } else if (isBitcoinSeason) {
+          status = 'BITCOIN_SEASON';
+          description = 'Temporada do Bitcoin ativa';
+        }
+        
+        console.log(`✅ Altcoin Season Index: ${index}/100 - ${description}`);
+        
+        return {
+          index: index,
+          status: status,
+          description: description,
+          isAltcoinSeason: isAltcoinSeason,
+          isBitcoinSeason: isBitcoinSeason,
+          timestamp: Date.now(),
+          isRealData: true
+        };
+      }
+      
+      throw new Error('Dados inválidos da API');
+    } catch (error) {
+      console.error('❌ Erro ao obter Altcoin Season Index:', error.message);
+      console.log('⚠️ Usando cálculo baseado em dominância BTC como fallback');
+      
+      // Fallback baseado em dominância BTC
+      return {
+        index: 50,
+        status: 'NEUTRO',
+        description: 'Dados indisponíveis - usando fallback',
+        isAltcoinSeason: false,
+        isBitcoinSeason: false,
+        timestamp: Date.now(),
+        isRealData: false
+      };
+    }
+  }
+
   /**
    * Traduz labels do Fear & Greed Index
    */
@@ -125,7 +234,9 @@ class MarketAnalysisService {
       volatilities: [],
       volumes: [],
       totalMarketCap: 0,
-      btcDominance: 0
+      btcDominance: 0,
+      change24h: 0,
+      isRealData: false
     };
 
     // Obtém dados reais do CoinGecko
@@ -133,19 +244,64 @@ class MarketAnalysisService {
       console.log('📊 Obtendo dados reais do mercado cripto...');
       
       // Dados globais do mercado
-      const globalResponse = await fetch('https://api.coingecko.com/api/v3/global');
-      const globalData = await globalResponse.json();
+      const globalResponse = await fetch('https://api.coingecko.com/api/v3/global', {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
+        },
+        timeout: 10000
+      });
+      
+      if (!globalResponse.ok) {
+        throw new Error(`HTTP ${globalResponse.status}: ${globalResponse.statusText}`);
+      }
+      
+      const globalText = await globalResponse.text();
+      console.log('📊 Global response preview:', globalText.substring(0, 100));
+      
+      let globalData;
+      try {
+        globalData = JSON.parse(globalText);
+      } catch (parseError) {
+        console.error('❌ Erro ao parsear JSON global:', parseError.message);
+        console.error('📄 Response text:', globalText.substring(0, 500));
+        throw new Error('Resposta inválida da API CoinGecko');
+      }
       
       if (globalData && globalData.data) {
         marketData.totalMarketCap = globalData.data.total_market_cap.usd / 1e12; // Trilhões
         marketData.btcDominance = globalData.data.market_cap_percentage.btc;
         marketData.totalVolume = Number(globalData.data.total_volume.usd) / 1e9 || 0; // Bilhões
+        marketData.change24h = globalData.data.market_cap_change_percentage_24h_usd || 0;
+        marketData.isRealData = true;
         console.log(`✅ Dados reais obtidos: $${marketData.totalMarketCap.toFixed(2)}T, BTC: ${marketData.btcDominance.toFixed(1)}%`);
       }
       
       // Top 50 criptomoedas para análise de sentimento
-      const coinsResponse = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&sparkline=false&price_change_percentage=24h');
-      const coinsData = await coinsResponse.json();
+      const coinsResponse = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&sparkline=false&price_change_percentage=24h', {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
+        },
+        timeout: 10000
+      });
+      
+      if (!coinsResponse.ok) {
+        console.log('⚠️ Erro na API de coins, usando apenas dados globais');
+        return marketData;
+      }
+      
+      const coinsText = await coinsResponse.text();
+      console.log('📊 Coins response preview:', coinsText.substring(0, 100));
+      
+      let coinsData;
+      try {
+        coinsData = JSON.parse(coinsText);
+      } catch (parseError) {
+        console.error('❌ Erro ao parsear JSON coins:', parseError.message);
+        console.log('⚠️ Usando apenas dados globais');
+        return marketData;
+      }
       
       if (coinsData && Array.isArray(coinsData)) {
         console.log(`📈 Analisando ${coinsData.length} criptomoedas...`);
@@ -186,7 +342,7 @@ class MarketAnalysisService {
       
     } catch (error) {
       console.error('❌ Erro ao obter dados reais:', error.message);
-      console.log('⚠️ Usando dados de fallback');
+      console.log('⚠️ Usando dados de fallback para market overview');
       
       // Fallback apenas se API falhar
       marketData.totalMarketCap = 3.5;
@@ -194,9 +350,34 @@ class MarketAnalysisService {
       marketData.totalVolume = 50;
       marketData.assetsUp = 25;
       marketData.assetsDown = 25;
+      marketData.topMovers = [
+        { symbol: 'BTC/USDT', name: 'Bitcoin', change: 2.5, volume: 1000000000, marketCap: 800000000000, volatility: 0.025 },
+        { symbol: 'ETH/USDT', name: 'Ethereum', change: -1.8, volume: 500000000, marketCap: 300000000000, volatility: 0.018 }
+      ];
+      marketData.volumes = [1000000000, 500000000, 200000000];
+      marketData.volatilities = [0.025, 0.018, 0.032];
+      marketData.isRealData = false;
     }
 
     return marketData;
+  }
+
+  /**
+   * Dados de fallback para market overview
+   */
+  getFallbackMarketData() {
+    return {
+      totalVolume: 50,
+      assetsUp: 25,
+      assetsDown: 25,
+      topMovers: [],
+      volatilities: [0.025, 0.018, 0.032],
+      volumes: [1000000000, 500000000],
+      totalMarketCap: 3.5,
+      btcDominance: 57,
+      change24h: 0,
+      isRealData: false
+    };
   }
 
   /**

@@ -262,8 +262,29 @@ class MacroEconomicService {
       console.log('₿ Analisando market cap cripto...');
       
       // Obtém dados reais da CoinGecko
-      const response = await fetch('https://api.coingecko.com/api/v3/global');
-      const data = await response.json();
+      const response = await fetch('https://api.coingecko.com/api/v3/global', {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
+        },
+        timeout: 10000
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      console.log('₿ Crypto market cap response preview:', responseText.substring(0, 100));
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ Erro ao parsear market cap JSON:', parseError.message);
+        console.error('📄 Response text:', responseText.substring(0, 500));
+        throw new Error('Resposta inválida da API CoinGecko');
+      }
       
       if (data && data.data) {
         const globalData = data.data;
