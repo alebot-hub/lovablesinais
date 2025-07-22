@@ -113,11 +113,13 @@ class TelegramBotService {
       message += `${targetEmoji} ${targetLabel}: $${formatPrice(target)}\n`;
     });
 
-    // Adiciona aviso especial para sinais contra-tendência
-    if (analysis.isCounterTrend) {
+    // Adiciona aviso especial para sinais contra-tendência se disponível
+    if (signal.isCounterTrend || (details && details.trendAdjustment && details.trendAdjustment.reason && details.trendAdjustment.reason.includes('reversão'))) {
       message += `\n⚠️ *SINAL CONTRA-TENDÊNCIA APROVADO*\n`;
       message += `🔄 Padrões de reversão extremamente fortes detectados\n`;
-      message += `📊 Força de reversão: ${analysis.reversalStrength}/100\n`;
+      if (signal.reversalStrength) {
+        message += `📊 Força de reversão: ${signal.reversalStrength}/100\n`;
+      }
       message += `💡 Gestão de risco ainda mais importante\n`;
     }
     
@@ -161,7 +163,7 @@ class TelegramBotService {
         }
         
         // Destaca sinais contra-tendência aprovados
-        if (adj.reason.includes('Padrão de reversão muito forte')) {
+        if (adj.reason && adj.reason.includes('reversão')) {
           message += `   ⚠️ *SINAL CONTRA-TENDÊNCIA APROVADO*\n`;
           message += `   🔄 Padrões de reversão extremamente fortes detectados\n`;
         }

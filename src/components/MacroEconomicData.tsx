@@ -151,6 +151,7 @@ const MacroEconomicData: React.FC = () => {
   };
 
   const formatDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('pt-BR', {
       day: '2-digit',
       month: '2-digit'
@@ -226,7 +227,7 @@ const MacroEconomicData: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <p className="text-sm text-gray-600">Taxa Atual</p>
-              <p className="text-xl font-bold text-gray-900">{macroData.data.fed.currentRate.toFixed(2)}%</p>
+              <p className="text-xl font-bold text-gray-900">{(macroData.data.fed.currentRate || 0).toFixed(2)}%</p>
             </div>
             
             <div>
@@ -243,7 +244,7 @@ const MacroEconomicData: React.FC = () => {
             
             <div>
               <p className="text-sm text-gray-600">Prob. Corte</p>
-              <p className="text-lg font-semibold text-green-600">{macroData.data.fed.probabilityNextCut}%</p>
+              <p className="text-lg font-semibold text-green-600">{macroData.data.fed.probabilityNextCut || 0}%</p>
             </div>
           </div>
         </div>
@@ -262,12 +263,12 @@ const MacroEconomicData: React.FC = () => {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600">Atual</span>
-                <span className="text-lg font-bold text-gray-900">{macroData.data.inflation.cpi.current.toFixed(1)}%</span>
+                <span className="text-lg font-bold text-gray-900">{(macroData.data.inflation.cpi.current || 0).toFixed(1)}%</span>
               </div>
               
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600">Meta Fed</span>
-                <span className="text-lg font-semibold text-blue-600">{macroData.data.inflation.cpi.target}%</span>
+                <span className="text-lg font-semibold text-blue-600">{macroData.data.inflation.cpi.target || 2}%</span>
               </div>
               
               <div className="flex justify-between items-center">

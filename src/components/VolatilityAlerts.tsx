@@ -72,6 +72,7 @@ const VolatilityAlerts: React.FC = () => {
   };
 
   const formatPrice = (price: number) => {
+    if (!price || isNaN(price)) return '0.0000';
     if (price >= 1) return price.toFixed(4);
     if (price >= 0.01) return price.toFixed(6);
     return price.toFixed(8);
@@ -117,7 +118,7 @@ const VolatilityAlerts: React.FC = () => {
               <p className="text-sm text-gray-600">Maior Variação</p>
               <p className="text-2xl font-bold text-red-600">
                 {alerts.length > 0 ? 
-                  `${Math.max(...alerts.map(a => Math.abs(a.change))).toFixed(1)}%` : 
+                  `${Math.max(...alerts.map(a => Math.abs(a.change || 0))).toFixed(1)}%` : 
                   '0%'
                 }
               </p>
@@ -181,7 +182,7 @@ const VolatilityAlerts: React.FC = () => {
                       <div className="text-right">
                         <div className={`flex items-center space-x-1 ${getChangeColor(alert.change)} px-2 py-1 rounded-full border text-sm font-medium`}>
                           {getChangeIcon(alert.change)}
-                          <span>{alert.change > 0 ? '+' : ''}{alert.change.toFixed(2)}%</span>
+                          <span>{(alert.change || 0) > 0 ? '+' : ''}{(alert.change || 0).toFixed(2)}%</span>
                         </div>
                         <div className="mt-1">
                           <span className={`text-xs font-medium ${volatility.color}`}>
@@ -194,12 +195,12 @@ const VolatilityAlerts: React.FC = () => {
                         <div className="w-full bg-gray-200 rounded-full h-2">
                           <div 
                             className={`h-2 rounded-full ${
-                              Math.abs(alert.change) >= 10 ? 'bg-red-500' :
-                              Math.abs(alert.change) >= 7 ? 'bg-orange-500' :
-                              Math.abs(alert.change) >= 5 ? 'bg-yellow-500' :
+                              Math.abs(alert.change || 0) >= 10 ? 'bg-red-500' :
+                              Math.abs(alert.change || 0) >= 7 ? 'bg-orange-500' :
+                              Math.abs(alert.change || 0) >= 5 ? 'bg-yellow-500' :
                               'bg-green-500'
                             }`}
-                            style={{ width: `${Math.min(Math.abs(alert.change) * 10, 100)}%` }}
+                            style={{ width: `${Math.min(Math.abs(alert.change || 0) * 10, 100)}%` }}
                           />
                         </div>
                         <span className="text-xs text-gray-500 mt-1 block">

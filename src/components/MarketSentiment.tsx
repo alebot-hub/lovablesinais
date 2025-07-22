@@ -105,6 +105,7 @@ const MarketSentiment: React.FC = () => {
   };
 
   const formatVolume = (volume: number) => {
+    if (!volume || isNaN(volume)) return '0';
     if (volume >= 1e9) return `${(volume / 1e9).toFixed(2)}B`;
     if (volume >= 1e6) return `${(volume / 1e6).toFixed(2)}M`;
     if (volume >= 1e3) return `${(volume / 1e3).toFixed(2)}K`;
@@ -167,7 +168,7 @@ const MarketSentiment: React.FC = () => {
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-2xl font-bold text-gray-900">{sentiment.fearGreedIndex}</span>
+              <span className="text-2xl font-bold text-gray-900">{sentiment.fearGreedIndex || 50}</span>
               <div className={`px-2 py-1 rounded text-xs font-medium ${getFearGreedColor(sentiment.fearGreedIndex)}`}>
                 {sentiment.fearGreedLabel || getFearGreedLabel(sentiment.fearGreedIndex)}
               </div>
@@ -175,7 +176,7 @@ const MarketSentiment: React.FC = () => {
             <div className="w-full bg-gray-200 rounded-full h-2">
               <div 
                 className="h-2 rounded-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500"
-                style={{ width: `${sentiment.fearGreedIndex}%` }}
+                style={{ width: `${sentiment.fearGreedIndex || 50}%` }}
               />
             </div>
             {sentiment.isRealFearGreed && (
@@ -193,14 +194,14 @@ const MarketSentiment: React.FC = () => {
           </div>
           <div className="space-y-2">
             <p className="text-2xl font-bold text-gray-900">
-              ${formatVolume(sentiment.totalVolume)}
+              ${formatVolume(sentiment.totalVolume || 0)}
             </p>
             <div className="flex items-center space-x-2">
               <span className="text-sm text-gray-500">vs média:</span>
               <span className={`text-sm font-medium ${
-                sentiment.volumeVsAverage > 1 ? 'text-green-600' : 'text-red-600'
+                (sentiment.volumeVsAverage || 1) > 1 ? 'text-green-600' : 'text-red-600'
               }`}>
-                {sentiment.volumeVsAverage > 1 ? '+' : ''}{((sentiment.volumeVsAverage - 1) * 100).toFixed(1)}%
+                {(sentiment.volumeVsAverage || 1) > 1 ? '+' : ''}{(((sentiment.volumeVsAverage || 1) - 1) * 100).toFixed(1)}%
               </span>
             </div>
           </div>
@@ -223,7 +224,7 @@ const MarketSentiment: React.FC = () => {
             <div>
               <p className="text-sm text-gray-600">Market Cap Total</p>
               <p className="text-2xl font-bold text-gray-900">
-                ${sentiment.cryptoMarketCap.totalMarketCap.toFixed(2)}T
+                ${(sentiment.cryptoMarketCap.totalMarketCap || 0).toFixed(2)}T
               </p>
               <p className="text-xs text-gray-500">
                 {sentiment.cryptoMarketCap.isRealData ? 'CoinGecko API' : 'Estimativa'}
@@ -233,7 +234,7 @@ const MarketSentiment: React.FC = () => {
             <div>
               <p className="text-sm text-gray-600">Dominância BTC</p>
               <p className="text-2xl font-bold text-orange-600">
-                {sentiment.cryptoMarketCap.btcDominance.toFixed(1)}%
+                {(sentiment.cryptoMarketCap.btcDominance || 0).toFixed(1)}%
               </p>
               <p className="text-xs text-gray-500">
                 Atualizado em tempo real
@@ -243,9 +244,9 @@ const MarketSentiment: React.FC = () => {
             <div>
               <p className="text-sm text-gray-600">Variação 24h</p>
               <p className={`text-2xl font-bold ${
-                sentiment.cryptoMarketCap.change24h > 0 ? 'text-green-600' : 'text-red-600'
+                (sentiment.cryptoMarketCap.change24h || 0) > 0 ? 'text-green-600' : 'text-red-600'
               }`}>
-                {sentiment.cryptoMarketCap.change24h > 0 ? '+' : ''}{sentiment.cryptoMarketCap.change24h.toFixed(2)}%
+                {(sentiment.cryptoMarketCap.change24h || 0) > 0 ? '+' : ''}{(sentiment.cryptoMarketCap.change24h || 0).toFixed(2)}%
               </p>
               <p className="text-xs text-gray-500">
                 Market cap global
@@ -285,11 +286,11 @@ const MarketSentiment: React.FC = () => {
                         sentiment.altcoinSeason.isBitcoinSeason ? 'bg-orange-500' :
                         'bg-gray-500'
                       }`}
-                      style={{ width: `${sentiment.altcoinSeason.index}%` }}
+                      style={{ width: `${sentiment.altcoinSeason.index || 50}%` }}
                     />
                   </div>
                   <span className="text-sm font-medium text-gray-700">
-                    {sentiment.altcoinSeason.index}/100
+                    {sentiment.altcoinSeason.index || 50}/100
                   </span>
                 </div>
                 <p className={`text-sm mt-1 ${
@@ -310,7 +311,7 @@ const MarketSentiment: React.FC = () => {
           {!sentiment.altcoinSeason && sentiment.cryptoMarketCap.altcoinSeason && (
             <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-3">
               <p className="text-purple-800 font-medium">🚀 Possível Altcoin Season</p>
-              <p className="text-purple-600 text-sm">Dominância do Bitcoin: {sentiment.cryptoMarketCap.btcDominance.toFixed(1)}%</p>
+              <p className="text-purple-600 text-sm">Dominância do Bitcoin: {(sentiment.cryptoMarketCap.btcDominance || 0).toFixed(1)}%</p>
             </div>
           )}
         </div>
@@ -346,13 +347,13 @@ const MarketSentiment: React.FC = () => {
                 <div 
                   className="h-3 bg-green-500 rounded-l-full"
                   style={{ 
-                    width: `${(sentiment.assetsUp / (sentiment.assetsUp + sentiment.assetsDown)) * 100}%` 
+                    width: `${((sentiment.assetsUp || 0) / ((sentiment.assetsUp || 0) + (sentiment.assetsDown || 0) || 1)) * 100}%` 
                   }}
                 />
               </div>
               <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>{((sentiment.assetsUp / (sentiment.assetsUp + sentiment.assetsDown)) * 100).toFixed(1)}% Alta</span>
-                <span>{((sentiment.assetsDown / (sentiment.assetsUp + sentiment.assetsDown)) * 100).toFixed(1)}% Baixa</span>
+                <span>{(((sentiment.assetsUp || 0) / ((sentiment.assetsUp || 0) + (sentiment.assetsDown || 0) || 1)) * 100).toFixed(1)}% Alta</span>
+                <span>{(((sentiment.assetsDown || 0) / ((sentiment.assetsUp || 0) + (sentiment.assetsDown || 0) || 1)) * 100).toFixed(1)}% Baixa</span>
               </div>
             </div>
           </div>
@@ -365,15 +366,15 @@ const MarketSentiment: React.FC = () => {
           <div className="space-y-4">
             <div className="text-center">
               <div className="text-3xl font-bold text-gray-900 mb-2">
-                {sentiment.volatility.toFixed(2)}%
+                {(sentiment.volatility || 0).toFixed(2)}%
               </div>
               <div className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${
-                sentiment.volatility > 5 ? 'text-red-600 bg-red-50' :
-                sentiment.volatility > 3 ? 'text-yellow-600 bg-yellow-50' :
+                (sentiment.volatility || 0) > 5 ? 'text-red-600 bg-red-50' :
+                (sentiment.volatility || 0) > 3 ? 'text-yellow-600 bg-yellow-50' :
                 'text-green-600 bg-green-50'
               }`}>
-                {sentiment.volatility > 5 ? 'Alta' :
-                 sentiment.volatility > 3 ? 'Média' : 'Baixa'}
+                {(sentiment.volatility || 0) > 5 ? 'Alta' :
+                 (sentiment.volatility || 0) > 3 ? 'Média' : 'Baixa'}
               </div>
             </div>
             <div className="text-center text-sm text-gray-500">

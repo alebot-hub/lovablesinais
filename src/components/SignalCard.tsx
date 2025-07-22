@@ -37,8 +37,9 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
   };
 
   const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-600 bg-green-50';
-    if (score >= 70) return 'text-yellow-600 bg-yellow-50';
+    const safeScore = score || 0;
+    if (safeScore >= 80) return 'text-green-600 bg-green-50';
+    if (safeScore >= 70) return 'text-yellow-600 bg-yellow-50';
     return 'text-red-600 bg-red-50';
   };
 
@@ -72,7 +73,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
         </div>
 
         <div className={`px-3 py-1 rounded-full text-sm font-medium ${getScoreColor(signal.score)}`}>
-          {signal.score.toFixed(1)}%
+          {(signal.score || 0).toFixed(1)}%
         </div>
       </div>
 
@@ -83,7 +84,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
             <span className="text-sm text-gray-600">Entrada</span>
           </div>
           <p className="text-lg font-semibold text-gray-900">
-            ${signal.entry.toFixed(4)}
+            ${(signal.entry || 0).toFixed(4)}
           </p>
         </div>
 
@@ -105,13 +106,13 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
             <div className="w-20 bg-gray-200 rounded-full h-2">
               <div 
                 className={`h-2 rounded-full ${
-                  signal.score >= 80 ? 'bg-green-500' : 
-                  signal.score >= 70 ? 'bg-yellow-500' : 'bg-red-500'
+                  (signal.score || 0) >= 80 ? 'bg-green-500' : 
+                  (signal.score || 0) >= 70 ? 'bg-yellow-500' : 'bg-red-500'
                 }`}
-                style={{ width: `${signal.score}%` }}
+                style={{ width: `${signal.score || 0}%` }}
               />
             </div>
-            <span className="font-medium text-gray-900">{signal.score.toFixed(0)}%</span>
+            <span className="font-medium text-gray-900">{(signal.score || 0).toFixed(0)}%</span>
           </div>
         </div>
       </div>

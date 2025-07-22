@@ -181,17 +181,17 @@ const BacktestResults: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`text-sm font-medium ${getPerformanceColor(result.winRate, 'winRate')}`}>
-                        {result.winRate.toFixed(1)}%
+                        {(result.winRate || 0).toFixed(1)}%
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`text-sm font-medium ${getPerformanceColor(result.profitFactor, 'profitFactor')}`}>
-                        {result.profitFactor.toFixed(2)}
+                        {(result.profitFactor || 0).toFixed(2)}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`text-sm font-medium ${getPerformanceColor(result.totalProfit, 'profit')}`}>
-                        {result.totalProfit > 0 ? '+' : ''}{result.totalProfit.toFixed(2)}%
+                        {(result.totalProfit || 0) > 0 ? '+' : ''}{(result.totalProfit || 0).toFixed(2)}%
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -199,15 +199,15 @@ const BacktestResults: React.FC = () => {
                         <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
                           <div 
                             className={`h-2 rounded-full ${
-                              result.winRate >= 70 ? 'bg-green-500' :
-                              result.winRate >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                              (result.winRate || 0) >= 70 ? 'bg-green-500' :
+                              (result.winRate || 0) >= 50 ? 'bg-yellow-500' : 'bg-red-500'
                             }`}
-                            style={{ width: `${Math.min(result.winRate, 100)}%` }}
+                            style={{ width: `${Math.min(result.winRate || 0, 100)}%` }}
                           />
                         </div>
                         <span className="text-xs text-gray-500">
-                          {result.winRate >= 70 ? 'Excelente' :
-                           result.winRate >= 50 ? 'Bom' : 'Ruim'}
+                          {(result.winRate || 0) >= 70 ? 'Excelente' :
+                           (result.winRate || 0) >= 50 ? 'Bom' : 'Ruim'}
                         </span>
                       </div>
                     </td>

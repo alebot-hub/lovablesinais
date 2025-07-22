@@ -221,9 +221,14 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Regime de Mercado</p>
-                <p className="text-2xl font-bold text-purple-600">
-                  {botStatus?.adaptiveStats?.marketRegime || 'NORMAL'}
-                </p>
+                <div className="flex items-center space-x-2">
+                  <p className="text-2xl font-bold text-purple-600">
+                    {botStatus?.adaptiveStats?.marketRegime || 'NORMAL'}
+                  </p>
+                  {botStatus?.adaptiveStats?.marketRegime === 'VOLATILE' && (
+                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
+                  )}
+                </div>
               </div>
               <Activity className="w-8 h-8 text-purple-600" />
             </div>
@@ -244,7 +249,7 @@ const Dashboard: React.FC = () => {
                 </div>
                 {botStatus?.machineLearning?.stats && (
                   <p className="text-xs text-gray-500 mt-1">
-                    {botStatus.machineLearning.stats.successfulModels}/{botStatus.machineLearning.stats.totalModels} modelos
+                    {(botStatus.machineLearning.stats.successfulModels || 0)}/{(botStatus.machineLearning.stats.totalModels || 0)} modelos
                   </p>
                 )}
               </div>
