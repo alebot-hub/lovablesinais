@@ -26,11 +26,24 @@ const BacktestResults: React.FC = () => {
   const fetchBacktestResults = async () => {
     try {
       setLoading(true);
+      console.log('📊 Buscando resultados de backtesting...');
       const response = await fetch('/api/backtest/results');
+      console.log('📊 Backtest response:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
+      console.log('✅ Backtest obtido:', data);
       setBacktestData(data);
     } catch (error) {
       console.error('Erro ao buscar resultados de backtesting:', error);
+      // Define dados de fallback
+      setBacktestData({
+        report: 'Dados de backtesting temporariamente indisponíveis',
+        bestPerformers: []
+      });
     } finally {
       setLoading(false);
     }

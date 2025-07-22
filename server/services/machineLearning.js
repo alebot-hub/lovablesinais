@@ -37,6 +37,13 @@ class MachineLearningService {
     this.models = new Map();
     this.loggedMissingModels = new Set();
     this.isInitialized = false;
+    this.trainingInProgress = false;
+    this.lastTrainingTime = null;
+    this.trainingStats = {
+      totalModels: 0,
+      successfulModels: 0,
+      failedModels: 0
+    };
     
     // Inicializa TensorFlow de forma assíncrona
     this.initPromise = this.initialize();
@@ -44,15 +51,20 @@ class MachineLearningService {
 
   async initialize() {
     try {
+      console.log('🤖 Inicializando sistema de Machine Learning...');
       this.isInitialized = await initializeTensorFlow();
       if (this.isInitialized) {
-        console.log('🤖 MachineLearningService inicializado com TensorFlow.js');
+        console.log('✅ MachineLearningService inicializado com TensorFlow.js');
+        console.log('🧠 Sistema ML pronto para treinamento e previsões');
       } else {
-        console.log('🤖 MachineLearningService inicializado SEM TensorFlow.js (apenas análise técnica)');
+        console.log('⚠️ MachineLearningService inicializado SEM TensorFlow.js');
+        console.log('📊 Funcionando apenas com análise técnica tradicional');
       }
+      return this.isInitialized;
     } catch (error) {
-      console.error('Erro na inicialização do ML:', error.message);
+      console.error('❌ Erro na inicialização do ML:', error.message);
       this.isInitialized = false;
+      return false;
     }
   }
 
@@ -64,17 +76,21 @@ class MachineLearningService {
       await this.initPromise;
       
       if (!this.isInitialized || !isTensorFlowAvailable) {
-        console.log(`ML não disponível - pulando treinamento para ${symbol}`);
+        console.log(`⚠️ ML não disponível - pulando treinamento para ${symbol}`);
         return null;
       }
 
-      console.log(`Treinando modelo para ${symbol}...`);
+      console.log(`🧠 Iniciando treinamento ML para ${symbol}...`);
+      this.trainingInProgress = true;
+      this.trainingStats.totalModels++;
 
       // Prepara features e labels
       const { features, labels } = this.prepareTrainingData(historicalData);
 
       if (features.length < 50) {
-        console.warn(`Dados insuficientes para treinar modelo de ${symbol}`);
+        console.warn(`⚠️ Dados insuficientes para treinar modelo de ${symbol} (${features.length} < 50)`);
+        this.trainingStats.failedModels++;
+        this.trainingInProgress = false;
         return null;
       }
 
@@ -85,6 +101,8 @@ class MachineLearningService {
       const xs = tf.tensor2d(features);
       const ys = tf.tensor2d(labels, [labels.length, 1]);
 
+      console.log(`📊 Treinando com ${features.length} amostras para ${symbol}...`);
+      
       // Treina modelo
       await model.fit(xs, ys, {
         epochs: 50,
@@ -93,8 +111,8 @@ class MachineLearningService {
         verbose: 0,
         callbacks: {
           onEpochEnd: (epoch, logs) => {
-            if (epoch % 10 === 0) {
-              console.log(`${symbol} - Época ${epoch}: loss = ${logs.loss.toFixed(4)}`);
+            if (epoch % 25 === 0) {
+              console.log(`🧠 ${symbol} - Época ${epoch}/50: loss = ${logs.loss.toFixed(4)}, acc = ${logs.acc?.toFixed(4) || 'N/A'}`);
             }
           }
         }
@@ -106,11 +124,18 @@ class MachineLearningService {
 
       // Armazena modelo
       this.models.set(symbol, model);
-      console.log(`Modelo para ${symbol} treinado com sucesso`);
+      this.trainingStats.successfulModels++;
+      this.lastTrainingTime = new Date();
+      this.trainingInProgress = false;
+      
+      console.log(`✅ Modelo ML para ${symbol} treinado com sucesso!`);
+      console.log(`📈 Stats ML: ${this.trainingStats.successfulModels}/${this.trainingStats.totalModels} modelos treinados`);
 
       return model;
     } catch (error) {
-      console.error(`Erro ao treinar modelo para ${symbol}:`, error.message);
+      console.error(`❌ Erro ao treinar modelo ML para ${symbol}:`, error.message);
+      this.trainingStats.failedModels++;
+      this.trainingInProgress = false;
       return null;
     }
   }
@@ -124,12 +149,20 @@ class MachineLearningService {
       
       if (!this.isInitialized || !isTensorFlowAvailable) {
         // ML não disponível - retorna probabilidade neutra
+        if (!this.loggedMissingModels.has(symbol)) {
+          console.log(`⚠️ ML não disponível para ${symbol} - usando análise técnica apenas`);
+          this.loggedMissingModels.add(symbol);
+        }
         return 0.5;
       }
 
       const model = this.models.get(symbol);
       if (!model) {
         // Modelo não encontrado - usa probabilidade neutra
+        if (!this.loggedMissingModels.has(symbol)) {
+          console.log(`🤖 Modelo ML não encontrado para ${symbol} - será treinado na próxima oportunidade`);
+          this.loggedMissingModels.add(symbol);
+        }
         return 0.5;
       }
 
@@ -142,9 +175,10 @@ class MachineLearningService {
       
       prediction.dispose();
 
+      console.log(`🧠 Previsão ML para ${symbol}: ${(probability[0] * 100).toFixed(1)}%`);
       return probability[0];
     } catch (error) {
-      console.error(`Erro na previsão para ${symbol}:`, error.message);
+      console.error(`❌ Erro na previsão ML para ${symbol}:`, error.message);
       return 0.5;
     }
   }
@@ -390,6 +424,47 @@ class MachineLearningService {
    */
   isMLAvailable() {
     return this.isInitialized && isTensorFlowAvailable;
+  }
+
+  /**
+   * Verifica se está treinando
+   */
+  isTraining() {
+    return this.trainingInProgress;
+  }
+
+  /**
+   * Obtém estatísticas de treinamento
+   */
+  getTrainingStats() {
+    return {
+      ...this.trainingStats,
+      isTraining: this.trainingInProgress,
+      lastTrainingTime: this.lastTrainingTime,
+      totalModelsLoaded: this.models.size,
+      isInitialized: this.isInitialized,
+      tensorflowAvailable: isTensorFlowAvailable
+    };
+  }
+
+  /**
+   * Força treinamento de um modelo
+   */
+  async forceTrainModel(symbol, binanceService) {
+    try {
+      console.log(`🚀 Forçando treinamento ML para ${symbol}...`);
+      const data = await binanceService.getOHLCVData(symbol, '1h', 500);
+      
+      if (data && data.close && data.close.length >= 100) {
+        return await this.trainModel(symbol, data);
+      } else {
+        console.log(`❌ Dados insuficientes para treinar ${symbol}`);
+        return null;
+      }
+    } catch (error) {
+      console.error(`❌ Erro ao forçar treinamento de ${symbol}:`, error.message);
+      return null;
+    }
   }
 }
 

@@ -72,11 +72,34 @@ const MacroEconomicData: React.FC = () => {
 
   const fetchMacroData = async () => {
     try {
+      console.log('🏛️ Buscando dados macroeconômicos...');
       const response = await fetch('/api/macro/data');
+      console.log('📊 Macro data response:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
+      console.log('✅ Dados macro obtidos:', data);
       setMacroData(data);
     } catch (error) {
       console.error('Erro ao buscar dados macro:', error);
+      // Define dados de fallback
+      setMacroData({
+        data: {},
+        analysis: {
+          overall: 'NEUTRO',
+          keyFactors: ['Dados temporariamente indisponíveis'],
+          riskLevel: 'MÉDIO'
+        },
+        cryptoImpact: {
+          shortTerm: 'NEUTRO',
+          mediumTerm: 'NEUTRO', 
+          longTerm: 'NEUTRO',
+          recommendations: ['Aguardando dados atualizados']
+        }
+      });
     } finally {
       setLoading(false);
     }
@@ -248,14 +271,14 @@ const MacroEconomicData: React.FC = () => {
               
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600">Tendência</span>
-                <div className="flex items-center space-x-2">
-                  {macroData.data.inflation.cpi.trend === 'SUBINDO' ? (
+                <div className="flex items-center space-x-1">
+                  {macroData.data.inflation.cpi.trend === 'RISING' ? (
                     <TrendingUp className="w-4 h-4 text-red-600" />
                   ) : (
                     <TrendingDown className="w-4 h-4 text-green-600" />
                   )}
                   <span className={`text-sm font-medium ${
-                    macroData.data.inflation.cpi.trend === 'SUBINDO' ? 'text-red-600' : 'text-green-600'
+                    macroData.data.inflation.cpi.trend === 'RISING' ? 'text-red-600' : 'text-green-600'
                   }`}>
                     {macroData.data.inflation.cpi.trend}
                   </span>
@@ -304,8 +327,8 @@ const MacroEconomicData: React.FC = () => {
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-600">Curva</span>
                     <div className={`px-2 py-1 rounded text-xs font-medium ${
-                      macroData.data.bonds.curveStatus === 'INVERTIDA' ? 'text-red-600 bg-red-50' :
-                      macroData.data.bonds.curveStatus === 'PLANA' ? 'text-yellow-600 bg-yellow-50' :
+                      macroData.data.bonds.curveStatus === 'INVERTED' ? 'text-red-600 bg-red-50' :
+                      macroData.data.bonds.curveStatus === 'FLAT' ? 'text-yellow-600 bg-yellow-50' :
                       'text-green-600 bg-green-50'
                     }`}>
                       {macroData.data.bonds.curveStatus}

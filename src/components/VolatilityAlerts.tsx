@@ -22,11 +22,21 @@ const VolatilityAlerts: React.FC = () => {
   const fetchAlerts = async () => {
     try {
       setLoading(true);
+      console.log('🔥 Buscando alertas de volatilidade...');
       const response = await fetch('/api/volatility/alerts');
+      console.log('📊 Volatility alerts response:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
+      console.log('✅ Alertas obtidos:', data);
       setAlerts(data);
     } catch (error) {
       console.error('Erro ao buscar alertas de volatilidade:', error);
+      // Define array vazio como fallback
+      setAlerts([]);
     } finally {
       setLoading(false);
     }

@@ -54,22 +54,43 @@ const Dashboard: React.FC = () => {
 
   const fetchData = async () => {
     try {
+      console.log('🔄 Buscando dados do dashboard...');
       const [statusRes, signalsRes] = await Promise.all([
         fetch('/api/status'),
         fetch('/api/signals/latest')
       ]);
 
+      console.log('📊 Status response:', statusRes.status);
+      console.log('🎯 Signals response:', signalsRes.status);
+
       if (statusRes.ok) {
         const status = await statusRes.json();
+        console.log('✅ Status obtido:', status);
         setBotStatus(status);
+      } else {
+        console.error('❌ Erro no status:', statusRes.status, statusRes.statusText);
       }
 
       if (signalsRes.ok) {
         const signalsData = await signalsRes.json();
+        console.log('✅ Sinais obtidos:', signalsData);
         setSignals(Array.isArray(signalsData) ? signalsData : []);
+      } else {
+        console.error('❌ Erro nos sinais:', signalsRes.status, signalsRes.statusText);
       }
     } catch (error) {
       console.error('Erro ao buscar dados:', error);
+      // Em caso de erro, define dados padrão para não travar a interface
+      setBotStatus({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        activeMonitors: 0,
+        isTraining: false,
+        activeSymbols: [],
+        environment: 'production',
+        uptime: 0
+      });
+      setSignals([]);
     } finally {
       setLoading(false);
     }
@@ -155,7 +176,7 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
               
-              {botStatus?.isTraining && (
+              {botStatus?.machineLearning?.training && (
                 <div className="flex items-center space-x-2 bg-blue-50 px-3 py-1 rounded-full">
                   <Zap className="w-4 h-4 text-blue-600 animate-pulse" />
                   <span className="text-sm text-blue-700 font-medium">Treinando ML</span>
@@ -214,9 +235,20 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Sistema ML</p>
-                <p className="text-2xl font-bold text-orange-600">
-                  {botStatus?.isTraining ? 'Treinando' : 'Ativo'}
-                </p>
+                <div className="flex items-center space-x-2">
+                  <p className="text-2xl font-bold text-orange-600">
+                    {botStatus?.machineLearning?.training ? 'Treinando' : 
+                     botStatus?.machineLearning?.available ? 'Ativo' : 'Indisponível'}
+                  </p>
+                  {botStatus?.machineLearning?.training && (
+                    <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
+                  )}
+                </div>
+                {botStatus?.machineLearning?.stats && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {botStatus.machineLearning.stats.successfulModels}/{botStatus.machineLearning.stats.totalModels} modelos
+                  </p>
+                )}
               </div>
               <Bot className="w-8 h-8 text-orange-600" />
             </div>

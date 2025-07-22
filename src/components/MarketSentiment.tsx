@@ -29,11 +29,31 @@ const MarketSentiment: React.FC = () => {
 
   const fetchSentiment = async () => {
     try {
+      console.log('🌍 Buscando sentimento do mercado...');
       const response = await fetch('/api/market/sentiment');
+      console.log('📊 Market sentiment response:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
+      console.log('✅ Sentimento obtido:', data);
       setSentiment(data);
     } catch (error) {
       console.error('Erro ao buscar sentimento:', error);
+      // Define dados de fallback para não travar a interface
+      setSentiment({
+        overall: 'NEUTRO',
+        fearGreedIndex: 50,
+        fearGreedLabel: 'Neutro',
+        totalVolume: 0,
+        volatility: 0,
+        assetsUp: 0,
+        assetsDown: 0,
+        volumeVsAverage: 1,
+        analysis: ['Dados temporariamente indisponíveis']
+      });
     } finally {
       setLoading(false);
     }

@@ -289,6 +289,9 @@ class TradingBotApp {
   async setupRoutes() {
     // Status do bot
     this.app.get('/api/status', (req, res) => {
+      console.log('📊 API Status chamada');
+      const mlStats = this.machineLearning.getTrainingStats();
+      
       res.json({
         status: this.isRunning ? 'running' : 'stopped',
         timestamp: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
@@ -296,8 +299,13 @@ class TradingBotApp {
         analysisCount: this.analysisCount,
         signalsGenerated: this.signalsGenerated,
         activeMonitors: this.telegramBot.getActiveSymbols().length,
-        isTraining: this.machineLearning.isMLAvailable(),
+        isTraining: this.machineLearning.isTraining(),
         activeSymbols: this.telegramBot.getActiveSymbols(),
+        machineLearning: {
+          available: this.machineLearning.isMLAvailable(),
+          training: this.machineLearning.isTraining(),
+          stats: mlStats
+        },
         adaptiveStats: {
           marketRegime: this.adaptiveScoring.marketRegime,
           blacklistedSymbols: this.adaptiveScoring.getBlacklistedSymbols().length,
@@ -310,14 +318,17 @@ class TradingBotApp {
 
     // Últimos sinais
     this.app.get('/api/signals/latest', (req, res) => {
+      console.log('🎯 API Signals chamada');
       const performanceData = this.performanceTracker.generatePerformanceReport();
       res.json(performanceData.recentSignals || []);
     });
 
     // Sentimento do mercado
     this.app.get('/api/market/sentiment', async (req, res) => {
+      console.log('🌍 API Market Sentiment chamada');
       try {
         const sentiment = await this.marketAnalysis.analyzeMarketSentiment();
+        console.log('✅ Sentimento obtido:', sentiment ? 'OK' : 'NULL');
         res.json(sentiment);
       } catch (error) {
         console.error('Erro ao obter sentimento:', error.message);
@@ -327,8 +338,10 @@ class TradingBotApp {
 
     // Dados macroeconômicos
     this.app.get('/api/macro/data', async (req, res) => {
+      console.log('🏛️ API Macro Data chamada');
       try {
         const macroData = await this.macroEconomic.getMacroEconomicData();
+        console.log('✅ Dados macro obtidos:', macroData ? 'OK' : 'NULL');
         res.json(macroData);
       } catch (error) {
         console.error('Erro ao obter dados macro:', error.message);
@@ -370,8 +383,10 @@ class TradingBotApp {
 
     // Alertas de volatilidade
     this.app.get('/api/volatility/alerts', async (req, res) => {
+      console.log('🔥 API Volatility chamada');
       try {
         const alerts = await this.marketAnalysis.detectHighVolatility();
+        console.log('✅ Alertas obtidos:', alerts ? alerts.length : 0);
         res.json(alerts);
       } catch (error) {
         console.error('Erro ao obter alertas:', error.message);
@@ -434,22 +449,63 @@ class TradingBotApp {
       }
     });
 
+    // Nova rota para forçar treinamento ML
+    this.app.post('/api/ml/train/:symbol', async (req, res) => {
+      try {
+        const { symbol } = req.params;
+        console.log(`🚀 Solicitação de treinamento ML para ${symbol}`);
+        
+        const model = await this.machineLearning.forceTrainModel(symbol, this.binanceService);
+        
+        if (model) {
+          res.json({ 
+            success: true, 
+            message: `Modelo ML treinado com sucesso para ${symbol}`,
+            stats: this.machineLearning.getTrainingStats()
+          });
+        } else {
+          res.status(400).json({ 
+            error: `Falha ao treinar modelo para ${symbol}` 
+          });
+        }
+      } catch (error) {
+        console.error('Erro ao treinar modelo:', error.message);
+        res.status(500).json({ 
+          error: `Erro no treinamento: ${error.message}` 
+        });
+      }
+    });
+
+    // Rota para estatísticas ML
+    this.app.get('/api/ml/stats', (req, res) => {
+      const stats = this.machineLearning.getTrainingStats();
+      res.json(stats);
+    });
     // Rota catch-all para SPA
-    // Fallback para SPA - serve index.html para rotas não encontradas (apenas se dist existir)
     const pathModule = await import('path');
     const fsModule = await import('fs');
     const distPath = pathModule.join(process.cwd(), 'dist');
     const indexPath = pathModule.join(distPath, 'index.html');
     
     if (fsModule.existsSync(indexPath)) {
+      console.log('✅ Servindo SPA do diretório dist');
       this.app.use((req, res, next) => {
-        if (!req.path.startsWith('/api')) {
+        // Serve index.html para todas as rotas que não são API
+        if (!req.path.startsWith('/api') && !req.path.includes('.')) {
           res.sendFile(indexPath);
         } else {
           next();
         }
       });
+    } else {
+      console.log('⚠️ Diretório dist não encontrado - usando fallback HTML');
     }
+
+    // Middleware de erro para APIs
+    this.app.use('/api/*', (req, res) => {
+      console.log(`❌ API não encontrada: ${req.path}`);
+      res.status(404).json({ error: 'API endpoint não encontrado' });
+    });
   }
 
   /**
@@ -606,6 +662,13 @@ class TradingBotApp {
       // Detecção de padrões
       const patterns = this.patternDetection.detectPatterns(data);
 
+      // Treina modelo ML se necessário (apenas para símbolos principais)
+      const mainSymbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'ADA/USDT'];
+      if (mainSymbols.includes(symbol) && timeframe === '1h' && !this.machineLearning.models.has(symbol)) {
+        console.log(`🧠 Treinando modelo ML para ${symbol}...`);
+        await this.machineLearning.trainModel(symbol, data);
+      }
+
       // Previsão ML
       const mlProbability = await this.machineLearning.predict(symbol, data, indicators);
 
@@ -625,6 +688,9 @@ class TradingBotApp {
       }
 
       console.log(`📊 ${symbol} ${timeframe}: Score ${scoring.totalScore.toFixed(1)}% - ${scoring.isValid ? 'VÁLIDO' : 'INVÁLIDO'}`);
+      if (scoring.isMLDriven) {
+        console.log(`🤖 ${symbol}: Sinal baseado em ML (${scoring.mlContribution?.toFixed(1)}% contribuição)`);
+      }
 
       if (!scoring.isValid) {
         console.log(`❌ ${symbol} ${timeframe}: Score ${scoring.totalScore.toFixed(1)}% abaixo do mínimo`);
