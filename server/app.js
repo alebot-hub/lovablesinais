@@ -67,17 +67,22 @@ class TradingBotApp {
     this.signalsGenerated = 0;
     
     // Configuração do Express
-    this.setupExpress();
-    this.setupRoutes();
-    this.setupScheduledTasks();
   }
 
   /**
    * Configura Express
    */
-  setupExpress() {
+  async setupExpress() {
     this.app.use(cors());
     this.app.use(express.json());
+    
+    // Configurações de segurança
+    this.app.use((req, res, next) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('X-XSS-Protection', '1; mode=block');
+      next();
+    });
     
     // Serve arquivos estáticos apenas se existir a pasta dist
     const path = await import('path');
@@ -824,6 +829,11 @@ class TradingBotApp {
       } else {
         console.log('✅ Telegram configurado e ativo');
       }
+
+      // Configura Express (async)
+      await this.setupExpress();
+      this.setupRoutes();
+      this.setupScheduledTasks();
 
       // Inicia servidor
       this.app.listen(this.port, () => {

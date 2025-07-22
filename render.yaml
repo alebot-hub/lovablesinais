@@ -2,6 +2,7 @@ services:
   - type: web
     name: crypto-trading-bot
     env: node
+    runtime: node
     plan: starter # Começar com starter para testar
     buildCommand: npm ci --only=production && npm run build
     startCommand: npm start

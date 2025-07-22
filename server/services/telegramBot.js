@@ -534,7 +534,6 @@ class TelegramBotService {
         return;
       }
       
-      const symbolName = symbol.split('/')[0];
       const targetEmoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '🌕'][targetNumber - 1] || '🎯';
       
       // Calcula lucro correto: da entrada até o alvo atual, multiplicado por 15x
@@ -547,6 +546,7 @@ class TelegramBotService {
       const timeElapsed = this.calculateTimeElapsed(signalTime);
       
       // Função para formatar preços
+      const symbolName = symbol.split('/')[0];
       const formatPrice = (price) => {
         if (['BTC', 'ETH', 'SOL', 'LTC'].includes(symbolName)) {
           return price.toFixed(2);
@@ -608,8 +608,6 @@ class TelegramBotService {
         return;
       }
       
-      const symbolName = symbol.split('/')[0];
-      
       // Calcula perda correta: da entrada até o preço atual, multiplicado por 15x
       const monitor = this.activeMonitors.get(symbol);
       const entryPrice = monitor ? monitor.entry : stopLossLevel; // Fallback se monitor não existir
@@ -620,6 +618,7 @@ class TelegramBotService {
       const timeElapsed = this.calculateTimeElapsed(signalTime);
       
       // Função para formatar preços
+      const symbolName = symbol.split('/')[0];
       const formatPrice = (price) => {
         if (['BTC', 'ETH', 'SOL', 'LTC'].includes(symbolName)) {
           return price.toFixed(2);
@@ -658,8 +657,6 @@ class TelegramBotService {
         return;
       }
       
-      const symbolName = symbol.split('/')[0];
-      
       // Calcula lucro correto: da entrada até o preço atual, multiplicado por 15x
       const monitor = this.activeMonitors.get(symbol);
       const entryPrice = monitor ? monitor.entry : stopLevel; // Fallback se monitor não existir
@@ -670,6 +667,7 @@ class TelegramBotService {
       const timeElapsed = this.calculateTimeElapsed(signalTime);
       
       // Função para formatar preços
+      const symbolName = symbol.split('/')[0];
       const formatPrice = (price) => {
         if (['BTC', 'ETH', 'SOL', 'LTC'].includes(symbolName)) {
           return price.toFixed(2);
