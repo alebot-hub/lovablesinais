@@ -2,9 +2,9 @@ services:
   - type: web
     name: crypto-trading-bot
     env: node
-    plan: standard # Recomendado para bot 24/7
-    buildCommand: npm ci && npm run build
-    startCommand: npm run dev:server
+    plan: starter # Começar com starter para testar
+    buildCommand: npm ci --only=production && npm run build
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
@@ -17,7 +17,17 @@ services:
         sync: false # Será configurado manualmente no painel
     healthCheckPath: /api/status
     autoDeploy: true
-    region: oregon # Ou singapore se preferir
-    scaling:
-      minInstances: 1
-      maxInstances: 1
+    region: oregon
+    buildFilter:
+      paths:
+      - server/**
+      - src/**
+      - package.json
+      - package-lock.json
+      - vite.config.ts
+      - tsconfig.json
+      - tailwind.config.js
+      - postcss.config.js
+      ignoredPaths:
+      - README.md
+      - .env.example

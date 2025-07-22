@@ -78,7 +78,18 @@ class TradingBotApp {
   setupExpress() {
     this.app.use(cors());
     this.app.use(express.json());
-    this.app.use(express.static('dist'));
+    
+    // Serve arquivos estáticos apenas se existir a pasta dist
+    const path = await import('path');
+    const fs = await import('fs');
+    const distPath = path.join(process.cwd(), 'dist');
+    
+    if (fs.existsSync(distPath)) {
+      this.app.use(express.static('dist'));
+      console.log('✅ Servindo arquivos estáticos da pasta dist');
+    } else {
+      console.log('⚠️ Pasta dist não encontrada - apenas API ativa');
+    }
   }
 
   /**

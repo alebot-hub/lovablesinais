@@ -7,8 +7,9 @@
     "dev": "vite",
     "dev:server": "node --max-old-space-size=2048 server/app.js",
     "dev:full": "concurrently --kill-others-on-fail \"npm run dev\" \"npm run dev:server\"",
-    "start": "node --max-old-space-size=2048 server/app.js",
+    "start": "node server/app.js",
     "build": "vite build",
+    "postbuild": "echo 'Build completed successfully'",
     "lint": "eslint .",
     "preview": "vite preview"
   },
