@@ -80,7 +80,7 @@ class MarketAnalysisService {
         
         return {
           value: parseInt(fngData.value),
-          classification: fngData.value_classification,
+          classification: this.translateFearGreedLabel(fngData.value_classification),
           timestamp: fngData.timestamp
         };
       }
@@ -93,12 +93,26 @@ class MarketAnalysisService {
       // Fallback para valor simulado
       return {
         value: 50,
-        classification: 'Neutral',
+        classification: 'Neutro',
         timestamp: Date.now(),
         isSimulated: true
       };
     }
   }
+  /**
+   * Traduz labels do Fear & Greed Index
+   */
+  translateFearGreedLabel(label) {
+    const translations = {
+      'Extreme Fear': 'Medo Extremo',
+      'Fear': 'Medo',
+      'Neutral': 'Neutro',
+      'Greed': 'Ganância',
+      'Extreme Greed': 'Ganância Extrema'
+    };
+    return translations[label] || label;
+  }
+
   /**
    * Obtém visão geral do mercado
    */
@@ -203,7 +217,7 @@ class MarketAnalysisService {
 
     // Usa Fear & Greed Index real ou simulado
     let fearGreedIndex = 50;
-    let fearGreedLabel = 'Neutral';
+    let fearGreedLabel = 'Neutro';
     let isRealData = false;
     
     if (realFearGreed && !realFearGreed.isSimulated) {
@@ -225,11 +239,11 @@ class MarketAnalysisService {
     }
 
     // Sentimento geral
-    let overall = 'NEUTRAL';
+    let overall = 'NEUTRO';
     if (bullishRatio > 0.6 && fearGreedIndex > 60) {
-      overall = 'BULLISH';
+      overall = 'OTIMISTA';
     } else if (bullishRatio < 0.4 && fearGreedIndex < 40) {
-      overall = 'BEARISH';
+      overall = 'PESSIMISTA';
     }
 
     // Análise textual
@@ -249,11 +263,11 @@ class MarketAnalysisService {
    * Obtém label do Fear & Greed Index
    */
   getFearGreedLabel(index) {
-    if (index >= 75) return 'Extreme Greed';
-    if (index >= 55) return 'Greed';
-    if (index >= 45) return 'Neutral';
-    if (index >= 25) return 'Fear';
-    return 'Extreme Fear';
+    if (index >= 75) return 'Ganância Extrema';
+    if (index >= 55) return 'Ganância';
+    if (index >= 45) return 'Neutro';
+    if (index >= 25) return 'Medo';
+    return 'Medo Extremo';
   }
   /**
    * Gera análise textual do sentimento

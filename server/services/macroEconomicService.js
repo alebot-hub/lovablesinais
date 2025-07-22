@@ -82,10 +82,10 @@ class MacroEconomicService {
         previousRate: fedFundsRate - 0.25,
         nextMeetingDate: nextMeeting,
         lastMeetingDate: lastMeeting,
-        stance: stance,
+        stance: this.translateFedStance(stance),
         probabilityNextHike: stance === 'HAWKISH' ? 75 : stance === 'NEUTRAL' ? 25 : 5,
         probabilityNextCut: stance === 'DOVISH' ? 70 : stance === 'NEUTRAL' ? 30 : 10,
-        qeStatus: 'TAPERING', // EXPANDING, TAPERING, NEUTRAL
+        qeStatus: 'REDUZINDO', // EXPANDINDO, REDUZINDO, NEUTRO
         balanceSheet: 8.2, // Trilhões USD
         confidence: 85
       };
@@ -93,6 +93,18 @@ class MacroEconomicService {
       console.error('❌ Erro nos dados do Fed:', error.message);
       return null;
     }
+  }
+
+  /**
+   * Traduz postura do Fed
+   */
+  translateFedStance(stance) {
+    const translations = {
+      'HAWKISH': 'RESTRITIVA',
+      'DOVISH': 'EXPANSIVA', 
+      'NEUTRAL': 'NEUTRA'
+    };
+    return translations[stance] || stance;
   }
 
   /**
@@ -112,7 +124,7 @@ class MacroEconomicService {
           current: cpiCurrent,
           previous: cpiPrevious,
           target: cpiTarget,
-          trend: cpiCurrent > cpiPrevious ? 'RISING' : 'FALLING'
+          trend: cpiCurrent > cpiPrevious ? 'SUBINDO' : 'CAINDO'
         },
         pce: {
           current: cpiCurrent - 0.3,
@@ -142,7 +154,7 @@ class MacroEconomicService {
       return {
         value: dxyValue,
         change24h: dxyChange,
-        trend: dxyChange > 0 ? 'STRENGTHENING' : 'WEAKENING',
+        trend: dxyChange > 0 ? 'FORTALECENDO' : 'ENFRAQUECENDO',
         resistance: 106.0,
         support: 101.0,
         confidence: 80
@@ -169,7 +181,7 @@ class MacroEconomicService {
         treasury10y: yield10y,
         treasury2y: yield2y,
         yieldCurve: yieldCurve,
-        curveStatus: yieldCurve < 0 ? 'INVERTED' : yieldCurve < 0.5 ? 'FLAT' : 'NORMAL',
+        curveStatus: yieldCurve < 0 ? 'INVERTIDA' : yieldCurve < 0.5 ? 'PLANA' : 'NORMAL',
         recessionSignal: yieldCurve < -0.5,
         confidence: 85
       };
@@ -194,15 +206,15 @@ class MacroEconomicService {
       return {
         sp500: {
           change: sp500Change,
-          trend: sp500Change > 0 ? 'BULLISH' : 'BEARISH'
+          trend: sp500Change > 0 ? 'ALTA' : 'BAIXA'
         },
         nasdaq: {
           change: nasdaqChange,
-          trend: nasdaqChange > 0 ? 'BULLISH' : 'BEARISH'
+          trend: nasdaqChange > 0 ? 'ALTA' : 'BAIXA'
         },
         vix: {
           value: vixValue,
-          level: vixValue < 20 ? 'LOW' : vixValue < 30 ? 'MODERATE' : 'HIGH'
+          level: vixValue < 20 ? 'BAIXO' : vixValue < 30 ? 'MODERADO' : 'ALTO'
         },
         correlation: this.calculateStockCryptoCorrelation(),
         confidence: 75
@@ -227,12 +239,12 @@ class MacroEconomicService {
       return {
         gold: {
           change: goldChange,
-          trend: goldChange > 0 ? 'RISING' : 'FALLING',
+          trend: goldChange > 0 ? 'SUBINDO' : 'CAINDO',
           safeHaven: true
         },
         oil: {
           change: oilChange,
-          trend: oilChange > 0 ? 'RISING' : 'FALLING'
+          trend: oilChange > 0 ? 'SUBINDO' : 'CAINDO'
         },
         confidence: 70
       };
@@ -333,21 +345,21 @@ class MacroEconomicService {
    */
   analyzeMacroImpact(macroData) {
     const analysis = {
-      overall: 'NEUTRAL',
+      overall: 'NEUTRO',
       cryptoBullish: 0,
       cryptoBearish: 0,
       keyFactors: [],
-      riskLevel: 'MEDIUM',
-      outlook: 'MIXED'
+      riskLevel: 'MÉDIO',
+      outlook: 'MISTO'
     };
 
     try {
       // Análise do Fed
       if (macroData.fed) {
-        if (macroData.fed.stance === 'DOVISH') {
+        if (macroData.fed.stance === 'EXPANSIVA') {
           analysis.cryptoBullish += 25;
           analysis.keyFactors.push('Fed dovish - favorece ativos de risco');
-        } else if (macroData.fed.stance === 'HAWKISH') {
+        } else if (macroData.fed.stance === 'RESTRITIVA') {
           analysis.cryptoBearish += 20;
           analysis.keyFactors.push('Fed hawkish - pressiona ativos de risco');
         }
@@ -360,10 +372,10 @@ class MacroEconomicService {
 
       // Análise da inflação
       if (macroData.inflation) {
-        if (macroData.inflation.cpi.trend === 'FALLING' && macroData.inflation.cpi.current > 3) {
+        if (macroData.inflation.cpi.trend === 'CAINDO' && macroData.inflation.cpi.current > 3) {
           analysis.cryptoBullish += 20;
           analysis.keyFactors.push('Inflação em queda - reduz pressão do Fed');
-        } else if (macroData.inflation.cpi.trend === 'RISING') {
+        } else if (macroData.inflation.cpi.trend === 'SUBINDO') {
           analysis.cryptoBearish += 15;
           analysis.keyFactors.push('Inflação subindo - pode endurecer política monetária');
         }
@@ -371,10 +383,10 @@ class MacroEconomicService {
 
       // Análise do dólar
       if (macroData.dollar) {
-        if (macroData.dollar.trend === 'WEAKENING') {
+        if (macroData.dollar.trend === 'ENFRAQUECENDO') {
           analysis.cryptoBullish += 15;
           analysis.keyFactors.push('Dólar enfraquecendo - favorece crypto');
-        } else if (macroData.dollar.trend === 'STRENGTHENING') {
+        } else if (macroData.dollar.trend === 'FORTALECENDO') {
           analysis.cryptoBearish += 10;
           analysis.keyFactors.push('Dólar fortalecendo - pressiona crypto');
         }
@@ -382,10 +394,10 @@ class MacroEconomicService {
 
       // Análise dos yields
       if (macroData.bonds) {
-        if (macroData.bonds.curveStatus === 'INVERTED') {
+        if (macroData.bonds.curveStatus === 'INVERTIDA') {
           analysis.cryptoBearish += 15;
           analysis.keyFactors.push('Curva de juros invertida - sinal de recessão');
-          analysis.riskLevel = 'HIGH';
+          analysis.riskLevel = 'ALTO';
         }
         
         if (macroData.bonds.treasury10y > 4.5) {
@@ -396,21 +408,21 @@ class MacroEconomicService {
 
       // Análise das ações
       if (macroData.stocks) {
-        if (macroData.stocks.sp500.trend === 'BULLISH' && macroData.stocks.nasdaq.trend === 'BULLISH') {
+        if (macroData.stocks.sp500.trend === 'ALTA' && macroData.stocks.nasdaq.trend === 'ALTA') {
           analysis.cryptoBullish += 10;
           analysis.keyFactors.push('Mercado de ações em alta - risk-on');
         }
         
-        if (macroData.stocks.vix.level === 'HIGH') {
+        if (macroData.stocks.vix.level === 'ALTO') {
           analysis.cryptoBearish += 15;
           analysis.keyFactors.push('VIX alto - aversão ao risco');
-          analysis.riskLevel = 'HIGH';
+          analysis.riskLevel = 'ALTO';
         }
       }
 
       // Análise de commodities
       if (macroData.commodities) {
-        if (macroData.commodities.gold.trend === 'RISING') {
+        if (macroData.commodities.gold.trend === 'SUBINDO') {
           analysis.cryptoBullish += 5;
           analysis.keyFactors.push('Ouro subindo - busca por reserva de valor');
         }
@@ -420,14 +432,14 @@ class MacroEconomicService {
       const netBullish = analysis.cryptoBullish - analysis.cryptoBearish;
       
       if (netBullish > 20) {
-        analysis.overall = 'BULLISH';
-        analysis.outlook = 'POSITIVE';
+        analysis.overall = 'OTIMISTA';
+        analysis.outlook = 'POSITIVO';
       } else if (netBullish < -20) {
-        analysis.overall = 'BEARISH';
-        analysis.outlook = 'NEGATIVE';
+        analysis.overall = 'PESSIMISTA';
+        analysis.outlook = 'NEGATIVO';
       } else {
-        analysis.overall = 'NEUTRAL';
-        analysis.outlook = 'MIXED';
+        analysis.overall = 'NEUTRO';
+        analysis.outlook = 'MISTO';
       }
 
       return analysis;
@@ -442,9 +454,9 @@ class MacroEconomicService {
    */
   calculateCryptoImpact(macroData, analysis) {
     const impact = {
-      shortTerm: 'NEUTRAL', // Próximos dias
-      mediumTerm: 'NEUTRAL', // Próximas semanas
-      longTerm: 'NEUTRAL', // Próximos meses
+      shortTerm: 'NEUTRO', // Próximos dias
+      mediumTerm: 'NEUTRO', // Próximas semanas
+      longTerm: 'NEUTRO', // Próximos meses
       confidence: 70,
       recommendations: []
     };
@@ -454,25 +466,25 @@ class MacroEconomicService {
       
       // Impacto de curto prazo
       if (netScore > 15) {
-        impact.shortTerm = 'POSITIVE';
+        impact.shortTerm = 'POSITIVO';
         impact.recommendations.push('Ambiente macro favorável para posições long');
       } else if (netScore < -15) {
-        impact.shortTerm = 'NEGATIVE';
+        impact.shortTerm = 'NEGATIVO';
         impact.recommendations.push('Cautela com posições long - macro desfavorável');
       }
 
       // Impacto de médio prazo
-      if (macroData.fed && macroData.fed.stance === 'DOVISH') {
-        impact.mediumTerm = 'POSITIVE';
+      if (macroData.fed && macroData.fed.stance === 'EXPANSIVA') {
+        impact.mediumTerm = 'POSITIVO';
         impact.recommendations.push('Fed dovish favorece crypto nas próximas semanas');
       } else if (macroData.bonds && macroData.bonds.recessionSignal) {
-        impact.mediumTerm = 'NEGATIVE';
+        impact.mediumTerm = 'NEGATIVO';
         impact.recommendations.push('Sinais de recessão podem pressionar crypto');
       }
 
       // Impacto de longo prazo
       if (macroData.inflation && macroData.inflation.cpi.current > 4) {
-        impact.longTerm = 'POSITIVE';
+        impact.longTerm = 'POSITIVO';
         impact.recommendations.push('Inflação alta favorece Bitcoin como reserva de valor');
       }
 

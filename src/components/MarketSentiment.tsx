@@ -41,9 +41,9 @@ const MarketSentiment: React.FC = () => {
 
   const getSentimentColor = (overall: string) => {
     switch (overall) {
-      case 'BULLISH':
+      case 'OTIMISTA':
         return 'text-green-600 bg-green-50 border-green-200';
-      case 'BEARISH':
+      case 'PESSIMISTA':
         return 'text-red-600 bg-red-50 border-red-200';
       default:
         return 'text-yellow-600 bg-yellow-50 border-yellow-200';
@@ -59,11 +59,11 @@ const MarketSentiment: React.FC = () => {
   };
 
   const getFearGreedLabel = (index: number) => {
-    if (index >= 75) return 'Extrema Ganância';
+    if (index >= 75) return 'Ganância Extrema';
     if (index >= 55) return 'Ganância';
     if (index >= 45) return 'Neutro';
     if (index >= 25) return 'Medo';
-    return 'Extremo Medo';
+    return 'Medo Extremo';
   };
 
   const formatVolume = (volume: number) => {
@@ -102,9 +102,9 @@ const MarketSentiment: React.FC = () => {
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-medium text-gray-600">Sentimento Geral</h3>
-            {sentiment.overall === 'BULLISH' ? (
+            {sentiment.overall === 'OTIMISTA' ? (
               <TrendingUp className="w-5 h-5 text-green-600" />
-            ) : sentiment.overall === 'BEARISH' ? (
+            ) : sentiment.overall === 'PESSIMISTA' ? (
               <TrendingDown className="w-5 h-5 text-red-600" />
             ) : (
               <Activity className="w-5 h-5 text-yellow-600" />
@@ -124,7 +124,7 @@ const MarketSentiment: React.FC = () => {
             <div className="flex items-center justify-between">
               <span className="text-2xl font-bold text-gray-900">{sentiment.fearGreedIndex}</span>
               <div className={`px-2 py-1 rounded text-xs font-medium ${getFearGreedColor(sentiment.fearGreedIndex)}`}>
-                {getFearGreedLabel(sentiment.fearGreedIndex)}
+                {sentiment.fearGreedLabel || getFearGreedLabel(sentiment.fearGreedIndex)}
               </div>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">

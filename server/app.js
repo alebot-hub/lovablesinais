@@ -291,7 +291,7 @@ class TradingBotApp {
     this.app.get('/api/status', (req, res) => {
       res.json({
         status: this.isRunning ? 'running' : 'stopped',
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
         lastAnalysisTime: this.lastAnalysisTime,
         analysisCount: this.analysisCount,
         signalsGenerated: this.signalsGenerated,

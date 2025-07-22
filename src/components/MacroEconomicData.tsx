@@ -84,9 +84,9 @@ const MacroEconomicData: React.FC = () => {
 
   const getOverallColor = (overall: string) => {
     switch (overall) {
-      case 'BULLISH':
+      case 'OTIMISTA':
         return 'text-green-600 bg-green-50 border-green-200';
-      case 'BEARISH':
+      case 'PESSIMISTA':
         return 'text-red-600 bg-red-50 border-red-200';
       default:
         return 'text-yellow-600 bg-yellow-50 border-yellow-200';
@@ -95,9 +95,9 @@ const MacroEconomicData: React.FC = () => {
 
   const getImpactColor = (impact: string) => {
     switch (impact) {
-      case 'POSITIVE':
+      case 'POSITIVO':
         return 'text-green-600';
-      case 'NEGATIVE':
+      case 'NEGATIVO':
         return 'text-red-600';
       default:
         return 'text-yellow-600';
@@ -106,9 +106,9 @@ const MacroEconomicData: React.FC = () => {
 
   const getRiskColor = (risk: string) => {
     switch (risk) {
-      case 'LOW':
+      case 'BAIXO':
         return 'text-green-600 bg-green-50';
-      case 'HIGH':
+      case 'ALTO':
         return 'text-red-600 bg-red-50';
       default:
         return 'text-yellow-600 bg-yellow-50';
@@ -117,9 +117,9 @@ const MacroEconomicData: React.FC = () => {
 
   const getStanceColor = (stance: string) => {
     switch (stance) {
-      case 'DOVISH':
+      case 'EXPANSIVA':
         return 'text-green-600 bg-green-50';
-      case 'HAWKISH':
+      case 'RESTRITIVA':
         return 'text-red-600 bg-red-50';
       default:
         return 'text-blue-600 bg-blue-50';
@@ -248,14 +248,14 @@ const MacroEconomicData: React.FC = () => {
               
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600">Tendência</span>
-                <div className="flex items-center space-x-1">
-                  {macroData.data.inflation.cpi.trend === 'RISING' ? (
+              const sp500Emoji = macroData.data.stocks.sp500.trend === 'ALTA' ? '🟢' : '🔴';
+              const nasdaqEmoji = macroData.data.stocks.nasdaq.trend === 'ALTA' ? '🟢' : '🔴';
                     <TrendingUp className="w-4 h-4 text-red-600" />
                   ) : (
                     <TrendingDown className="w-4 h-4 text-green-600" />
-                  )}
-                  <span className={`text-sm font-medium ${
-                    macroData.data.inflation.cpi.trend === 'RISING' ? 'text-red-600' : 'text-green-600'
+                    macroData.data.bonds.curveStatus === 'INVERTIDA' ? 'text-red-600 bg-red-50' :
+                    macroData.data.bonds.curveStatus === 'PLANA' ? 'text-yellow-600 bg-yellow-50' :
+                    macroData.data.stocks.nasdaq.trend === 'ALTA' ? 'text-green-600' : 'text-red-600'
                   }`}>
                     {macroData.data.inflation.cpi.trend}
                   </span>
@@ -266,8 +266,8 @@ const MacroEconomicData: React.FC = () => {
                 <p className="text-xs text-gray-500">
                   Próximo dado: {formatDate(macroData.data.inflation.nextReleaseDate)}
                 </p>
-              </div>
-            </div>
+                    macroData.data.stocks.vix.level === 'ALTO' ? 'text-red-600' : 
+                    macroData.data.stocks.vix.level === 'MODERADO' ? 'text-yellow-600' : 'text-green-600'
           </div>
         )}
 
@@ -380,7 +380,7 @@ const MacroEconomicData: React.FC = () => {
                     event.impact === 'MEDIUM' ? 'bg-yellow-500' : 'bg-green-500'
                   }`} />
                   <span className="font-medium text-gray-900">{event.name}</span>
-                </div>
+                  macroData.data.inflation.cpi.trend === 'SUBINDO' ? 'text-red-600' : 'text-green-600'
                 <span className="text-sm text-gray-600">
                   {event.daysUntil} dia{event.daysUntil !== 1 ? 's' : ''}
                 </span>
