@@ -46,6 +46,7 @@ const MarketSentiment: React.FC = () => {
 
   const fetchSentiment = async () => {
     try {
+      setLoading(true);
       console.log('🌍 Buscando sentimento do mercado...');
       const response = await fetch('/api/market/sentiment');
       console.log('📊 Market sentiment response:', response.status);

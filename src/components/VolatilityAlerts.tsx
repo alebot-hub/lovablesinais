@@ -21,6 +21,9 @@ const VolatilityAlerts: React.FC = () => {
 
   const fetchAlerts = async () => {
     try {
+      if (alerts.length === 0) {
+        setLoading(true);
+      }
       setLoading(true);
       console.log('🔥 Buscando alertas de volatilidade...');
       const response = await fetch('/api/volatility/alerts');

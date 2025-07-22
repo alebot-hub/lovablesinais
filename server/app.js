@@ -32,6 +32,9 @@ import { CRYPTO_SYMBOLS, TIMEFRAMES, TRADING_CONFIG, SCHEDULE_CONFIG } from './c
 // Carrega variáveis de ambiente
 dotenv.config();
 
+// Suprime logs informativos do TensorFlow
+process.env.TF_CPP_MIN_LOG_LEVEL = '2';
+
 class TradingBotApp {
   constructor() {
     this.app = express();
@@ -489,7 +492,7 @@ class TradingBotApp {
     
     if (fsModule.existsSync(indexPath)) {
       console.log('✅ Servindo SPA do diretório dist');
-      this.app.use((req, res, next) => {
+      this.app.get('*', (req, res, next) => {
         // Serve index.html para todas as rotas que não são API
         if (!req.path.startsWith('/api') && !req.path.includes('.')) {
           res.sendFile(indexPath);
@@ -499,6 +502,11 @@ class TradingBotApp {
       });
     } else {
       console.log('⚠️ Diretório dist não encontrado - usando fallback HTML');
+      this.app.get('*', (req, res) => {
+        if (!req.path.startsWith('/api')) {
+          res.redirect('/');
+        }
+      });
     }
 
     // Middleware de erro para APIs

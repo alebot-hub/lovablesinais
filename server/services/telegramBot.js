@@ -539,7 +539,7 @@ class TelegramBotService {
       // Calcula lucro correto: da entrada até o alvo atual, multiplicado por 15x
       const monitor = this.activeMonitors.get(symbol);
       const entryPrice = monitor ? monitor.entry : targetLevel; // Fallback se monitor não existir
-      const priceChangePercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+      const priceChangePercent = ((targetLevel - entryPrice) / entryPrice) * 100;
       const profitPercent = priceChangePercent * 15; // Alavancagem 15x
       
       // Calcula tempo decorrido
@@ -584,6 +584,7 @@ class TelegramBotService {
       }
       
       message += `📊 Entrada: $${formatPrice(entryPrice)}\n`;
+      message += `🎯 Preço do alvo: $${formatPrice(targetLevel)}\n`;
       message += `💵 Preço atual: $${formatPrice(currentPrice)}\n`;
       message += `⏱️ Tempo até o alvo: ${timeElapsed}\n\n`;
       message += `👑 Sinais Lobo Cripto`;
@@ -611,7 +612,7 @@ class TelegramBotService {
       // Calcula perda correta: da entrada até o preço atual, multiplicado por 15x
       const monitor = this.activeMonitors.get(symbol);
       const entryPrice = monitor ? monitor.entry : stopLossLevel; // Fallback se monitor não existir
-      const priceChangePercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+      const priceChangePercent = ((stopLossLevel - entryPrice) / entryPrice) * 100;
       const lossPercent = Math.abs(priceChangePercent) * 15; // Alavancagem 15x
       
       // Calcula tempo decorrido
@@ -632,7 +633,8 @@ class TelegramBotService {
       message += `🔴 Stop loss atingido no par #${symbolName}\n`;
       message += `📉 Perda: -${lossPercent.toFixed(2)}% (Alv. 15×)\n`;
       message += `📊 Preço de entrada: $${formatPrice(entryPrice)}\n`;
-      message += `💵 Preço do stop: $${formatPrice(currentPrice)}\n`;
+      message += `🛑 Preço do stop: $${formatPrice(stopLossLevel)}\n`;
+      message += `💵 Preço atual: $${formatPrice(currentPrice)}\n`;
       message += `⏱️ Duração do trade: ${timeElapsed}\n\n`;
       message += `⚠️ *Gestão de risco ativada - Capital protegido*\n\n`;
       message += `👑 Sinais Lobo Cripto`;
@@ -660,7 +662,7 @@ class TelegramBotService {
       // Calcula lucro correto: da entrada até o preço atual, multiplicado por 15x
       const monitor = this.activeMonitors.get(symbol);
       const entryPrice = monitor ? monitor.entry : stopLevel; // Fallback se monitor não existir
-      const priceChangePercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+      const priceChangePercent = ((stopLevel - entryPrice) / entryPrice) * 100;
       const profitPercent = priceChangePercent * 15; // Alavancagem 15x
       
       // Calcula tempo decorrido
@@ -690,7 +692,8 @@ class TelegramBotService {
       message += `🟢 Stop de lucro atingido no par #${symbolName}\n`;
       message += `💰 Lucro: +${profitPercent.toFixed(2)}% (Alv. 15×)\n`;
       message += `📊 Preço de entrada: $${formatPrice(entryPrice)}\n`;
-      message += `💵 Preço do stop: $${formatPrice(currentPrice)}\n`;
+      message += `✅ Preço do stop: $${formatPrice(stopLevel)}\n`;
+      message += `💵 Preço atual: $${formatPrice(currentPrice)}\n`;
       message += `📌 ${stopDescription}\n`;
       message += `⏱️ Duração do trade: ${timeElapsed}\n\n`;
       message += `🎯 *Gestão de lucro ativada - Lucros protegidos*\n\n`;

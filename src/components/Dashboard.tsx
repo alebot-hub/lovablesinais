@@ -86,9 +86,7 @@ const Dashboard: React.FC = () => {
         timestamp: new Date().toISOString(),
         activeMonitors: 0,
         isTraining: false,
-        activeSymbols: [],
-        environment: 'production',
-        uptime: 0
+        activeSymbols: []
       });
       setSignals([]);
     } finally {

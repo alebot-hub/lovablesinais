@@ -8,11 +8,14 @@ let isTensorFlowAvailable = false;
 // Tenta carregar TensorFlow.js Node primeiro, depois fallback para browser
 async function initializeTensorFlow() {
   try {
+    // Suprime logs informativos do TensorFlow
+    process.env.TF_CPP_MIN_LOG_LEVEL = '2';
+    
     // Tenta carregar TensorFlow.js Node (otimizado)
     await import('@tensorflow/tfjs-node');
     tf = await import('@tensorflow/tfjs');
     isTensorFlowAvailable = true;
-    console.log('✅ TensorFlow.js Node backend carregado com sucesso');
+    console.log('✅ TensorFlow.js Node backend carregado (CPU otimizado com AVX2/FMA)');
     return true;
   } catch (nodeError) {
     console.log('⚠️ TensorFlow.js Node não disponível, tentando versão browser...');
@@ -20,7 +23,7 @@ async function initializeTensorFlow() {
       // Fallback para versão browser
       tf = await import('@tensorflow/tfjs');
       isTensorFlowAvailable = true;
-      console.log('✅ TensorFlow.js browser backend carregado');
+      console.log('✅ TensorFlow.js browser backend carregado com sucesso');
       return true;
     } catch (browserError) {
       console.log('❌ TensorFlow.js não disponível - ML desabilitado');
@@ -52,10 +55,17 @@ class MachineLearningService {
   async initialize() {
     try {
       console.log('🤖 Inicializando sistema de Machine Learning...');
+      
+      // Suprime mensagens informativas do TensorFlow
+      if (typeof process !== 'undefined' && process.env) {
+        process.env.TF_CPP_MIN_LOG_LEVEL = '2';
+      }
+      
       this.isInitialized = await initializeTensorFlow();
       if (this.isInitialized) {
-        console.log('✅ MachineLearningService inicializado com TensorFlow.js');
+        console.log('✅ Sistema ML inicializado com TensorFlow.js');
         console.log('🧠 Sistema ML pronto para treinamento e previsões');
+        console.log('ℹ️ Mensagens "This TensorFlow binary is optimized..." são normais e indicam otimização de CPU');
       } else {
         console.log('⚠️ MachineLearningService inicializado SEM TensorFlow.js');
         console.log('📊 Funcionando apenas com análise técnica tradicional');
@@ -83,6 +93,8 @@ class MachineLearningService {
       console.log(`🧠 Iniciando treinamento ML para ${symbol}...`);
       this.trainingInProgress = true;
       this.trainingStats.totalModels++;
+      
+      console.log('ℹ️ Mensagens do TensorFlow sobre otimização de CPU são informativas (não são erros)');
 
       // Prepara features e labels
       const { features, labels } = this.prepareTrainingData(historicalData);

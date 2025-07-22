@@ -25,6 +25,9 @@ const BacktestResults: React.FC = () => {
 
   const fetchBacktestResults = async () => {
     try {
+      if (!backtestData) {
+        setLoading(true);
+      }
       setLoading(true);
       console.log('📊 Buscando resultados de backtesting...');
       const response = await fetch('/api/backtest/results');

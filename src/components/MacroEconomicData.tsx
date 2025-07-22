@@ -72,6 +72,7 @@ const MacroEconomicData: React.FC = () => {
 
   const fetchMacroData = async () => {
     try {
+      setLoading(true);
       console.log('🏛️ Buscando dados macroeconômicos...');
       const response = await fetch('/api/macro/data');
       console.log('📊 Macro data response:', response.status);
