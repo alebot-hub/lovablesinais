@@ -100,7 +100,9 @@ class TradingBotApp {
           marketRegime: this.adaptiveScoring.marketRegime,
           blacklistedSymbols: this.adaptiveScoring.getBlacklistedSymbols().length,
           indicatorPerformance: Object.keys(this.adaptiveScoring.getIndicatorPerformanceReport()).length
-        }
+        },
+        environment: process.env.NODE_ENV || 'development',
+        uptime: process.uptime()
       });
     });
 
