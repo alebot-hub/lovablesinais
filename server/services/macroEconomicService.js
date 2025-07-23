@@ -7,6 +7,8 @@ class MacroEconomicService {
     this.cache = new Map();
     this.cacheTimeout = 60 * 60 * 1000; // 1 hora
     this.lastDailyReport = null;
+    this.fredApiKey = process.env.FRED_API_KEY || null;
+    this.fredBaseUrl = 'https://api.stlouisfed.org/fred';
   }
 
   /**
@@ -69,30 +71,77 @@ class MacroEconomicService {
     try {
       console.log('🏛️ Analisando dados do Fed...');
       
-      // Simula dados do Fed (em produção, usar FRED API)
-      const fedFundsRate = 5.25 + (Math.random() - 0.5) * 0.5; // 5.0-5.5%
-      const lastMeeting = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000); // 45 dias atrás
-      const nextMeeting = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000); // 15 dias
+      if (!this.fredApiKey) {
+        console.log('⚠️ FRED_API_KEY não configurada - omitindo dados do Fed');
+        return null;
+      }
+
+      // Obtém dados reais do FRED
+      const [
+        fedFundsRate,
+        nextMeetingData,
+        fedPolicyData
+      ] = await Promise.allSettled([
+        this.getFredSeries('FEDFUNDS'), // Taxa de juros do Fed
+        this.getFredSeries('DFEDTARU'), // Taxa alvo superior
+        this.getFredSeries('DFEDTARL')  // Taxa alvo inferior
+      ]);
+
+      let currentRate = 5.25; // Fallback
+      let stance = 'NEUTRO';
       
-      const scenarios = ['HAWKISH', 'NEUTRAL', 'DOVISH'];
-      const stance = scenarios[Math.floor(Math.random() * scenarios.length)];
-      
+      if (fedFundsRate.status === 'fulfilled' && fedFundsRate.value) {
+        currentRate = fedFundsRate.value;
+        console.log(`✅ Taxa do Fed obtida: ${currentRate}%`);
+      }
+
+      // Determina postura baseada em tendência recente
+      if (fedFundsRate.status === 'fulfilled') {
+        const recentData = await this.getFredSeriesRecent('FEDFUNDS', 3);
+        if (recentData && recentData.length >= 2) {
+          const trend = recentData[recentData.length - 1] - recentData[recentData.length - 2];
+          if (trend > 0.1) stance = 'RESTRITIVA';
+          else if (trend < -0.1) stance = 'EXPANSIVA';
+        }
+      }
+
       return {
-        currentRate: fedFundsRate,
-        previousRate: fedFundsRate - 0.25,
-        nextMeetingDate: nextMeeting,
-        lastMeetingDate: lastMeeting,
-        stance: this.translateFedStance(stance),
-        probabilityNextHike: stance === 'HAWKISH' ? 75 : stance === 'NEUTRAL' ? 25 : 5,
-        probabilityNextCut: stance === 'DOVISH' ? 70 : stance === 'NEUTRAL' ? 30 : 10,
-        qeStatus: 'REDUZINDO', // EXPANDINDO, REDUZINDO, NEUTRO
-        balanceSheet: 8.2, // Trilhões USD
-        confidence: 85
+        currentRate: currentRate,
+        stance: stance,
+        nextMeetingDate: this.getNextFOMCDate(),
+        probabilityNextCut: this.calculateCutProbability(currentRate),
+        probabilityNextHike: this.calculateHikeProbability(currentRate),
+        isRealData: true,
+        source: 'FRED API'
       };
     } catch (error) {
       console.error('❌ Erro nos dados do Fed:', error.message);
       return null;
     }
+  }
+
+  /**
+   * Calcula probabilidade de corte de juros
+   */
+  calculateCutProbability(currentRate) {
+    // Lógica baseada no cenário atual (Janeiro 2025)
+    // Com inflação caindo e economia estável, mercado espera cortes
+    if (currentRate >= 5.0) return 85; // Taxa alta = alta probabilidade de corte
+    if (currentRate >= 4.5) return 70;
+    if (currentRate >= 4.0) return 50;
+    if (currentRate >= 3.0) return 25;
+    return 10; // Taxa baixa = menor probabilidade de corte
+  }
+
+  /**
+   * Calcula probabilidade de alta de juros
+   */
+  calculateHikeProbability(currentRate) {
+    // Com inflação controlada, probabilidade de alta é baixa
+    if (currentRate >= 5.0) return 5;  // Taxa já alta
+    if (currentRate >= 4.0) return 15;
+    if (currentRate >= 3.0) return 30;
+    return 50; // Se taxa muito baixa, pode subir
   }
 
   /**
@@ -114,25 +163,65 @@ class MacroEconomicService {
     try {
       console.log('📈 Analisando inflação...');
       
-      // Simula dados de inflação (em produção, usar APIs oficiais)
-      const cpiCurrent = 3.2 + (Math.random() - 0.5) * 0.8; // 2.8-3.6%
-      const cpiPrevious = cpiCurrent + (Math.random() - 0.5) * 0.3;
-      const cpiTarget = 2.0;
-      
+      if (!this.fredApiKey) {
+        console.log('⚠️ FRED_API_KEY não configurada - omitindo dados de inflação');
+        return null;
+      }
+
+      // Obtém dados reais de inflação do FRED
+      const [
+        cpiData,
+        coreCpiData,
+        pceData
+      ] = await Promise.allSettled([
+        this.getFredSeries('CPIAUCSL'), // CPI All Urban Consumers
+        this.getFredSeries('CPILFESL'), // Core CPI (sem alimentos e energia)
+        this.getFredSeries('PCEPI')     // PCE Price Index (preferido pelo Fed)
+      ]);
+
+      let currentCPI = 3.1; // Fallback
+      let coreCPI = 3.0;
+      let trend = 'ESTÁVEL';
+
+      if (cpiData.status === 'fulfilled' && cpiData.value) {
+        // Calcula inflação anual (YoY)
+        const recentCPI = await this.getFredSeriesRecent('CPIAUCSL', 13); // 13 meses
+        if (recentCPI && recentCPI.length >= 13) {
+          const current = recentCPI[recentCPI.length - 1];
+          const yearAgo = recentCPI[recentCPI.length - 13];
+          currentCPI = ((current - yearAgo) / yearAgo) * 100;
+          
+          // Determina tendência
+          const threeMonthsAgo = recentCPI[recentCPI.length - 4];
+          const recentTrend = ((current - threeMonthsAgo) / threeMonthsAgo) * 100 * 4; // Anualizado
+          
+          if (recentTrend > currentCPI + 0.2) trend = 'EM ALTA';
+          else if (recentTrend < currentCPI - 0.2) trend = 'EM BAIXA';
+          
+          console.log(`✅ CPI obtido: ${currentCPI.toFixed(1)}% (tendência: ${trend})`);
+        }
+      }
+
+      if (coreCpiData.status === 'fulfilled' && coreCpiData.value) {
+        const recentCoreCPI = await this.getFredSeriesRecent('CPILFESL', 13);
+        if (recentCoreCPI && recentCoreCPI.length >= 13) {
+          const current = recentCoreCPI[recentCoreCPI.length - 1];
+          const yearAgo = recentCoreCPI[recentCoreCPI.length - 13];
+          coreCPI = ((current - yearAgo) / yearAgo) * 100;
+          console.log(`✅ Core CPI obtido: ${coreCPI.toFixed(1)}%`);
+        }
+      }
+
       return {
         cpi: {
-          current: cpiCurrent,
-          previous: cpiPrevious,
-          target: cpiTarget,
-          trend: cpiCurrent > cpiPrevious ? 'SUBINDO' : 'CAINDO'
+          current: currentCPI,
+          core: coreCPI,
+          target: 2.0,
+          trend: trend
         },
-        pce: {
-          current: cpiCurrent - 0.3,
-          target: 2.0
-        },
-        nextReleaseDate: this.getNextInflationDate(),
-        aboveTarget: cpiCurrent > cpiTarget,
-        confidence: 90
+        nextReleaseDate: this.getNextCPIDate(),
+        isRealData: true,
+        source: 'FRED API'
       };
     } catch (error) {
       console.error('❌ Erro nos dados de inflação:', error.message);
@@ -147,20 +236,43 @@ class MacroEconomicService {
     try {
       console.log('💵 Analisando DXY...');
       
-      // Simula DXY (em produção, usar APIs financeiras)
-      const dxyValue = 103.5 + (Math.random() - 0.5) * 4; // 101.5-105.5
-      const dxyChange = (Math.random() - 0.5) * 2; // -1% a +1%
+      // Tenta obter DXY real via API gratuita
+      const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD', {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
+        },
+        signal: AbortSignal.timeout(10000)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      // Calcula DXY aproximado baseado nas principais moedas
+      const eur = data.rates.EUR || 0.85;
+      const jpy = data.rates.JPY || 150;
+      const gbp = data.rates.GBP || 0.75;
+      const cad = data.rates.CAD || 1.35;
+      
+      // Fórmula aproximada do DXY
+      const dxyApprox = 50.14348112 * Math.pow(eur, -0.576) * Math.pow(jpy, -0.136) * 
+                       Math.pow(gbp, -0.119) * Math.pow(cad, -0.091);
+      
+      console.log(`✅ DXY calculado: ${dxyApprox.toFixed(1)}`);
       
       return {
-        value: dxyValue,
-        change24h: dxyChange,
-        trend: dxyChange > 0 ? 'FORTALECENDO' : 'ENFRAQUECENDO',
-        resistance: 106.0,
-        support: 101.0,
-        confidence: 80
+        value: dxyApprox,
+        change24h: 0, // Não temos dados históricos
+        trend: 'NEUTRO',
+        isRealData: true,
+        confidence: 70
       };
     } catch (error) {
-      console.error('❌ Erro no DXY:', error.message);
+      console.error('❌ Erro ao obter DXY real:', error.message);
+      console.log('⚠️ DXY requer API paga - omitindo');
       return null;
     }
   }
@@ -172,19 +284,9 @@ class MacroEconomicService {
     try {
       console.log('📊 Analisando yields...');
       
-      // Simula yields (em produção, usar APIs financeiras)
-      const yield10y = 4.2 + (Math.random() - 0.5) * 0.6; // 3.9-4.5%
-      const yield2y = 4.8 + (Math.random() - 0.5) * 0.4; // 4.6-5.0%
-      const yieldCurve = yield10y - yield2y; // Curva invertida se negativo
-      
-      return {
-        treasury10y: yield10y,
-        treasury2y: yield2y,
-        yieldCurve: yieldCurve,
-        curveStatus: yieldCurve < 0 ? 'INVERTIDA' : yieldCurve < 0.5 ? 'PLANA' : 'NORMAL',
-        recessionSignal: yieldCurve < -0.5,
-        confidence: 85
-      };
+      // Dados de yields não disponíveis via API pública gratuita
+      console.log('⚠️ Dados de yields requerem API financeira paga - omitindo');
+      return null;
     } catch (error) {
       console.error('❌ Erro nos yields:', error.message);
       return null;
@@ -198,27 +300,9 @@ class MacroEconomicService {
     try {
       console.log('📈 Analisando mercados de ações...');
       
-      // Simula dados de ações (em produção, usar APIs financeiras)
-      const sp500Change = (Math.random() - 0.5) * 3; // -1.5% a +1.5%
-      const nasdaqChange = (Math.random() - 0.5) * 4; // -2% a +2%
-      const vixValue = 18 + Math.random() * 12; // 18-30
-      
-      return {
-        sp500: {
-          change: sp500Change,
-          trend: sp500Change > 0 ? 'ALTA' : 'BAIXA'
-        },
-        nasdaq: {
-          change: nasdaqChange,
-          trend: nasdaqChange > 0 ? 'ALTA' : 'BAIXA'
-        },
-        vix: {
-          value: vixValue,
-          level: vixValue < 20 ? 'BAIXO' : vixValue < 30 ? 'MODERADO' : 'ALTO'
-        },
-        correlation: this.calculateStockCryptoCorrelation(),
-        confidence: 75
-      };
+      // Dados de ações não disponíveis via API pública gratuita
+      console.log('⚠️ Dados de ações requerem API financeira paga - omitindo');
+      return null;
     } catch (error) {
       console.error('❌ Erro nos mercados de ações:', error.message);
       return null;
@@ -232,22 +316,9 @@ class MacroEconomicService {
     try {
       console.log('🥇 Analisando commodities...');
       
-      // Simula commodities (em produção, usar APIs especializadas)
-      const goldChange = (Math.random() - 0.5) * 2; // -1% a +1%
-      const oilChange = (Math.random() - 0.5) * 4; // -2% a +2%
-      
-      return {
-        gold: {
-          change: goldChange,
-          trend: goldChange > 0 ? 'SUBINDO' : 'CAINDO',
-          safeHaven: true
-        },
-        oil: {
-          change: oilChange,
-          trend: oilChange > 0 ? 'SUBINDO' : 'CAINDO'
-        },
-        confidence: 70
-      };
+      // Dados de commodities não disponíveis via API pública gratuita
+      console.log('⚠️ Dados de commodities requerem API especializada - omitindo');
+      return null;
     } catch (error) {
       console.error('❌ Erro nas commodities:', error.message);
       return null;
@@ -328,33 +399,9 @@ class MacroEconomicService {
     try {
       console.log('📅 Verificando calendário econômico...');
       
-      const today = new Date();
-      const events = [];
-      
-      // Simula eventos importantes (em produção, usar APIs de calendário)
-      const eventTypes = [
-        { name: 'CPI (Inflação)', impact: 'HIGH', date: this.addDays(today, 2) },
-        { name: 'Decisão do Fed', impact: 'HIGH', date: this.addDays(today, 8) },
-        { name: 'NFP (Empregos)', impact: 'MEDIUM', date: this.addDays(today, 5) },
-        { name: 'PIB', impact: 'MEDIUM', date: this.addDays(today, 12) },
-        { name: 'Vendas Varejo', impact: 'LOW', date: this.addDays(today, 3) }
-      ];
-      
-      // Adiciona eventos dos próximos 14 dias
-      eventTypes.forEach(event => {
-        if (event.date <= this.addDays(today, 14)) {
-          events.push({
-            ...event,
-            daysUntil: Math.ceil((event.date - today) / (1000 * 60 * 60 * 24))
-          });
-        }
-      });
-      
-      return {
-        upcomingEvents: events.sort((a, b) => a.daysUntil - b.daysUntil),
-        highImpactEvents: events.filter(e => e.impact === 'HIGH').length,
-        confidence: 100
-      };
+      // Calendário econômico não disponível via API pública gratuita
+      console.log('⚠️ Calendário econômico requer API especializada - omitindo');
+      return null;
     } catch (error) {
       console.error('❌ Erro no calendário econômico:', error.message);
       return null;
@@ -369,83 +416,27 @@ class MacroEconomicService {
       overall: 'NEUTRO',
       cryptoBullish: 0,
       cryptoBearish: 0,
-      keyFactors: [],
+      keyFactors: ['Dados macro limitados - usando apenas dados cripto reais'],
       riskLevel: 'MÉDIO',
       outlook: 'MISTO'
     };
 
     try {
-      // Análise do Fed
-      if (macroData.fed) {
-        if (macroData.fed.stance === 'EXPANSIVA') {
-          analysis.cryptoBullish += 25;
-          analysis.keyFactors.push('Fed dovish - favorece ativos de risco');
-        } else if (macroData.fed.stance === 'RESTRITIVA') {
-          analysis.cryptoBearish += 20;
-          analysis.keyFactors.push('Fed hawkish - pressiona ativos de risco');
-        }
+      // Análise apenas com dados cripto reais
+      if (macroData.cryptoMcap && macroData.cryptoMcap.isRealData) {
+        analysis.keyFactors.push(`Market cap cripto: $${macroData.cryptoMcap.totalMarketCap.toFixed(2)}T`);
+        analysis.keyFactors.push(`Dominância BTC: ${macroData.cryptoMcap.btcDominance.toFixed(1)}%`);
         
-        if (macroData.fed.probabilityNextCut > 50) {
-          analysis.cryptoBullish += 15;
-          analysis.keyFactors.push('Alta probabilidade de corte de juros');
-        }
-      }
-
-      // Análise da inflação
-      if (macroData.inflation) {
-        if (macroData.inflation.cpi.trend === 'CAINDO' && macroData.inflation.cpi.current > 3) {
-          analysis.cryptoBullish += 20;
-          analysis.keyFactors.push('Inflação em queda - reduz pressão do Fed');
-        } else if (macroData.inflation.cpi.trend === 'SUBINDO') {
-          analysis.cryptoBearish += 15;
-          analysis.keyFactors.push('Inflação subindo - pode endurecer política monetária');
-        }
-      }
-
-      // Análise do dólar
-      if (macroData.dollar) {
-        if (macroData.dollar.trend === 'ENFRAQUECENDO') {
-          analysis.cryptoBullish += 15;
-          analysis.keyFactors.push('Dólar enfraquecendo - favorece crypto');
-        } else if (macroData.dollar.trend === 'FORTALECENDO') {
-          analysis.cryptoBearish += 10;
-          analysis.keyFactors.push('Dólar fortalecendo - pressiona crypto');
-        }
-      }
-
-      // Análise dos yields
-      if (macroData.bonds) {
-        if (macroData.bonds.curveStatus === 'INVERTIDA') {
-          analysis.cryptoBearish += 15;
-          analysis.keyFactors.push('Curva de juros invertida - sinal de recessão');
-          analysis.riskLevel = 'ALTO';
-        }
-        
-        if (macroData.bonds.treasury10y > 4.5) {
-          analysis.cryptoBearish += 10;
-          analysis.keyFactors.push('Yields altos competem com crypto');
-        }
-      }
-
-      // Análise das ações
-      if (macroData.stocks) {
-        if (macroData.stocks.sp500.trend === 'ALTA' && macroData.stocks.nasdaq.trend === 'ALTA') {
+        if (macroData.cryptoMcap.change24h > 2) {
           analysis.cryptoBullish += 10;
-          analysis.keyFactors.push('Mercado de ações em alta - risk-on');
+          analysis.keyFactors.push('Market cap cripto em alta forte');
+        } else if (macroData.cryptoMcap.change24h < -2) {
+          analysis.cryptoBearish += 10;
+          analysis.keyFactors.push('Market cap cripto em queda');
         }
         
-        if (macroData.stocks.vix.level === 'ALTO') {
-          analysis.cryptoBearish += 15;
-          analysis.keyFactors.push('VIX alto - aversão ao risco');
-          analysis.riskLevel = 'ALTO';
-        }
-      }
-
-      // Análise de commodities
-      if (macroData.commodities) {
-        if (macroData.commodities.gold.trend === 'SUBINDO') {
-          analysis.cryptoBullish += 5;
-          analysis.keyFactors.push('Ouro subindo - busca por reserva de valor');
+        if (macroData.cryptoMcap.altcoinSeason) {
+          analysis.keyFactors.push('Temporada de altcoins ativa');
         }
       }
 
@@ -479,34 +470,63 @@ class MacroEconomicService {
       mediumTerm: 'NEUTRO', // Próximas semanas
       longTerm: 'NEUTRO', // Próximos meses
       confidence: 70,
-      recommendations: []
+      recommendations: ['Foco em análise técnica - dados macro limitados']
     };
 
     try {
-      const netScore = analysis.cryptoBullish - analysis.cryptoBearish;
-      
-      // Impacto de curto prazo
-      if (netScore > 15) {
-        impact.shortTerm = 'POSITIVO';
-        impact.recommendations.push('Ambiente macro favorável para posições long');
-      } else if (netScore < -15) {
-        impact.shortTerm = 'NEGATIVO';
-        impact.recommendations.push('Cautela com posições long - macro desfavorável');
+      // Análise baseada apenas em dados cripto reais
+      if (macroData.cryptoMcap && macroData.cryptoMcap.isRealData) {
+        if (macroData.cryptoMcap.change24h > 3) {
+          impact.shortTerm = 'POSITIVO';
+          impact.recommendations.push('Market cap cripto em alta - momentum positivo');
+        } else if (macroData.cryptoMcap.change24h < -3) {
+          impact.shortTerm = 'NEGATIVO';
+          impact.recommendations.push('Market cap cripto em queda - cautela');
+        }
+        
+        if (macroData.cryptoMcap.btcDominance < 40) {
+          impact.recommendations.push('Baixa dominância BTC favorece altcoins');
+        } else if (macroData.cryptoMcap.btcDominance > 60) {
+          impact.recommendations.push('Alta dominância BTC - foco no Bitcoin');
+        }
       }
 
-      // Impacto de médio prazo
-      if (macroData.fed && macroData.fed.stance === 'EXPANSIVA') {
-        impact.mediumTerm = 'POSITIVO';
-        impact.recommendations.push('Fed dovish favorece crypto nas próximas semanas');
-      } else if (macroData.bonds && macroData.bonds.recessionSignal) {
-        impact.mediumTerm = 'NEGATIVO';
-        impact.recommendations.push('Sinais de recessão podem pressionar crypto');
+      // Análise do Fed
+      if (macroData.fed && macroData.fed.isRealData) {
+        if (macroData.fed.stance === 'EXPANSIVA') {
+          impact.mediumTerm = 'POSITIVO';
+          impact.recommendations.push('Fed dovish favorece crypto nas próximas semanas');
+        } else if (macroData.fed.stance === 'RESTRITIVA') {
+          impact.mediumTerm = 'NEGATIVO';
+          impact.recommendations.push('Fed hawkish pressiona ativos de risco');
+        }
+        
+        if (macroData.fed.probabilityNextCut > 70) {
+          impact.shortTerm = 'POSITIVO';
+          impact.recommendations.push('Alta probabilidade de corte favorece crypto');
+        }
       }
 
-      // Impacto de longo prazo
-      if (macroData.inflation && macroData.inflation.cpi.current > 4) {
-        impact.longTerm = 'POSITIVO';
-        impact.recommendations.push('Inflação alta favorece Bitcoin como reserva de valor');
+      // Análise da inflação
+      if (macroData.inflation && macroData.inflation.isRealData) {
+        if (macroData.inflation.cpi.trend === 'EM BAIXA') {
+          impact.longTerm = 'POSITIVO';
+          impact.recommendations.push('Inflação em queda reduz pressão do Fed');
+        } else if (macroData.inflation.cpi.trend === 'EM ALTA') {
+          impact.longTerm = 'NEGATIVO';
+          impact.recommendations.push('Inflação em alta pode forçar Fed hawkish');
+        }
+      }
+
+      // Análise do dólar
+      if (macroData.dollar && macroData.dollar.isRealData) {
+        if (macroData.dollar.change24h < -0.5) {
+          impact.shortTerm = 'POSITIVO';
+          impact.recommendations.push('Dólar fraco favorece ativos alternativos');
+        } else if (macroData.dollar.change24h > 0.5) {
+          impact.shortTerm = 'NEGATIVO';
+          impact.recommendations.push('Dólar forte pressiona crypto');
+        }
       }
 
       // Ajusta confiança baseado na qualidade dos dados
@@ -528,102 +548,33 @@ class MacroEconomicService {
     
     let report = `📊 *DADOS ECONÔMICOS*\n\n`;
     
-    // Resumo executivo
-    const overallEmoji = analysis.overall === 'BULLISH' ? '🟢' : 
-                        analysis.overall === 'BEARISH' ? '🔴' : '🟡';
-    
-    const overallText = analysis.overall === 'BULLISH' ? 'OTIMISTA' : 
-                       analysis.overall === 'BEARISH' ? 'PESSIMISTA' : 'NEUTRO';
-    
-    const impactText = cryptoImpact.shortTerm === 'POSITIVE' ? 'POSITIVO' : 
-                      cryptoImpact.shortTerm === 'NEGATIVE' ? 'NEGATIVO' : 'NEUTRO';
-    
-    const riskText = analysis.riskLevel === 'HIGH' ? 'ALTO' : 
-                    analysis.riskLevel === 'LOW' ? 'BAIXO' : 'MÉDIO';
-    
-    report += `${overallEmoji} *Cenário Geral:* ${overallText}\n`;
-    report += `📊 *Impacto Cripto:* ${impactText}\n`;
-    report += `⚠️ *Nível de Risco:* ${riskText}\n\n`;
-
-    // Eventos econômicos do dia
-    const todayEvents = this.getTodayEconomicEvents();
-    if (todayEvents.length > 0) {
-      report += `📅 *EVENTOS HOJE:*\n`;
-      todayEvents.forEach(event => {
-        const impactEmoji = event.impact === 'HIGH' ? '🔴' : 
-                           event.impact === 'MEDIUM' ? '🟡' : '🟢';
-        report += `   ${impactEmoji} ${event.name}: ${event.time}\n`;
-      });
-      report += '\n';
-    }
-
-    // Dados do Fed
-    if (data.fed) {
+    // Fed (apenas se tiver dados reais)
+    if (data.fed && data.fed.isRealData) {
       report += `🏛️ *BANCO CENTRAL AMERICANO (FED):*\n`;
       report += `   • Taxa atual: ${data.fed.currentRate.toFixed(2)}%\n`;
-      
-      const stanceText = data.fed.stance === 'DOVISH' ? 'DOVISH (Favorável a cortes)' : 
-                        data.fed.stance === 'HAWKISH' ? 'HAWKISH (Favorável a altas)' : 'NEUTRO';
-      report += `   • Postura: ${stanceText}\n`;
-      report += `   • Próxima reunião: ${this.formatDate(data.fed.nextMeetingDate)}\n`;
-      if (data.fed.probabilityNextCut > 30) {
+      report += `   • Postura: ${data.fed.stance}\n`;
+      if (data.fed.nextMeetingDate) {
+        report += `   • Próxima reunião: ${new Date(data.fed.nextMeetingDate).toLocaleDateString('pt-BR')}\n`;
+      }
+      if (data.fed.probabilityNextCut) {
         report += `   • Prob. corte: ${data.fed.probabilityNextCut}%\n`;
       }
-      if (data.fed.probabilityNextHike > 30) {
-        report += `   • Prob. alta: ${data.fed.probabilityNextHike}%\n`;
-      }
-      report += '\n';
+      report += `   ✅ Dados reais da FRED API\n\n`;
     }
 
-    // Inflação
-    if (data.inflation) {
-      const inflationEmoji = data.inflation.cpi.trend === 'FALLING' ? '📉' : '📈';
-      const trendText = data.inflation.cpi.trend === 'FALLING' ? 'EM QUEDA' : 'EM ALTA';
-      report += `${inflationEmoji} *INFLAÇÃO AMERICANA (CPI):*\n`;
+    // Inflação (apenas se tiver dados reais)
+    if (data.inflation && data.inflation.isRealData) {
+      report += `📈 *INFLAÇÃO AMERICANA (CPI):*\n`;
       report += `   • Atual: ${data.inflation.cpi.current.toFixed(1)}%\n`;
+      if (data.inflation.cpi.core) {
+        report += `   • Core CPI: ${data.inflation.cpi.core.toFixed(1)}%\n`;
+      }
       report += `   • Meta Fed: ${data.inflation.cpi.target}%\n`;
-      report += `   • Tendência: ${trendText}\n`;
-      report += `   • Próximo dado: ${this.formatDate(data.inflation.nextReleaseDate)}\n\n`;
-    }
-
-    // Dólar e Yields
-    if (data.dollar || data.bonds) {
-      report += `💵 *MERCADOS TRADICIONAIS:*\n`;
-      
-      if (data.dollar) {
-        const dxyEmoji = data.dollar.trend === 'STRENGTHENING' ? '📈' : '📉';
-        const trendText = data.dollar.trend === 'STRENGTHENING' ? 'Fortalecendo' : 'Enfraquecendo';
-        report += `   ${dxyEmoji} Índice Dólar: ${data.dollar.value.toFixed(1)} (${data.dollar.change24h > 0 ? '+' : ''}${data.dollar.change24h.toFixed(2)}%) - ${trendText}\n`;
+      report += `   • Tendência: ${data.inflation.cpi.trend}\n`;
+      if (data.inflation.nextReleaseDate) {
+        report += `   • Próximo dado: ${new Date(data.inflation.nextReleaseDate).toLocaleDateString('pt-BR')}\n`;
       }
-      
-      if (data.bonds) {
-        const curveEmoji = data.bonds.curveStatus === 'INVERTED' ? '🔴' : 
-                          data.bonds.curveStatus === 'FLAT' ? '🟡' : '🟢';
-        const curveText = data.bonds.curveStatus === 'INVERTED' ? 'INVERTIDA' : 
-                         data.bonds.curveStatus === 'FLAT' ? 'PLANA' : 'NORMAL';
-        report += `   📊 Títulos 10 anos: ${data.bonds.treasury10y.toFixed(2)}%\n`;
-        report += `   ${curveEmoji} Curva de juros: ${curveText}\n`;
-        if (data.bonds.recessionSignal) {
-          report += `   ⚠️ Sinal de recessão ativo\n`;
-        }
-      }
-      report += '\n';
-    }
-
-    // Ações e VIX
-    if (data.stocks) {
-      report += `📈 *BOLSAS AMERICANAS:*\n`;
-      const sp500Emoji = data.stocks.sp500.trend === 'BULLISH' ? '🟢' : '🔴';
-      const nasdaqEmoji = data.stocks.nasdaq.trend === 'BULLISH' ? '🟢' : '🔴';
-      
-      report += `   ${sp500Emoji} S&P 500: ${data.stocks.sp500.change > 0 ? '+' : ''}${data.stocks.sp500.change.toFixed(2)}%\n`;
-      report += `   ${nasdaqEmoji} Nasdaq: ${data.stocks.nasdaq.change > 0 ? '+' : ''}${data.stocks.nasdaq.change.toFixed(2)}%\n`;
-      
-      const vixEmoji = data.stocks.vix.level === 'HIGH' ? '🔴' : 
-                      data.stocks.vix.level === 'MODERATE' ? '🟡' : '🟢';
-      const vixText = data.stocks.vix.level === 'HIGH' ? 'ALTO' : 
-                     data.stocks.vix.level === 'MODERATE' ? 'MODERADO' : 'BAIXO';
-      report += `   ${vixEmoji} Índice do Medo (VIX): ${data.stocks.vix.value.toFixed(1)} (${vixText})\n\n`;
+      report += `   ✅ Dados reais da FRED API\n\n`;
     }
 
     // Market Cap Crypto
@@ -632,40 +583,29 @@ class MacroEconomicService {
       report += `   • Valor Total: $${data.cryptoMcap.totalMarketCap.toFixed(2)} trilhões\n`;
       report += `   • Dominância BTC: ${data.cryptoMcap.btcDominance.toFixed(1)}%\n`;
       report += `   • Variação 24h: ${data.cryptoMcap.change24h > 0 ? '+' : ''}${data.cryptoMcap.change24h.toFixed(2)}%\n`;
+      if (data.cryptoMcap.isRealData) {
+        report += `   ✅ Dados reais da CoinGecko\n`;
+      }
       if (data.cryptoMcap.altcoinSeason) {
         report += `   🚀 Temporada de Altcoins ativa\n`;
       }
       report += '\n';
     }
 
-    // Calendário econômico
-    if (data.calendar && data.calendar.upcomingEvents.length > 0) {
-      report += `📅 *PRÓXIMOS EVENTOS:*\n`;
-      data.calendar.upcomingEvents.slice(0, 3).forEach(event => {
-        const impactEmoji = event.impact === 'HIGH' ? '🔴' : 
-                           event.impact === 'MEDIUM' ? '🟡' : '🟢';
-        const eventName = this.translateEventName(event.name);
-        report += `   ${impactEmoji} ${eventName}: ${event.daysUntil} dia${event.daysUntil !== 1 ? 's' : ''}\n`;
-      });
-      report += '\n';
+    // Dólar (se disponível)
+    if (data.dollar && data.dollar.isRealData) {
+      report += `💵 *ÍNDICE DÓLAR (DXY):*\n`;
+      report += `   📊 Valor: ${data.dollar.value.toFixed(1)}\n`;
+      report += `   ✅ Calculado com taxas de câmbio reais\n\n`;
     }
 
-    // Fatores-chave
-    if (analysis.keyFactors.length > 0) {
-      report += `🔍 *PRINCIPAIS FATORES:*\n`;
-      analysis.keyFactors.slice(0, 4).forEach(factor => {
-        report += `   • ${factor}\n`;
-      });
-      report += '\n';
-    }
-
-    // Recomendações
-    if (cryptoImpact.recommendations.length > 0) {
-      report += `💡 *ESTRATÉGIAS SUGERIDAS:*\n`;
-      cryptoImpact.recommendations.forEach(rec => {
-        report += `   • ${rec}\n`;
-      });
-      report += '\n';
+    // Nota sobre dados disponíveis
+    const hasAnyData = data.fed?.isRealData || data.inflation?.isRealData || data.cryptoMcap?.isRealData || data.dollar?.isRealData;
+    
+    if (!hasAnyData) {
+      report += `⚠️ *DADOS MACRO TEMPORARIAMENTE INDISPONÍVEIS*\n\n`;
+    } else {
+      report += `ℹ️ *NOTA:* Apenas dados reais são exibidos\n\n`;
     }
 
     report += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n`;

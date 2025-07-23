@@ -587,6 +587,7 @@ class TradingBotApp {
 
     // Análise de sentimento a cada 6 horas
     schedule.scheduleJob(SCHEDULE_CONFIG.MARKET_SENTIMENT, () => {
+      console.log('🌍 Executando análise de sentimento agendada...');
       this.analyzeMarketSentiment();
     });
 
@@ -1004,20 +1005,24 @@ class TradingBotApp {
    */
   async analyzeMarketSentiment() {
     try {
-      console.log('🌍 Analisando sentimento do mercado...');
+      console.log('🌍 [SENTIMENTO] Iniciando análise de sentimento do mercado...');
       
       const sentiment = await this.marketAnalysis.analyzeMarketSentiment();
       
       if (sentiment) {
+        console.log('📤 [SENTIMENTO] Enviando análise via Telegram...');
+        console.log(`📊 [SENTIMENTO] Dados: ${sentiment.overall}, F&G: ${sentiment.fearGreedIndex}, Volume: ${sentiment.totalVolume}`);
         await this.telegramBot.sendMarketSentiment(sentiment);
         
         // Verifica condições para alertas
         await this.alertSystem.checkMarketConditions(sentiment);
         
-        console.log('✅ Análise de sentimento enviada');
+        console.log('✅ [SENTIMENTO] Análise enviada com sucesso');
+      } else {
+        console.log('⚠️ [SENTIMENTO] Dados não obtidos - não enviando relatório');
       }
     } catch (error) {
-      console.error('Erro na análise de sentimento:', error.message);
+      console.error('❌ [SENTIMENTO] Erro na análise:', error.message);
     }
   }
 
