@@ -327,7 +327,7 @@ class TelegramBotService {
       }
     }
 
-    message += `\n⏰ ${new Date().toLocaleString('pt-BR')}`;
+    message += `\n⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
     message += `\n👑 Sinais Lobo Cripto`;
 
     return message;
@@ -422,7 +422,7 @@ class TelegramBotService {
         message += `• Volume: ${volumeRatio > 1.2 ? 'Alto 🟢' : volumeRatio < 0.8 ? 'Baixo 🔴' : 'Normal 🟡'}\n`;
       }
       
-      message += `\n⏱️ *Atualizado em:* ${new Date().toLocaleString('pt-BR')}\n\n`;
+      message += `\n⏱️ *Atualizado em:* ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n\n`;
      
       message += `👑 Sinais Lobo Cripto`;
 
@@ -491,7 +491,7 @@ class TelegramBotService {
         });
         message += '\n';
       }
-      message += `⏰ ${new Date().toLocaleString('pt-BR')}`;
+      message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
 
       await this.bot.sendMessage(this.chatId, message, {
         parse_mode: 'Markdown'
@@ -522,7 +522,7 @@ class TelegramBotService {
       message += `⏱️ *Timeframe:* ${timeframe}\n`;
       message += `🔥 *Movimento:* ${direction} ACENTUADA\n\n`;
       message += `⚠️ *Atenção para possíveis oportunidades de entrada!*\n\n`;
-      message += `⏰ ${new Date().toLocaleString('pt-BR')}`;
+      message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
 
       await this.bot.sendMessage(this.chatId, message, {
         parse_mode: 'Markdown'
@@ -580,16 +580,19 @@ class TelegramBotService {
         message += `⚠️ Recomendação: Proteja o capital movendo o stop\n`;
       } else if (targetNumber === 3) {
         message += `⚡️ Sugestão: Realizar lucro parcial de 15%\n`;
-        message += `📌 Mover stop loss para o Alvo 1\n`;
-        message += `⚠️ Recomendação: Garanta lucros movendo stop\n`;
+        message += `📌 Mover stop loss para o Alvo 2\n`;
+        message += `⚠️ Recomendação: Garanta lucros movendo stop para TP2\n`;
       } else if (targetNumber === 4) {
         message += `⚡️ Sugestão: Realizar lucro parcial de 10%\n`;
-        message += `📌 Mover stop loss para o Alvo 2\n`;
+        message += `📌 Mover stop loss para o Alvo 3\n`;
+        message += `⚠️ Recomendação: Proteja lucros movendo stop para TP3\n`;
       } else if (targetNumber === 5) {
         message += `⚡️ Sugestão: Realizar lucro parcial de 10%\n`;
-        message += `📌 Mover stop loss para o Alvo 3\n`;
+        message += `📌 Mover stop loss para o Alvo 4\n`;
+        message += `⚠️ Recomendação: Maximize lucros movendo stop para TP4\n`;
       } else if (targetNumber === 6) {
-        message += `🎉 Encerrar operação com lucro máximo!\n`;
+        message += `🎉 LUCRO MÁXIMO ALCANÇADO!\n`;
+        message += `🏆 Recomendação: Encerrar operação com todos os alvos atingidos\n`;
         message += `🏆 Parabéns! Todos os alvos atingidos\n`;
       }
       
@@ -642,6 +645,17 @@ class TelegramBotService {
       let message = `🛑 *STOP LOSS ATINGIDO #${symbolName}*\n\n`;
       message += `🔴 Stop loss atingido no par #${symbolName}\n`;
       message += `📉 Perda: -${lossPercent.toFixed(2)}% (Alv. 15×)\n`;
+      
+      // Contexto específico do stop loss
+      const monitor = this.activeMonitors.get(symbol);
+      if (monitor) {
+        if (monitor.targetIndex === 0) {
+          message += `❌ Nenhum alvo foi atingido\n`;
+        } else if (monitor.targetIndex <= 1) {
+          message += `⚠️ Apenas TP1 foi atingido - voltou para stop inicial\n`;
+        }
+      }
+      
       message += `📊 Preço de entrada: $${formatPrice(entryPrice)}\n`;
       message += `🛑 Preço do stop: $${formatPrice(stopLossLevel)}\n`;
       message += `💵 Preço atual: $${formatPrice(currentPrice)}\n`;
@@ -691,22 +705,44 @@ class TelegramBotService {
       
       // Determina o tipo de stop
       let stopDescription = '';
+      let stopMessage = '';
       if (stopType === 'BREAKEVEN') {
-        stopDescription = 'Stop Loss em Breakeven';
+        stopDescription = 'Stop de Lucro em Breakeven';
+        stopMessage = '📌 Stop de lucro atingido no ponto de entrada (TP2+ atingidos)';
+      } else if (stopType === 'TARGET_2') {
+        stopDescription = 'Stop Loss no Alvo 2';
+        stopMessage = '📌 Stop loss atingido no Alvo 2 - lucros protegidos';
+      } else if (stopType === 'TARGET_3') {
+        stopDescription = 'Stop Loss no Alvo 3';
+        stopMessage = '📌 Stop loss atingido no Alvo 3 - excelente resultado';
+      } else if (stopType === 'TARGET_4') {
+        stopDescription = 'Stop Loss no Alvo 4';
+        stopMessage = '📌 Stop loss atingido no Alvo 4 - resultado excepcional';
       } else if (stopType.startsWith('TARGET_')) {
         const targetNum = stopType.replace('TARGET_', '');
         stopDescription = `Stop Loss no Alvo ${targetNum}`;
+        stopMessage = `📌 Stop loss atingido no Alvo ${targetNum}`;
       }
       
       let message = `✅ *STOP DE LUCRO ATINGIDO #${symbolName}*\n\n`;
       message += `🟢 Stop de lucro atingido no par #${symbolName}\n`;
       message += `💰 Lucro: +${profitPercent.toFixed(2)}% (Alv. 15×)\n`;
+      message += `${stopMessage}\n`;
       message += `📊 Preço de entrada: $${formatPrice(entryPrice)}\n`;
       message += `✅ Preço do stop: $${formatPrice(stopLevel)}\n`;
       message += `💵 Preço atual: $${formatPrice(currentPrice)}\n`;
-      message += `📌 ${stopDescription}\n`;
       message += `⏱️ Duração do trade: ${timeElapsed}\n\n`;
-      message += `🎯 *Gestão de lucro ativada - Lucros protegidos*\n\n`;
+      
+      // Mensagem específica por tipo de stop
+      const monitor = this.activeMonitors.get(symbol);
+      if (stopType === 'BREAKEVEN') {
+        message += `🛡️ *Capital protegido após TP2+ - Operação sem risco*\n`;
+        message += `✅ Lucros de múltiplos alvos garantidos!\n\n`;
+      } else {
+        message += `🎯 *Gestão de lucro ativada - Lucros garantidos*\n`;
+        message += `✅ Excelente disciplina de trading!\n\n`;
+      }
+      
       message += `👑 Sinais Lobo Cripto`;
 
       await this.bot.sendMessage(this.chatId, message, {
@@ -732,12 +768,26 @@ class TelegramBotService {
       const symbolName = symbol.split('/')[0];
       const timeElapsed = this.calculateTimeElapsed(signalTime);
       
+      // Calcula lucro total (aproximado para TP6)
+      const monitor = this.activeMonitors.get(symbol);
+      let totalProfitPercent = 135; // 9% * 15x = 135% (aproximado para TP6)
+      
+      if (monitor) {
+        const lastTarget = monitor.targets[monitor.targets.length - 1];
+        const entryPrice = monitor.entry;
+        const priceChangePercent = ((lastTarget - entryPrice) / entryPrice) * 100;
+        totalProfitPercent = priceChangePercent * 15; // Alavancagem 15x
+      }
+      
       let message = `🏆 *OPERAÇÃO COMPLETA #${symbolName}*\n\n`;
-      message += `🎉 Todos os 6 alvos atingidos no par #${symbolName}\n`;
-      message += `💰 Lucro máximo alcançado!\n`;
+      message += `🎉 TODOS OS 6 ALVOS ATINGIDOS! 🎉\n`;
+      message += `💰 Lucro máximo: +${totalProfitPercent.toFixed(2)}% (Alv. 15×)\n`;
       message += `🎯 Performance: 6/6 alvos (100%)\n`;
       message += `⏱️ Duração total: ${timeElapsed}\n\n`;
-      message += `🏅 Parabéns pela disciplina e gestão de risco!\n\n`;
+      message += `🏅 *RESULTADO PERFEITO!*\n`;
+      message += `✅ Disciplina exemplar na gestão de risco\n`;
+      message += `🚀 Operação executada com precisão máxima\n`;
+      message += `💎 Parabéns por seguir o plano até o fim!\n\n`;
       message += `👑 Sinais Lobo Cripto`;
 
       await this.bot.sendMessage(this.chatId, message, {
@@ -864,6 +914,7 @@ class TelegramBotService {
         : currentPrice >= monitor.currentStopLevel; // VENDA: stop acima
         
       if (stopHit) {
+        // STOP LOSS: Quando é stop inicial OU quando só atingiu TP1 e voltou para stop inicial
         if (monitor.stopType === 'INITIAL') {
           console.log(`🛑 STOP LOSS atingido para ${symbol}: ${currentPrice}`);
           await this.sendStopLossHit(symbol, monitor.currentStopLevel, currentPrice, monitor.signalTime);
@@ -879,7 +930,44 @@ class TelegramBotService {
             const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
             monitor.adaptiveScoring.recordTradeResult(symbol, monitor.indicators, false, finalPnL);
           }
+        } else if (monitor.stopType === 'BREAKEVEN') {
+          // BREAKEVEN: Pode ser stop loss (só TP1) ou stop de lucro (TP2+)
+          if (monitor.targetIndex <= 1) {
+            // Só atingiu TP1 - ainda é STOP LOSS
+            console.log(`🛑 STOP LOSS atingido para ${symbol}: ${currentPrice} (só TP1 atingido)`);
+            await this.sendStopLossHit(symbol, monitor.currentStopLevel, currentPrice, monitor.signalTime);
+            
+            // Registra resultado no performance tracker
+            if (app && app.performanceTracker) {
+              const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
+              app.performanceTracker.updateSignalResult(symbol, monitor.targetIndex, finalPnL, 'STOP_LOSS');
+            }
+            
+            // Registra resultado negativo no sistema adaptativo
+            if (monitor.adaptiveScoring && monitor.indicators) {
+              const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
+              monitor.adaptiveScoring.recordTradeResult(symbol, monitor.indicators, false, finalPnL);
+            }
+          } else {
+            // TP2+ atingidos - é STOP DE LUCRO
+            console.log(`✅ STOP DE LUCRO atingido para ${symbol}: ${currentPrice} (TP2+ atingidos)`);
+            await this.sendProfitStopHit(symbol, monitor.currentStopLevel, currentPrice, monitor.stopType, monitor.signalTime);
+            
+            // Registra resultado no performance tracker
+            if (app && app.performanceTracker) {
+              const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
+              const targetsHit = monitor.targetIndex;
+              app.performanceTracker.updateSignalResult(symbol, targetsHit, finalPnL, monitor.stopType);
+            }
+            
+            // Registra resultado positivo no sistema adaptativo
+            if (monitor.adaptiveScoring && monitor.indicators) {
+              const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
+              monitor.adaptiveScoring.recordTradeResult(symbol, monitor.indicators, true, finalPnL);
+            }
+          }
         } else {
+          // STOP DE LUCRO: Quando stop foi movido para TP2, TP3, TP4 (TARGET_2, TARGET_3, TARGET_4)
           console.log(`✅ STOP DE LUCRO atingido para ${symbol}: ${currentPrice}`);
           await this.sendProfitStopHit(symbol, monitor.currentStopLevel, currentPrice, monitor.stopType, monitor.signalTime);
           
@@ -920,15 +1008,26 @@ class TelegramBotService {
           
           // 📌 GERENCIAMENTO AUTOMÁTICO DE STOP
           if (monitor.targetIndex === 2) {
-            // Para COMPRA: stop no breakeven, para VENDA: stop no breakeven
+            // TP2 atingido: move stop para entrada (breakeven)
+            // AGORA é STOP DE LUCRO se voltar (TP2 já foi atingido)
             monitor.currentStopLevel = monitor.entry;
             monitor.stopType = 'BREAKEVEN';
             console.log(`📌 Stop movido para BREAKEVEN: ${monitor.entry}`);
-          } else if (monitor.targetIndex > 2) {
-            // Move stop para alvo anterior
-            monitor.currentStopLevel = monitor.targets[monitor.targetIndex - 2];
-            monitor.stopType = `TARGET_${monitor.targetIndex - 1}`;
-            console.log(`📌 Stop movido para TP${monitor.targetIndex - 1}: ${monitor.currentStopLevel}`);
+          } else if (monitor.targetIndex === 3) {
+            // TP3 atingido: move stop para TP2
+            monitor.currentStopLevel = monitor.targets[1]; // TP2 (índice 1)
+            monitor.stopType = 'TARGET_2';
+            console.log(`📌 Stop movido para TP2: ${monitor.currentStopLevel}`);
+          } else if (monitor.targetIndex === 4) {
+            // TP4 atingido: move stop para TP3
+            monitor.currentStopLevel = monitor.targets[2]; // TP3 (índice 2)
+            monitor.stopType = 'TARGET_3';
+            console.log(`📌 Stop movido para TP3: ${monitor.currentStopLevel}`);
+          } else if (monitor.targetIndex === 5) {
+            // TP5 atingido: move stop para TP4
+            monitor.currentStopLevel = monitor.targets[3]; // TP4 (índice 3)
+            monitor.stopType = 'TARGET_4';
+            console.log(`📌 Stop movido para TP4: ${monitor.currentStopLevel}`);
           }
           
           // Se todos os alvos foram atingidos, para o monitoramento

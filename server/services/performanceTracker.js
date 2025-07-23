@@ -28,6 +28,7 @@ class PerformanceTrackerService {
       targets: signal.targets,
       stopLoss: signal.stopLoss,
       probability: signal.probability,
+      totalScore: signal.totalScore,
       trend: signal.trend,
       isMLDriven: signal.isMLDriven,
       timeframe: signal.timeframe,
@@ -413,7 +414,17 @@ class PerformanceTrackerService {
         signals: stats.mlSignals,
         winRate: parseFloat(mlWinRate)
       },
-      recentSignals: this.signals.slice(-10)
+      recentSignals: this.signals.slice(-10).map(signal => ({
+        symbol: signal.symbol,
+        probability: signal.probability || signal.totalScore || 0,
+        totalScore: signal.totalScore || signal.probability || 0,
+        trend: signal.trend || 'NEUTRAL',
+        entry: signal.entry || 0,
+        timestamp: signal.timestamp,
+        isMLDriven: signal.isMLDriven || false,
+        timeframe: signal.timeframe || '1h',
+        status: signal.status || 'ACTIVE'
+      }))
     };
   }
 

@@ -668,7 +668,7 @@ class MacroEconomicService {
       report += '\n';
     }
 
-    report += `⏰ ${new Date().toLocaleString('pt-BR')}\n`;
+    report += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n`;
     report += `👑 Bot Lobo Cripto`;
 
     return report;

@@ -46,7 +46,7 @@ class MarketAnalysisService {
       
       const sentiment = this.calculateSentiment(marketOverview, fearGreedData);
 
-      return {
+      const result = {
         overall: sentiment.overall,
         fearGreedIndex: sentiment.fearGreedIndex,
         fearGreedLabel: sentiment.fearGreedLabel,
@@ -68,9 +68,43 @@ class MarketAnalysisService {
           isRealData: marketOverview.isRealData || false
         }
       };
+      
+      console.log('📊 Sentimento calculado:', {
+        overall: result.overall,
+        fearGreedIndex: result.fearGreedIndex,
+        totalVolume: result.totalVolume,
+        assetsUp: result.assetsUp,
+        assetsDown: result.assetsDown
+      });
+      
+      return result;
     } catch (error) {
       console.error('Erro na análise de sentimento:', error.message);
-      return null;
+      console.error('Stack trace:', error.stack);
+      
+      // Retorna dados de fallback ao invés de null
+      return {
+        overall: 'NEUTRO',
+        fearGreedIndex: 50,
+        fearGreedLabel: 'Neutro',
+        isRealFearGreed: false,
+        totalVolume: 0,
+        volatility: 0,
+        assetsUp: 0,
+        assetsDown: 0,
+        volumeVsAverage: 1,
+        topMovers: [],
+        analysis: ['Erro ao analisar sentimento do mercado'],
+        socialSentiment: null,
+        altcoinSeason: null,
+        cryptoMarketCap: {
+          totalMarketCap: 0,
+          btcDominance: 50,
+          change24h: 0,
+          altcoinSeason: false,
+          isRealData: false
+        }
+      };
     }
   }
 

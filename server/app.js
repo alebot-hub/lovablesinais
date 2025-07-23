@@ -323,7 +323,18 @@ class TradingBotApp {
     this.app.get('/api/signals/latest', (req, res) => {
       console.log('🎯 API Signals chamada');
       const performanceData = this.performanceTracker.generatePerformanceReport();
-      res.json(performanceData.recentSignals || []);
+      
+      // Formata sinais para o dashboard
+      const formattedSignals = (performanceData.recentSignals || []).map(signal => ({
+        symbol: signal.symbol,
+        score: signal.probability || signal.totalScore || 0,
+        trend: signal.trend || 'NEUTRAL',
+        entry: signal.entry || 0,
+        timestamp: signal.timestamp || new Date().toISOString()
+      }));
+      
+      console.log(`📊 Retornando ${formattedSignals.length} sinais formatados`);
+      res.json(formattedSignals);
     });
 
     // Sentimento do mercado
@@ -331,11 +342,40 @@ class TradingBotApp {
       console.log('🌍 API Market Sentiment chamada');
       try {
         const sentiment = await this.marketAnalysis.analyzeMarketSentiment();
-        console.log('✅ Sentimento obtido:', sentiment ? 'OK' : 'NULL');
+        console.log('✅ Sentimento obtido:', sentiment ? `${sentiment.overall} (${sentiment.fearGreedIndex})` : 'NULL');
+        
+        if (!sentiment) {
+          // Retorna dados de fallback se análise falhar
+          return res.json({
+            overall: 'NEUTRO',
+            fearGreedIndex: 50,
+            fearGreedLabel: 'Neutro',
+            totalVolume: 0,
+            volatility: 0,
+            assetsUp: 0,
+            assetsDown: 0,
+            volumeVsAverage: 1,
+            analysis: ['Dados temporariamente indisponíveis'],
+            isRealFearGreed: false
+          });
+        }
+        
         res.json(sentiment);
       } catch (error) {
         console.error('Erro ao obter sentimento:', error.message);
-        res.status(500).json({ error: 'Erro interno do servidor' });
+        // Retorna dados de fallback ao invés de erro 500
+        res.json({
+          overall: 'NEUTRO',
+          fearGreedIndex: 50,
+          fearGreedLabel: 'Neutro',
+          totalVolume: 0,
+          volatility: 0,
+          assetsUp: 0,
+          assetsDown: 0,
+          volumeVsAverage: 1,
+          analysis: ['Erro ao obter dados de sentimento'],
+          isRealFearGreed: false
+        });
       }
     });
 
@@ -389,11 +429,26 @@ class TradingBotApp {
       console.log('🔥 API Volatility chamada');
       try {
         const alerts = await this.marketAnalysis.detectHighVolatility();
-        console.log('✅ Alertas obtidos:', alerts ? alerts.length : 0);
+        console.log('✅ Alertas obtidos:', alerts ? `${alerts.length} alertas` : 'NULL');
+        
+        if (!alerts) {
+          return res.json([]);
+        }
+        
+        // Formata alertas para o dashboard
+        const formattedAlerts = alerts.map(alert => ({
+          symbol: alert.symbol,
+          change: alert.change || 0,
+          currentPrice: alert.currentPrice || 0,
+          timeframe: alert.timeframe || '15m',
+          timestamp: alert.timestamp || new Date()
+        }));
+        
         res.json(alerts);
       } catch (error) {
         console.error('Erro ao obter alertas:', error.message);
-        res.status(500).json({ error: 'Erro interno do servidor' });
+        // Retorna array vazio ao invés de erro 500
+        res.json([]);
       }
     });
 

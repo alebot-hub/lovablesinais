@@ -14,6 +14,19 @@ interface SignalCardProps {
 }
 
 const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
+  // Garante que score é um número válido
+  const safeScore = typeof signal.score === 'number' && !isNaN(signal.score) ? signal.score : 0;
+  const safeEntry = typeof signal.entry === 'number' && !isNaN(signal.entry) ? signal.entry : 0;
+  
+  console.log('🎯 SignalCard renderizando:', {
+    symbol: signal.symbol,
+    score: signal.score,
+    safeScore: safeScore,
+    entry: signal.entry,
+    safeEntry: safeEntry,
+    trend: signal.trend
+  });
+  
   const getTrendIcon = (trend: string) => {
     switch (trend) {
       case 'BULLISH':
@@ -37,7 +50,6 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
   };
 
   const getScoreColor = (score: number) => {
-    const safeScore = score || 0;
     if (safeScore >= 80) return 'text-green-600 bg-green-50';
     if (safeScore >= 70) return 'text-yellow-600 bg-yellow-50';
     return 'text-red-600 bg-red-50';
@@ -73,7 +85,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
         </div>
 
         <div className={`px-3 py-1 rounded-full text-sm font-medium ${getScoreColor(signal.score)}`}>
-          {(signal.score || 0).toFixed(1)}%
+          {safeScore.toFixed(1)}%
         </div>
       </div>
 
@@ -84,7 +96,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
             <span className="text-sm text-gray-600">Entrada</span>
           </div>
           <p className="text-lg font-semibold text-gray-900">
-            ${(signal.entry || 0).toFixed(4)}
+            ${safeEntry.toFixed(4)}
           </p>
         </div>
 
@@ -106,13 +118,13 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
             <div className="w-20 bg-gray-200 rounded-full h-2">
               <div 
                 className={`h-2 rounded-full ${
-                  (signal.score || 0) >= 80 ? 'bg-green-500' : 
-                  (signal.score || 0) >= 70 ? 'bg-yellow-500' : 'bg-red-500'
+                  safeScore >= 80 ? 'bg-green-500' : 
+                  safeScore >= 70 ? 'bg-yellow-500' : 'bg-red-500'
                 }`}
-                style={{ width: `${signal.score || 0}%` }}
+                style={{ width: `${safeScore}%` }}
               />
             </div>
-            <span className="font-medium text-gray-900">{(signal.score || 0).toFixed(0)}%</span>
+            <span className="font-medium text-gray-900">{safeScore.toFixed(0)}%</span>
           </div>
         </div>
       </div>

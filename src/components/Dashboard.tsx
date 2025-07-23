@@ -73,7 +73,8 @@ const Dashboard: React.FC = () => {
 
       if (signalsRes.ok) {
         const signalsData = await signalsRes.json();
-        console.log('✅ Sinais obtidos:', signalsData);
+        console.log('✅ Sinais obtidos:', signalsData.length, 'sinais');
+        console.log('📊 Primeiro sinal:', signalsData[0]);
         setSignals(Array.isArray(signalsData) ? signalsData : []);
       } else {
         console.error('❌ Erro nos sinais:', signalsRes.status, signalsRes.statusText);
