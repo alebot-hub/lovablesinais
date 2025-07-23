@@ -81,6 +81,9 @@ class TelegramBotService {
     // Adiciona identificação de ML se aplicável
     const mlIndicator = isMLDriven ? ' 🤖 *ML*' : '';
     
+    // Adiciona identificação de contra-tendência se aplicável
+    const counterTrendIndicator = (details && details.trendAdjustment && details.trendAdjustment.isCounterTrend) ? ' ⚠️ *REVERSÃO*' : '';
+    
     // Função para formatar preços com precisão adequada
     const formatPrice = (price) => {
       // Moedas principais: apenas 2 casas decimais
@@ -93,7 +96,7 @@ class TelegramBotService {
       return price.toFixed(8);
     };
     
-    let message = `🚨 *SINAL LOBO #${symbolName}*${mlIndicator} ${directionEmoji} *${direction}* (Futures)\n\n`;
+    let message = `🚨 *SINAL LOBO #${symbolName}*${mlIndicator}${counterTrendIndicator} ${directionEmoji} *${direction}* (Futures)\n\n`;
     message += `💰 #${symbolName} Futures\n`;
     message += `📊 TEMPO GRÁFICO: ${timeframe || '1h'}\n`;
     message += `📈 Alavancagem sugerida: 15x\n`;
@@ -101,6 +104,11 @@ class TelegramBotService {
     // Se for ML-driven, adiciona informação especial
     if (isMLDriven) {
       message += `🤖 *Sinal gerado por Machine Learning*\n`;
+    }
+    
+    // Se for contra-tendência, adiciona aviso especial
+    if (details && details.trendAdjustment && details.trendAdjustment.isCounterTrend) {
+      message += `⚠️ *Sinal contra-tendência aprovado*\n`;
     }
     
     message += `🎯 Probabilidade: ${Math.round(probability)}/100\n`;

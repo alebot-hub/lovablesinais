@@ -60,12 +60,14 @@ export const TRADING_CONFIG = {
   
   // Configurações específicas para sinais contra-tendência
   COUNTER_TREND: {
-    MIN_REVERSAL_STRENGTH: 85, // Força mínima para aceitar contra-tendência
-    EXTREME_REVERSAL_THRESHOLD: 90, // Threshold para reversão extrema
-    PENALTY_WEAK_REVERSAL: 0.6, // Penalidade para reversões fracas (40% redução)
-    BONUS_STRONG_REVERSAL: 1.10, // Bônus para reversões fortes (10% aumento)
-    BONUS_EXTREME_REVERSAL: 1.20, // Bônus para reversões extremas (20% aumento)
-    SIDEWAYS_BREAKOUT_BONUS: 1.25 // Bônus para breakouts em mercado lateral
+    MIN_REVERSAL_STRENGTH: 95, // Força MUITO alta para aceitar contra-tendência
+    EXTREME_REVERSAL_THRESHOLD: 98, // Threshold para reversão EXTREMA
+    PENALTY_WEAK_REVERSAL: 0.3, // Penalidade severa para reversões fracas (70% redução)
+    BONUS_STRONG_REVERSAL: 1.05, // Bônus pequeno para reversões fortes (5% aumento)
+    BONUS_EXTREME_REVERSAL: 1.10, // Bônus moderado para reversões extremas (10% aumento)
+    SIDEWAYS_BREAKOUT_BONUS: 1.25, // Bônus para breakouts em mercado lateral
+    MAX_COUNTER_TREND_PER_DAY: 1, // Máximo 1 sinal contra-tendência por dia
+    COUNTER_TREND_COOLDOWN: 6 * 60 * 60 * 1000 // 6 horas entre sinais contra-tendência
   }
 };
 

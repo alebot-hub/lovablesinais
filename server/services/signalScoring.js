@@ -395,57 +395,123 @@ class SignalScoringService {
     const effectiveTrend = marketTrend || this.detectLocalTrend(indicators);
     details.effectiveTrend = effectiveTrend;
 
+    // Verifica limites de sinais contra-tendência (se adaptiveScoring disponível)
+    const now = Date.now();
+    const isCounterTrend = (effectiveTrend === 'BULLISH' && signalTrend === 'BEARISH') ||
+                          (effectiveTrend === 'BEARISH' && signalTrend === 'BULLISH');
+    
+    if (isCounterTrend && this.adaptiveScoring) {
+      // Verifica limite diário
+      if (this.adaptiveScoring.counterTrendToday >= TRADING_CONFIG.COUNTER_TREND.MAX_COUNTER_TREND_PER_DAY) {
+        adjustedScore *= 0.1; // Reduz drasticamente (90% redução)
+        details.adjustment = -90;
+        details.reason = 'Limite diário de sinais contra-tendência atingido';
+        details.counterTrendBlocked = true;
+        return { adjustedScore, details };
+      }
+      
+      // Verifica cooldown
+      if (now - this.adaptiveScoring.lastCounterTrendTime < TRADING_CONFIG.COUNTER_TREND.COUNTER_TREND_COOLDOWN) {
+        const remainingHours = Math.ceil((TRADING_CONFIG.COUNTER_TREND.COUNTER_TREND_COOLDOWN - (now - this.adaptiveScoring.lastCounterTrendTime)) / (60 * 60 * 1000));
+        adjustedScore *= 0.2; // Reduz drasticamente (80% redução)
+        details.adjustment = -80;
+        details.reason = `Cooldown contra-tendência ativo (${remainingHours}h restantes)`;
+        details.counterTrendCooldown = true;
+        return { adjustedScore, details };
+      }
+    }
+
     // LÓGICA DE PRIORIZAÇÃO
     if (effectiveTrend === 'BULLISH') {
       if (signalTrend === 'BULLISH') {
-        // Tendência de alta + sinal de compra = PRIORIDADE
-        adjustedScore *= 1.15; // +15% bonus
-        details.adjustment = 15;
-        details.reason = 'Sinal alinhado com tendência de alta';
+        // Tendência de alta + sinal de compra = PRIORIDADE MÁXIMA
+        adjustedScore *= 1.20; // +20% bonus (aumentado)
+        details.adjustment = 20;
+        details.reason = 'COMPRA alinhada com tendência de alta - PRIORIDADE';
       } else if (signalTrend === 'BEARISH') {
-        // Tendência de alta + sinal de venda = EXCEÇÃO (precisa ser muito forte)
+        // Tendência de alta + sinal de venda = EXCEÇÃO RARA (precisa ser EXTREMAMENTE forte)
         const reversalStrength = this.calculateReversalStrength(indicators, patterns);
-        if (reversalStrength < 85) {
-          adjustedScore *= 0.6; // -40% penalidade
-          details.adjustment = -40;
-          details.reason = 'Sinal contra tendência - padrão de reversão fraco';
-        } else if (reversalStrength >= 90) {
-          adjustedScore *= 1.20; // +20% se reversão extremamente forte
-          details.adjustment = 20;
-          details.reason = 'Padrão de reversão extremamente forte detectado';
-        } else {
-          adjustedScore *= 1.10; // +10% se reversão muito forte
+        console.log(`⚠️ Sinal VENDA em tendência de ALTA - Força de reversão: ${reversalStrength}/100`);
+        
+        if (reversalStrength < TRADING_CONFIG.COUNTER_TREND.MIN_REVERSAL_STRENGTH) {
+          adjustedScore *= TRADING_CONFIG.COUNTER_TREND.PENALTY_WEAK_REVERSAL;
+          details.adjustment = -70;
+          details.reason = 'VENDA contra tendência de ALTA - padrão de reversão INSUFICIENTE';
+        } else if (reversalStrength >= TRADING_CONFIG.COUNTER_TREND.EXTREME_REVERSAL_THRESHOLD) {
+          adjustedScore *= TRADING_CONFIG.COUNTER_TREND.BONUS_EXTREME_REVERSAL;
           details.adjustment = 10;
-          details.reason = 'Padrão de reversão muito forte detectado';
+          details.reason = 'VENDA contra tendência - padrão de reversão HISTORICAMENTE forte';
+          details.isCounterTrend = true;
+          details.reversalStrength = reversalStrength;
+          
+          // Registra uso de sinal contra-tendência
+          if (this.adaptiveScoring) {
+            this.adaptiveScoring.counterTrendToday++;
+            this.adaptiveScoring.lastCounterTrendTime = now;
+            console.log(`📊 Sinal contra-tendência aprovado: ${this.adaptiveScoring.counterTrendToday}/${TRADING_CONFIG.COUNTER_TREND.MAX_COUNTER_TREND_PER_DAY} hoje`);
+          }
+        } else {
+          adjustedScore *= TRADING_CONFIG.COUNTER_TREND.BONUS_STRONG_REVERSAL;
+          details.adjustment = 5;
+          details.reason = 'VENDA contra tendência - padrão de reversão forte detectado';
+          details.isCounterTrend = true;
+          details.reversalStrength = reversalStrength;
+          
+          // Registra uso de sinal contra-tendência
+          if (this.adaptiveScoring) {
+            this.adaptiveScoring.counterTrendToday++;
+            this.adaptiveScoring.lastCounterTrendTime = now;
+            console.log(`📊 Sinal contra-tendência aprovado: ${this.adaptiveScoring.counterTrendToday}/${TRADING_CONFIG.COUNTER_TREND.MAX_COUNTER_TREND_PER_DAY} hoje`);
+          }
         }
       }
     } else if (effectiveTrend === 'BEARISH') {
       if (signalTrend === 'BEARISH') {
-        // Tendência de baixa + sinal de venda = PRIORIDADE
-        adjustedScore *= 1.15; // +15% bonus
-        details.adjustment = 15;
-        details.reason = 'Sinal alinhado com tendência de baixa';
+        // Tendência de baixa + sinal de venda = PRIORIDADE MÁXIMA
+        adjustedScore *= 1.20; // +20% bonus (aumentado)
+        details.adjustment = 20;
+        details.reason = 'VENDA alinhada com tendência de baixa - PRIORIDADE';
       } else if (signalTrend === 'BULLISH') {
-        // Tendência de baixa + sinal de compra = EXCEÇÃO (precisa ser muito forte)
+        // Tendência de baixa + sinal de compra = EXCEÇÃO RARA (precisa ser EXTREMAMENTE forte)
         const reversalStrength = this.calculateReversalStrength(indicators, patterns);
-        if (reversalStrength < 85) {
-          adjustedScore *= 0.6; // -40% penalidade
-          details.adjustment = -40;
-          details.reason = 'Sinal contra tendência - padrão de reversão fraco';
-        } else if (reversalStrength >= 90) {
-          adjustedScore *= 1.20; // +20% se reversão extremamente forte
-          details.adjustment = 20;
-          details.reason = 'Padrão de reversão extremamente forte detectado';
-        } else {
-          adjustedScore *= 1.10; // +10% se reversão muito forte
+        console.log(`⚠️ Sinal COMPRA em tendência de BAIXA - Força de reversão: ${reversalStrength}/100`);
+        
+        if (reversalStrength < TRADING_CONFIG.COUNTER_TREND.MIN_REVERSAL_STRENGTH) {
+          adjustedScore *= TRADING_CONFIG.COUNTER_TREND.PENALTY_WEAK_REVERSAL;
+          details.adjustment = -70;
+          details.reason = 'COMPRA contra tendência de BAIXA - padrão de reversão INSUFICIENTE';
+        } else if (reversalStrength >= TRADING_CONFIG.COUNTER_TREND.EXTREME_REVERSAL_THRESHOLD) {
+          adjustedScore *= TRADING_CONFIG.COUNTER_TREND.BONUS_EXTREME_REVERSAL;
           details.adjustment = 10;
-          details.reason = 'Padrão de reversão muito forte detectado';
+          details.reason = 'COMPRA contra tendência - padrão de reversão HISTORICAMENTE forte';
+          details.isCounterTrend = true;
+          details.reversalStrength = reversalStrength;
+          
+          // Registra uso de sinal contra-tendência
+          if (this.adaptiveScoring) {
+            this.adaptiveScoring.counterTrendToday++;
+            this.adaptiveScoring.lastCounterTrendTime = now;
+            console.log(`📊 Sinal contra-tendência aprovado: ${this.adaptiveScoring.counterTrendToday}/${TRADING_CONFIG.COUNTER_TREND.MAX_COUNTER_TREND_PER_DAY} hoje`);
+          }
+        } else {
+          adjustedScore *= TRADING_CONFIG.COUNTER_TREND.BONUS_STRONG_REVERSAL;
+          details.adjustment = 5;
+          details.reason = 'COMPRA contra tendência - padrão de reversão forte detectado';
+          details.isCounterTrend = true;
+          details.reversalStrength = reversalStrength;
+          
+          // Registra uso de sinal contra-tendência
+          if (this.adaptiveScoring) {
+            this.adaptiveScoring.counterTrendToday++;
+            this.adaptiveScoring.lastCounterTrendTime = now;
+            console.log(`📊 Sinal contra-tendência aprovado: ${this.adaptiveScoring.counterTrendToday}/${TRADING_CONFIG.COUNTER_TREND.MAX_COUNTER_TREND_PER_DAY} hoje`);
+          }
         }
       }
     } else {
       // Mercado lateral - sinais de breakout são favorecidos
       if (patterns.breakout && patterns.breakout.strength === 'HIGH') {
-        adjustedScore *= 1.25; // +25% para breakouts em mercado lateral
+        adjustedScore *= TRADING_CONFIG.COUNTER_TREND.SIDEWAYS_BREAKOUT_BONUS;
         details.adjustment = 25;
         details.reason = 'Breakout forte em mercado lateral';
       }
@@ -530,79 +596,93 @@ class SignalScoringService {
   calculateReversalStrength(indicators, patterns) {
     let strength = 0;
 
-    // RSI extremo
-    if (indicators.rsi < 15 || indicators.rsi > 85) {
-      strength += 35; // RSI muito extremo
-    } else if (indicators.rsi < 25 || indicators.rsi > 75) {
-      strength += 25; // RSI extremo
+    // RSI MUITO extremo (critério mais rigoroso)
+    if (indicators.rsi < 5 || indicators.rsi > 95) {
+      strength += 50; // RSI historicamente extremo
+    } else if (indicators.rsi < 8 || indicators.rsi > 92) {
+      strength += 40; // RSI extremamente extremo
+    } else if (indicators.rsi < 12 || indicators.rsi > 88) {
+      strength += 25; // RSI muito extremo
+    } else if (indicators.rsi < 15 || indicators.rsi > 85) {
+      strength += 15; // RSI extremo (peso reduzido)
     }
 
     // Divergência de RSI
     if (indicators.rsiDivergence) {
-      strength += 30; // Divergência é sinal muito forte
+      strength += 45; // Divergência é sinal MUITO forte para contra-tendência
     }
 
-    // Padrões de reversão fortes
+    // Padrões de reversão MUITO fortes
     if (patterns.double && (patterns.double.type === 'DOUBLE_TOP' || patterns.double.type === 'DOUBLE_BOTTOM')) {
-      strength += 35; // Topo/Fundo duplo muito confiável
+      strength += 50; // Topo/Fundo duplo MUITO confiável
     }
 
     if (patterns.headShoulders) {
-      strength += 40; // Cabeça e ombros padrão clássico
+      strength += 55; // Cabeça e ombros padrão CLÁSSICO
     }
 
-    // Rompimento de níveis importantes com volume
+    // Rompimento de níveis CRÍTICOS com volume ALTO
     if (patterns.breakout && patterns.breakout.strength === 'HIGH') {
       if (patterns.breakout.type === 'BEARISH_BREAKOUT' || patterns.breakout.type === 'BULLISH_BREAKOUT') {
-        strength += 30; // Rompimento forte contra tendência
+        strength += 45; // Rompimento MUITO forte
       }
     }
 
-    // Padrões de candlestick de reversão
+    // Padrões de candlestick de reversão FORTES
     if (patterns.candlestick) {
       const strongReversalPatterns = ['BULLISH_ENGULFING', 'BEARISH_ENGULFING'];
-      const moderateReversalPatterns = ['HAMMER', 'HANGING_MAN', 'DOJI'];
+      const moderateReversalPatterns = ['HAMMER', 'HANGING_MAN'];
       
       patterns.candlestick.forEach(pattern => {
         if (strongReversalPatterns.includes(pattern.type)) {
-          strength += 25; // Engolfos são muito fortes
+          strength += 35; // Engolfos são MUITO fortes
         } else if (moderateReversalPatterns.includes(pattern.type)) {
-          strength += 20;
+          strength += 20; // Peso reduzido para outros padrões
         }
       });
     }
 
-    // MACD divergindo da tendência
+    // MACD divergindo FORTEMENTE da tendência
     if (indicators.macd && indicators.macd.MACD && indicators.macd.signal) {
       const macdCrossover = Math.abs(indicators.macd.MACD - indicators.macd.signal);
-      if (macdCrossover > 0.001) { // Cruzamento significativo
+      if (macdCrossover > 0.005) { // Cruzamento MUITO significativo
+        strength += 30;
+      } else if (macdCrossover > 0.002) {
         strength += 20;
       }
     }
 
-    // Volume extremo confirmando reversão
+    // Volume EXTREMO confirmando reversão
     if (indicators.volumeMA && indicators.currentVolume) {
       const volumeRatio = indicators.currentVolume / indicators.volumeMA;
-      if (volumeRatio > 3.0) { // Volume 3x acima da média
-        strength += 25;
-      } else if (volumeRatio > 2.0) {
+      if (volumeRatio > 5.0) { // Volume 5x acima da média
+        strength += 40;
+      } else if (volumeRatio > 3.5) { // Volume 3.5x acima da média
+        strength += 30;
+      } else if (volumeRatio > 2.5) {
         strength += 15;
       }
     }
 
-    // Múltiplos indicadores extremos convergindo
+    // Múltiplos indicadores EXTREMOS convergindo
     let extremeIndicators = 0;
-    if (indicators.rsi && (indicators.rsi < 20 || indicators.rsi > 80)) extremeIndicators++;
+    if (indicators.rsi && (indicators.rsi < 10 || indicators.rsi > 90)) extremeIndicators++;
     if (indicators.rsiDivergence) extremeIndicators++;
     if (patterns.double || patterns.headShoulders) extremeIndicators++;
+    if (patterns.breakout && patterns.breakout.strength === 'HIGH') extremeIndicators++;
     
-    if (extremeIndicators >= 3) {
-      strength += 20; // Bônus por convergência de sinais
+    if (extremeIndicators >= 4) {
+      strength += 35; // Bônus ALTO por convergência TOTAL
+    } else if (extremeIndicators >= 3) {
+      strength += 25; // Bônus por convergência de sinais
     }
 
-    // Múltiplos timeframes confirmando reversão (simulado)
-    if (strength > 50) {
-      strength += 10; // Bônus se múltiplos sinais convergem
+    // Bônus adicional para padrões HISTORICAMENTE raros
+    if (indicators.rsi && indicators.rsi < 3) {
+      strength += 30; // RSI abaixo de 3 é HISTORICAMENTE raro
+    }
+    if (indicators.rsi && indicators.rsi > 97) {
+      strength += 30; // RSI acima de 97 é HISTORICAMENTE raro
     }
 
     return Math.min(strength, 100);

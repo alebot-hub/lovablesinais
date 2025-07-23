@@ -742,6 +742,8 @@ class TradingBotApp {
       // Calcula pontuação (com sistema adaptativo se disponível)
       let scoring;
       if (this.adaptiveScoring) {
+        // Passa referência do adaptiveScoring para o signalScoring
+        this.signalScoring.adaptiveScoring = this.adaptiveScoring;
         scoring = this.adaptiveScoring.calculateAdaptiveScore(
           data, indicators, patterns, mlProbability, marketTrend, symbol
         );
@@ -784,7 +786,9 @@ class TradingBotApp {
         indicators,
         patterns,
         marketTrend,
-        timeframe
+        timeframe,
+        isCounterTrend: scoring.details?.trendAdjustment?.isCounterTrend || false,
+        reversalStrength: scoring.details?.trendAdjustment?.reversalStrength || null
       };
 
     } catch (error) {

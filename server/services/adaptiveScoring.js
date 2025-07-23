@@ -32,6 +32,11 @@ class AdaptiveScoringService {
     // Condições de mercado
     this.marketRegime = 'NORMAL'; // BULL, BEAR, NORMAL, VOLATILE
     
+    // Controle de sinais contra-tendência
+    this.counterTrendToday = 0;
+    this.lastCounterTrendTime = 0;
+    this.todayDate = new Date().toDateString();
+    
     // Configurações
     this.config = {
       minTradesForAdjustment: 10,
@@ -63,6 +68,14 @@ class AdaptiveScoringService {
    * Calcula score adaptativo baseado na performance histórica
    */
   calculateAdaptiveScore(data, indicators, patterns, mlProbability, marketTrend = null, symbol) {
+    // Reset contador diário se mudou o dia
+    const today = new Date().toDateString();
+    if (this.todayDate !== today) {
+      this.counterTrendToday = 0;
+      this.todayDate = today;
+      console.log('🔄 Reset contador de sinais contra-tendência diário');
+    }
+    
     // Verifica blacklist
     if (this.isSymbolBlacklisted(symbol)) {
       console.log(`🚫 ${symbol} está na blacklist`);
