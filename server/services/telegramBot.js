@@ -623,8 +623,8 @@ class TelegramBotService {
       }
       
       // Calcula perda correta: da entrada até o preço atual, multiplicado por 15x
-      const monitor = this.activeMonitors.get(symbol);
-      const entryPrice = monitor ? monitor.entry : stopLossLevel; // Fallback se monitor não existir
+      const monitorData = this.activeMonitors.get(symbol);
+      const entryPrice = monitorData ? monitorData.entry : stopLossLevel; // Fallback se monitor não existir
       const priceChangePercent = ((stopLossLevel - entryPrice) / entryPrice) * 100;
       const lossPercent = Math.abs(priceChangePercent) * 15; // Alavancagem 15x
       
@@ -647,11 +647,10 @@ class TelegramBotService {
       message += `📉 Perda: -${lossPercent.toFixed(2)}% (Alv. 15×)\n`;
       
       // Contexto específico do stop loss
-      const monitor = this.activeMonitors.get(symbol);
-      if (monitor) {
-        if (monitor.targetIndex === 0) {
+      if (monitorData) {
+        if (monitorData.targetIndex === 0) {
           message += `❌ Nenhum alvo foi atingido\n`;
-        } else if (monitor.targetIndex <= 1) {
+        } else if (monitorData.targetIndex <= 1) {
           message += `⚠️ Apenas TP1 foi atingido - voltou para stop inicial\n`;
         }
       }
@@ -684,8 +683,8 @@ class TelegramBotService {
       }
       
       // Calcula lucro correto: da entrada até o preço atual, multiplicado por 15x
-      const monitor = this.activeMonitors.get(symbol);
-      const entryPrice = monitor ? monitor.entry : stopLevel; // Fallback se monitor não existir
+      const monitorData = this.activeMonitors.get(symbol);
+      const entryPrice = monitorData ? monitorData.entry : stopLevel; // Fallback se monitor não existir
       const priceChangePercent = ((stopLevel - entryPrice) / entryPrice) * 100;
       const profitPercent = priceChangePercent * 15; // Alavancagem 15x
       
@@ -734,7 +733,6 @@ class TelegramBotService {
       message += `⏱️ Duração do trade: ${timeElapsed}\n\n`;
       
       // Mensagem específica por tipo de stop
-      const monitor = this.activeMonitors.get(symbol);
       if (stopType === 'BREAKEVEN') {
         message += `🛡️ *Capital protegido após TP2+ - Operação sem risco*\n`;
         message += `✅ Lucros de múltiplos alvos garantidos!\n\n`;
@@ -769,12 +767,12 @@ class TelegramBotService {
       const timeElapsed = this.calculateTimeElapsed(signalTime);
       
       // Calcula lucro total (aproximado para TP6)
-      const monitor = this.activeMonitors.get(symbol);
+      const monitorData = this.activeMonitors.get(symbol);
       let totalProfitPercent = 135; // 9% * 15x = 135% (aproximado para TP6)
       
-      if (monitor) {
-        const lastTarget = monitor.targets[monitor.targets.length - 1];
-        const entryPrice = monitor.entry;
+      if (monitorData) {
+        const lastTarget = monitorData.targets[monitorData.targets.length - 1];
+        const entryPrice = monitorData.entry;
         const priceChangePercent = ((lastTarget - entryPrice) / entryPrice) * 100;
         totalProfitPercent = priceChangePercent * 15; // Alavancagem 15x
       }
