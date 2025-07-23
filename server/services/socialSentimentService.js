@@ -72,6 +72,130 @@ class SocialSentimentService {
   }
 
   /**
+   * Obtém sentimento de notícias via Alpha Vantage
+   */
+  async getAlphaVantageNewsSentiment() {
+    try {
+      // News & Sentiment API da Alpha Vantage
+      const url = `${this.alphaVantageBaseUrl}?function=NEWS_SENTIMENT&tickers=CRYPTO:BTC,CRYPTO:ETH&apikey=${this.alphaVantageKey}&limit=50`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
+        },
+        signal: AbortSignal.timeout(20000)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      console.log('📰 Alpha Vantage News response preview:', responseText.substring(0, 150));
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ Erro ao parsear News JSON:', parseError.message);
+        throw new Error('Resposta inválida da Alpha Vantage');
+      }
+      
+      // Verifica se há erro na resposta
+      if (data['Error Message'] || data['Note']) {
+        console.error('❌ Alpha Vantage News error:', data['Error Message'] || data['Note']);
+        throw new Error('Limite de API atingido ou erro na Alpha Vantage');
+      }
+      
+      if (data.feed && Array.isArray(data.feed) && data.feed.length > 0) {
+        let totalSentiment = 0;
+        let sentimentCount = 0;
+        let bullishCount = 0;
+        let bearishCount = 0;
+        let neutralCount = 0;
+        const topics = new Set();
+        const keywords = new Set();
+        
+        // Analisa cada artigo
+        data.feed.forEach(article => {
+          if (article.overall_sentiment_score !== undefined) {
+            const score = parseFloat(article.overall_sentiment_score);
+            totalSentiment += score;
+            sentimentCount++;
+            
+            // Classifica sentimento
+            if (score > 0.15) {
+              bullishCount++;
+            } else if (score < -0.15) {
+              bearishCount++;
+            } else {
+              neutralCount++;
+            }
+            
+            // Coleta tópicos e palavras-chave
+            if (article.topics) {
+              article.topics.forEach(topic => {
+                if (topic.topic) topics.add(topic.topic);
+              });
+            }
+            
+            // Extrai palavras-chave do título
+            if (article.title) {
+              const title = article.title.toLowerCase();
+              if (title.includes('bitcoin') || title.includes('btc')) keywords.add('#Bitcoin');
+              if (title.includes('ethereum') || title.includes('eth')) keywords.add('#Ethereum');
+              if (title.includes('crypto')) keywords.add('#Crypto');
+              if (title.includes('bull')) keywords.add('#Bull');
+              if (title.includes('bear')) keywords.add('#Bear');
+            }
+          }
+        });
+        
+        if (sentimentCount > 0) {
+          const avgSentiment = totalSentiment / sentimentCount;
+          
+          // Determina sentimento geral
+          let overallSentiment = 'NEUTRAL';
+          if (avgSentiment > 0.1) {
+            overallSentiment = 'BULLISH';
+          } else if (avgSentiment < -0.1) {
+            overallSentiment = 'BEARISH';
+          }
+          
+          // Calcula score (0-100)
+          const score = Math.max(0, Math.min(100, (avgSentiment + 1) * 50));
+          
+          // Calcula confiança baseada no volume de dados
+          const confidence = Math.min(0.95, 0.5 + (sentimentCount / 100));
+          
+          console.log(`✅ Sentimento Alpha Vantage: ${overallSentiment} (${score.toFixed(1)}/100) - ${sentimentCount} artigos`);
+          
+          return {
+            sentiment: overallSentiment,
+            score: score,
+            articles: sentimentCount,
+            topics: Array.from(topics).slice(0, 5),
+            keywords: Array.from(keywords).slice(0, 5),
+            confidence: confidence,
+            breakdown: {
+              bullish: bullishCount,
+              bearish: bearishCount,
+              neutral: neutralCount
+            },
+            source: 'Alpha Vantage News API'
+          };
+        }
+      }
+      
+      throw new Error('Dados insuficientes da Alpha Vantage');
+    } catch (error) {
+      console.error('❌ Erro na Alpha Vantage News:', error.message);
+      return null;
+    }
+  }
+
+  /**
    * Simula análise do Twitter (substitua por API real)
    */
   async simulateTwitterAnalysis(keywords) {

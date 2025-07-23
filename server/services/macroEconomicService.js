@@ -9,6 +9,8 @@ class MacroEconomicService {
     this.lastDailyReport = null;
     this.fredApiKey = process.env.FRED_API_KEY || null;
     this.fredBaseUrl = 'https://api.stlouisfed.org/fred';
+    this.alphaVantageKey = process.env.ALPHA_VANTAGE_API_KEY || 'RU9S7OHDU9F353TZ';
+    this.alphaVantageBaseUrl = 'https://www.alphavantage.co/query';
   }
 
   /**
@@ -71,11 +73,105 @@ class MacroEconomicService {
     try {
       console.log('🏛️ Analisando dados do Fed...');
       
-      if (!this.fredApiKey) {
-        console.log('⚠️ FRED_API_KEY não configurada - omitindo dados do Fed');
-        return null;
+      // Tenta Alpha Vantage primeiro (mais confiável para dados atuais)
+      if (this.alphaVantageKey) {
+        console.log('📊 Obtendo dados do Fed via Alpha Vantage...');
+        const fedData = await this.getAlphaVantageFedData();
+        if (fedData) {
+          return fedData;
+        }
       }
+      
+      // Fallback para FRED se Alpha Vantage falhar
+      if (this.fredApiKey) {
+        console.log('📊 Fallback: Obtendo dados do Fed via FRED...');
+        return await this.getFredDataFromAPI();
+      }
+      
+      console.log('⚠️ Nenhuma API configurada para dados do Fed');
+      return null;
+    } catch (error) {
+      console.error('❌ Erro nos dados do Fed:', error.message);
+      return null;
+    }
+  }
 
+  /**
+   * Obtém dados do Fed via Alpha Vantage
+   */
+  async getAlphaVantageFedData() {
+    try {
+      // Federal Funds Rate
+      const fedFundsUrl = `${this.alphaVantageBaseUrl}?function=FEDERAL_FUNDS_RATE&apikey=${this.alphaVantageKey}`;
+      
+      const response = await fetch(fedFundsUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      console.log('🏛️ Alpha Vantage Fed response preview:', responseText.substring(0, 150));
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ Erro ao parsear Fed JSON:', parseError.message);
+        throw new Error('Resposta inválida da Alpha Vantage');
+      }
+      
+      // Verifica se há erro na resposta
+      if (data['Error Message'] || data['Note']) {
+        console.error('❌ Alpha Vantage error:', data['Error Message'] || data['Note']);
+        throw new Error('Limite de API atingido ou erro na Alpha Vantage');
+      }
+      
+      if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+        // Pega o dado mais recente
+        const latestData = data.data[0];
+        const currentRate = parseFloat(latestData.value);
+        
+        // Calcula tendência com últimos 3 dados
+        let stance = 'NEUTRO';
+        if (data.data.length >= 3) {
+          const recent = parseFloat(data.data[0].value);
+          const previous = parseFloat(data.data[2].value);
+          const trend = recent - previous;
+          
+          if (trend > 0.25) stance = 'RESTRITIVA';
+          else if (trend < -0.25) stance = 'EXPANSIVA';
+        }
+        
+        console.log(`✅ Fed data obtido via Alpha Vantage: ${currentRate}% (${stance})`);
+        
+        return {
+          currentRate: currentRate,
+          stance: stance,
+          isRealData: true,
+          source: 'Alpha Vantage API',
+          lastUpdate: latestData.date
+        };
+      }
+      
+      throw new Error('Dados inválidos da Alpha Vantage');
+    } catch (error) {
+      console.error('❌ Erro na Alpha Vantage Fed:', error.message);
+        return null;
+    }
+  }
+
+  /**
+   * Obtém dados do Fed via FRED (fallback)
+   */
+  async getFredDataFromAPI() {
+    try {
       // Obtém dados reais do FRED
       const [
         fedFundsRate,
@@ -87,12 +183,12 @@ class MacroEconomicService {
         this.getFredSeries('DFEDTARL')  // Taxa alvo inferior
       ]);
 
-      let currentRate = 5.25; // Fallback
+      let currentRate = null;
       let stance = 'NEUTRO';
       
       if (fedFundsRate.status === 'fulfilled' && fedFundsRate.value) {
         currentRate = fedFundsRate.value;
-        console.log(`✅ Taxa do Fed obtida: ${currentRate}%`);
+        console.log(`✅ Taxa do Fed obtida via FRED: ${currentRate}%`);
       }
 
       // Determina postura baseada em tendência recente
@@ -105,17 +201,18 @@ class MacroEconomicService {
         }
       }
 
+      if (currentRate === null) {
+        throw new Error('Não foi possível obter taxa do Fed via FRED');
+      }
+
       return {
         currentRate: currentRate,
         stance: stance,
-        nextMeetingDate: this.getNextFOMCDate(),
-        probabilityNextCut: this.calculateCutProbability(currentRate),
-        probabilityNextHike: this.calculateHikeProbability(currentRate),
         isRealData: true,
         source: 'FRED API'
       };
     } catch (error) {
-      console.error('❌ Erro nos dados do Fed:', error.message);
+      console.error('❌ Erro no FRED Fed:', error.message);
       return null;
     }
   }
@@ -225,6 +322,41 @@ class MacroEconomicService {
       };
     } catch (error) {
       console.error('❌ Erro nos dados de inflação:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Obtém múltiplas observações de uma série do FRED
+   */
+  async getFredSeriesRecent(seriesId, limit = 12) {
+    try {
+      const url = `${this.fredBaseUrl}/series/observations?series_id=${seriesId}&api_key=${this.fredApiKey}&file_type=json&limit=${limit}&sort_order=desc`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`FRED API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.observations && data.observations.length > 0) {
+        return data.observations
+          .map(obs => parseFloat(obs.value))
+          .filter(val => !isNaN(val))
+          .reverse(); // Ordem cronológica
+      }
+      
+      return null;
+    } catch (error) {
+      console.error(`❌ Erro ao obter série recente ${seriesId}:`, error.message);
       return null;
     }
   }
