@@ -40,6 +40,7 @@ class TelegramBotService {
         entry: entry,
         targets: targets,
         stopLoss: stopLoss,
+        currentStopLoss: stopLoss, // Stop loss atual (pode ser móvel)
         signalId: signalId,
         timestamp: new Date(),
         status: 'ACTIVE',
@@ -48,7 +49,8 @@ class TelegramBotService {
         peakProfit: 0,
         currentDrawdown: 0,
         lastPrice: entry,
-        stopType: 'INITIAL'
+        stopType: 'INITIAL', // INITIAL, PROFIT_PROTECTION
+        partialProfitRealized: 0 // Percentual de lucro já realizado
       };
       
       this.activeMonitors.set(symbol, monitor);
@@ -133,62 +135,39 @@ class TelegramBotService {
    * Formata sinal de trading
    */
   formatTradingSignal(signal) {
-    const riskReward = signal.riskRewardRatio ? signal.riskRewardRatio.toFixed(2) : 'N/A';
-    const mlInfo = signal.isMLDriven ? ` 🤖 (ML: ${signal.mlContribution?.toFixed(1)}%)` : '';
+    // Extrai símbolo base (ex: BNB de BNB/USDT)
+    const baseSymbol = signal.symbol.split('/')[0];
+    const trendEmoji = signal.trend === 'BULLISH' ? '🟢 COMPRA' : '🔴 VENDA';
     
-    let message = `🎯 *SINAL DE TRADING*${mlInfo}\n\n`;
-    message += `📊 *Par:* ${signal.symbol}\n`;
-    message += `📈 *Probabilidade:* ${signal.probability.toFixed(1)}%\n`;
-    message += `⏰ *Timeframe:* ${signal.timeframe}\n`;
-    message += `🎯 *Tendência:* ${signal.trend}\n\n`;
+    let message = `🚨 *SINAL LOBO #${baseSymbol}* ${trendEmoji} (Futures)\n\n`;
     
-    message += `💰 *Entrada:* $${signal.entry.toFixed(4)}\n\n`;
+    message += `💰 *#${baseSymbol} Futures*\n`;
+    message += `📊 *TEMPO GRÁFICO:* ${signal.timeframe}\n`;
+    message += `📈 *Alavancagem sugerida:* 15x\n`;
+    message += `🎯 *Probabilidade:* ${Math.round(signal.probability)}/100\n`;
+    message += `⚡️ *Entrada:* $${signal.entry.toFixed(4)}\n\n`;
     
     message += `🎯 *Alvos:*\n`;
     signal.targets.forEach((target, index) => {
-      const percentage = (((target - signal.entry) / signal.entry) * 100).toFixed(1);
-      message += `   TP${index + 1}: $${target.toFixed(4)} (+${percentage}%)\n`;
+      if (index === 0) {
+        message += `1️⃣ *Alvo 1:* $${target.toFixed(4)}\n`;
+      } else if (index === 1) {
+        message += `2️⃣ *Alvo 2:* $${target.toFixed(4)}\n`;
+      } else if (index === 2) {
+        message += `3️⃣ *Alvo 3:* $${target.toFixed(4)}\n`;
+      } else if (index === 3) {
+        message += `4️⃣ *Alvo 4:* $${target.toFixed(4)}\n`;
+      } else if (index === 4) {
+        message += `5️⃣ *Alvo 5:* $${target.toFixed(4)}\n`;
+      } else if (index === 5) {
+        message += `🌕 *Alvo 6 - Lua!:* $${target.toFixed(4)}\n`;
+      }
     });
     
-    message += `\n🛑 *Stop Loss:* $${signal.stopLoss.toFixed(4)} (${TRADING_CONFIG.STOP_LOSS_PERCENTAGE}%)\n`;
-    message += `⚖️ *Risk/Reward:* 1:${riskReward}\n\n`;
+    message += `\n🛑 *Stop Loss:* $${signal.stopLoss.toFixed(4)}\n\n`;
     
-    // Indicadores principais
-    if (signal.indicators) {
-      message += `📊 *Indicadores:*\n`;
-      if (signal.indicators.rsi) {
-        message += `   • RSI: ${signal.indicators.rsi.toFixed(1)}\n`;
-      }
-      if (signal.indicators.macd && signal.indicators.macd.MACD) {
-        message += `   • MACD: ${signal.indicators.macd.MACD.toFixed(2)}\n`;
-      }
-      if (signal.indicators.ma21 && signal.indicators.ma200) {
-        const maTrend = signal.indicators.ma21 > signal.indicators.ma200 ? '📈' : '📉';
-        message += `   • MA21/200: ${maTrend}\n`;
-      }
-      message += '\n';
-    }
-    
-    // Detalhes do score se disponível
-    if (signal.details) {
-      message += `🔍 *Análise:*\n`;
-      if (signal.details.indicators?.rsi) {
-        message += `   • ${signal.details.indicators.rsi.reason}\n`;
-      }
-      if (signal.details.indicators?.macd) {
-        message += `   • ${signal.details.indicators.macd.reason}\n`;
-      }
-      if (signal.details.patterns?.breakout) {
-        message += `   • ${signal.details.patterns.breakout.reason}\n`;
-      }
-      if (signal.details.bitcoinCorrelation) {
-        message += `   • ${signal.details.bitcoinCorrelation.recommendation}\n`;
-      }
-      message += '\n';
-    }
-    
-    message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n`;
-    message += `👑 Sinais Lobo Cripto`;
+    message += `👑 *Sinais Lobo Cripto*\n`;
+    message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
     
     return message;
   }
@@ -335,12 +314,22 @@ class TelegramBotService {
   async sendTargetHitNotification(symbol, targetNumber, targetPrice, currentPnL) {
     try {
       const leveragedPnL = currentPnL * 15;
-      const message = `🎯 *ALVO ATINGIDO*\n\n` +
-                     `📊 *Par:* ${symbol}\n` +
+      const baseSymbol = symbol.split('/')[0];
+      
+      let targetEmoji = '';
+      if (targetNumber === 1) targetEmoji = '1️⃣';
+      else if (targetNumber === 2) targetEmoji = '2️⃣';
+      else if (targetNumber === 3) targetEmoji = '3️⃣';
+      else if (targetNumber === 4) targetEmoji = '4️⃣';
+      else if (targetNumber === 5) targetEmoji = '5️⃣';
+      else if (targetNumber === 6) targetEmoji = '🌕';
+      
+      const message = `🎯 *ALVO ${targetNumber} ATINGIDO* ${targetEmoji}\n\n` +
+                     `💰 *#${baseSymbol} Futures*\n` +
                      `🎯 *Alvo ${targetNumber}:* $${targetPrice.toFixed(4)}\n` +
                      `💰 *Lucro:* +${currentPnL.toFixed(2)}% (+${leveragedPnL.toFixed(2)}% com 15x)\n\n` +
-                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n` +
-                     `👑 Sinais Lobo Cripto`;
+                     `👑 Sinais Lobo Cripto\n` +
+                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
 
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
@@ -357,40 +346,41 @@ class TelegramBotService {
    */
   async sendCompletionNotification(symbol, reason, finalPnL, leveragedPnL, monitor) {
     try {
+      const baseSymbol = symbol.split('/')[0];
       let emoji = '✅';
       let reasonText = '';
       
       switch (reason) {
         case 'ALL_TARGETS':
-          emoji = '🎉';
-          reasonText = 'Todos os alvos atingidos';
+          emoji = '🌕';
+          reasonText = 'TODOS OS ALVOS ATINGIDOS - LUA!';
           break;
         case 'STOP_LOSS':
-          emoji = '🛑';
-          reasonText = 'Stop loss ativado';
+          emoji = '❌';
+          reasonText = 'STOP LOSS ATIVADO';
           break;
         case 'MANUAL':
-          emoji = '👤';
-          reasonText = 'Fechamento manual';
+          emoji = '✋';
+          reasonText = 'FECHAMENTO MANUAL';
           break;
         default:
-          reasonText = reason;
+          reasonText = reason.toUpperCase();
       }
 
       const duration = new Date() - monitor.timestamp;
       const hours = Math.floor(duration / (1000 * 60 * 60));
       const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
       
-      const message = `${emoji} *OPERAÇÃO FINALIZADA*\n\n` +
-                     `📊 *Par:* ${symbol}\n` +
-                     `📝 *Motivo:* ${reasonText}\n` +
+      const message = `${emoji} *OPERAÇÃO #${baseSymbol} FINALIZADA*\n\n` +
+                     `💰 *#${baseSymbol} Futures*\n` +
+                     `📝 *Status:* ${reasonText}\n` +
                      `🎯 *Alvos atingidos:* ${monitor.targetsHit}/${monitor.targets.length}\n` +
-                     `💰 *Resultado:* ${finalPnL > 0 ? '+' : ''}${finalPnL.toFixed(2)}%\n` +
+                     `💰 *Resultado final:* ${finalPnL > 0 ? '+' : ''}${finalPnL.toFixed(2)}%\n` +
                      `🚀 *Com alavancagem 15x:* ${leveragedPnL > 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n` +
                      `⏱️ *Duração:* ${hours}h ${minutes}m\n` +
-                     `📈 *Pico de lucro:* +${monitor.peakProfit.toFixed(2)}%\n\n` +
-                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n` +
-                     `👑 Sinais Lobo Cripto`;
+                     `📈 *Pico máximo:* +${monitor.peakProfit.toFixed(2)}%\n\n` +
+                     `👑 Sinais Lobo Cripto\n` +
+                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
 
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
