@@ -665,15 +665,23 @@ class TradingBotApp {
       console.log(`📊 Análise concluída:`);
       console.log(`   • Total analisado: ${totalAnalyzed} combinações símbolo/timeframe`);
       console.log(`   • Sinais válidos encontrados: ${validSignals}`);
-      console.log(`   • Operações ativas: ${this.telegramBot.getActiveSymbols().length}`);
-      console.log(`   • Símbolos ativos: ${this.telegramBot.getActiveSymbols().join(', ') || 'Nenhum'}`);
+      
+      // LOGS DETALHADOS DE MONITORES ATIVOS
+      const activeSymbols = this.telegramBot.getActiveSymbols();
+      console.log(`   • Operações ativas: ${activeSymbols.length}`);
+      console.log(`   • Símbolos ativos: ${activeSymbols.join(', ') || 'Nenhum'}`);
+      console.log(`   • Mapa de monitores: ${this.telegramBot.activeMonitors ? this.telegramBot.activeMonitors.size : 0} entradas`);
+      
       console.log(`🎯 Melhor score: ${bestScore.toFixed(1)}% (threshold: ${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY}%)`);
 
       // Envia melhor sinal se encontrado
       if (bestSignal && bestScore >= TRADING_CONFIG.MIN_SIGNAL_PROBABILITY) {
-        // Verificação final antes de enviar
-        if (this.telegramBot.hasActiveMonitor(bestSignal.symbol)) {
-          console.log(`🚫 ${bestSignal.symbol}: Operação já ativa detectada antes do envio - cancelando`);
+        // VERIFICAÇÃO FINAL CRÍTICA ANTES DO ENVIO
+        const hasActive = this.telegramBot.hasActiveMonitor(bestSignal.symbol);
+        console.log(`🔍 VERIFICAÇÃO FINAL ${bestSignal.symbol}: Monitor ativo = ${hasActive}`);
+        
+        if (hasActive) {
+          console.log(`🚫 ENVIO CANCELADO: ${bestSignal.symbol} já tem operação ativa`);
           return;
         }
         
@@ -694,6 +702,12 @@ class TradingBotApp {
    */
   async analyzeSymbol(symbol, timeframe) {
     try {
+      // VERIFICAÇÃO CRÍTICA: Impede análise se operação já ativa
+      if (this.telegramBot.hasActiveMonitor(symbol)) {
+        console.log(`🚫 ${symbol}: Operação já ativa - pulando análise completa`);
+        return null;
+      }
+
       console.log(`🔍 Analisando ${symbol} ${timeframe}...`);
 
       // Obtém dados históricos
@@ -792,15 +806,9 @@ class TradingBotApp {
         return null;
       }
 
-      // Verifica se já existe operação ativa para este símbolo
+      // VERIFICAÇÃO FINAL CRÍTICA: Última verificação antes de retornar sinal
       if (this.telegramBot.hasActiveMonitor(symbol)) {
-        console.log(`🚫 ${symbol}: Operação já ativa - aguardando finalização`);
-        return null;
-      }
-
-      // Verificação adicional no mapa de monitores ativos
-      if (this.telegramBot.activeMonitors && this.telegramBot.activeMonitors.has(symbol)) {
-        console.log(`🚫 ${symbol}: Monitor ativo encontrado - pulando análise`);
+        console.log(`🚫 ${symbol}: VERIFICAÇÃO FINAL - Operação ativa detectada`);
         return null;
       }
 
@@ -828,6 +836,12 @@ class TradingBotApp {
    */
   async sendTradingSignal(signal) {
     try {
+      // VERIFICAÇÃO CRÍTICA ANTES DO ENVIO
+      if (this.telegramBot.hasActiveMonitor(signal.symbol)) {
+        console.log(`🚫 ENVIO CANCELADO: ${signal.symbol} já tem operação ativa`);
+        return;
+      }
+
       // Gera gráfico
       const chart = await this.chartGenerator.generatePriceChart(
         signal.symbol,
@@ -842,6 +856,12 @@ class TradingBotApp {
 
       // Envia via Telegram
       await this.telegramBot.sendTradingSignal(signal, chart);
+
+      // VERIFICAÇÃO: Confirma que monitor foi criado
+      if (!this.telegramBot.hasActiveMonitor(signal.symbol)) {
+        console.error(`❌ ERRO CRÍTICO: Monitor não foi criado para ${signal.symbol}`);
+        return;
+      }
 
       // Inicia monitoramento de preço
       this.telegramBot.startPriceMonitoring(
