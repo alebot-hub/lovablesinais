@@ -1,88 +1,122 @@
 /**
- * Serviço do bot do Telegram
+ * Serviço do Bot do Telegram
  */
 
 import TelegramBot from 'node-telegram-bot-api';
 
 class TelegramBotService {
   constructor() {
-    this.isEnabled = !!(process.env.TELEGRAM_TOKEN && process.env.TELEGRAM_TOKEN !== 'placeholder_token_here');
+    this.token = process.env.TELEGRAM_TOKEN;
+    this.chatId = process.env.TELEGRAM_CHAT_ID;
+    this.isEnabled = !!(this.token && this.chatId);
+    this.bot = null;
+    this.activeMonitors = new Map();
+    this.wsConnections = new Map();
     
     if (this.isEnabled) {
-      this.bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: false });
-      this.chatId = process.env.TELEGRAM_CHAT_ID;
+      try {
+        this.bot = new TelegramBot(this.token, { polling: false });
+        console.log('✅ TelegramBot: Bot inicializado com sucesso');
+      } catch (error) {
+        console.error('❌ TelegramBot: Erro na inicialização:', error.message);
+        this.isEnabled = false;
+      }
     } else {
-      console.log('⚠️  Telegram não configurado - usando modo de desenvolvimento');
-      this.bot = null;
-      this.chatId = null;
+      console.log('⚠️ TelegramBot: Variáveis não configuradas - modo simulado ativo');
+      console.log('💡 Configure TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no .env para ativar');
     }
-    
-    this.activeMonitors = new Map();
+  }
+
+  /**
+   * Cria monitor para um símbolo
+   */
+  createMonitor(symbol, entry, targets, stopLoss, signalId) {
+    try {
+      console.log(`📊 Criando monitor para ${symbol}...`);
+      
+      const monitor = {
+        symbol: symbol,
+        entry: entry,
+        targets: targets,
+        stopLoss: stopLoss,
+        signalId: signalId,
+        timestamp: new Date(),
+        status: 'ACTIVE',
+        targetsHit: 0,
+        maxTargetsHit: 0,
+        peakProfit: 0,
+        currentDrawdown: 0,
+        lastPrice: entry,
+        stopType: 'INITIAL'
+      };
+      
+      this.activeMonitors.set(symbol, monitor);
+      console.log(`✅ Monitor criado para ${symbol}. Total: ${this.activeMonitors.size}`);
+      
+      return monitor;
+    } catch (error) {
+      console.error(`❌ Erro ao criar monitor para ${symbol}:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Verifica se tem monitor ativo para um símbolo
+   */
+  hasActiveMonitor(symbol) {
+    return this.activeMonitors.has(symbol);
+  }
+
+  /**
+   * Remove monitor
+   */
+  removeMonitor(symbol, reason = 'COMPLETED') {
+    if (this.activeMonitors.has(symbol)) {
+      const monitor = this.activeMonitors.get(symbol);
+      this.activeMonitors.delete(symbol);
+      
+      // Para WebSocket se existir
+      if (this.wsConnections.has(symbol)) {
+        try {
+          const ws = this.wsConnections.get(symbol);
+          ws.close();
+          this.wsConnections.delete(symbol);
+          console.log(`🔌 WebSocket fechado para ${symbol}`);
+        } catch (error) {
+          console.error(`Erro ao fechar WebSocket ${symbol}:`, error.message);
+        }
+      }
+      
+      console.log(`🗑️ Monitor removido: ${symbol} (${reason}). Total: ${this.activeMonitors.size}`);
+      return monitor;
+    }
+    return null;
+  }
+
+  /**
+   * Obtém símbolos ativos
+   */
+  getActiveSymbols() {
+    return Array.from(this.activeMonitors.keys());
   }
 
   /**
    * Envia sinal de trading
-   */
-  async sendTradingSignal(signal, chart) {
-    try {
-      if (!this.isEnabled) {
-        console.log(`📊 [DEV] Sinal simulado para ${signal.symbol} (${signal.probability.toFixed(1)}%)`);
-        return;
-      }
-      
-      // Verifica se já enviou este sinal recentemente (evita duplicatas)
-      const signalKey = `${signal.symbol}_${signal.entry}_${signal.timeframe}`;
-      const now = Date.now();
-      
-      if (!this.lastSignalSent) {
-        this.lastSignalSent = new Map();
-      }
-      
-      const lastSent = this.lastSignalSent?.get?.(signalKey);
-      
-      if (lastSent && (now - lastSent) < 300000) { // 5 minutos de cooldown
-        console.log(`⚠️ Sinal duplicado ignorado para ${signal.symbol} (enviado há ${Math.round((now - lastSent)/1000)}s)`);
-        return;
-      }
-      
-      const message = this.formatSignalMessage(signal);
-      
-      // Envia sinal principal
-      await this.bot.sendMessage(this.chatId, message, {
-        parse_mode: 'Markdown'
-      });
-
-      // Registra envio para evitar duplicatas
-      this.lastSignalSent.set(signalKey, now);
-      
-      // Limpa registros antigos (mais de 5 minutos)
-      for (const [key, timestamp] of this.lastSignalSent.entries()) {
-        if (now - timestamp > 600000) { // 10 minutos
-          this.lastSignalSent.delete(key);
-        }
-      }
-
-      console.log(`Sinal enviado para ${signal.symbol}`);
-    } catch (error) {
-      console.error('Erro ao enviar sinal:', error.message);
-    }
-  }
-
-  /**
-   * Envia sinal de trading via Telegram
    */
   async sendTradingSignal(signal, chart = null) {
     try {
       if (!this.isEnabled) {
         console.log(`📤 [SIMULADO] Sinal para ${signal.symbol}: ${signal.probability.toFixed(1)}%`);
         console.log(`📊 [SIMULADO] Monitor mantido para ${signal.symbol} (modo desenvolvimento)`);
-        return true; // Retorna true para indicar sucesso simulado
+        return true; // Sucesso simulado
       }
 
+      // Formata mensagem
       const message = this.formatTradingSignal(signal);
       
+      // Envia mensagem
       if (chart) {
-        await this.bot.sendPhoto(this.chatId, chart, { 
+        await this.bot.sendPhoto(this.chatId, Buffer.from(''), {
           caption: message,
           parse_mode: 'Markdown'
         });
@@ -91,288 +125,286 @@ class TelegramBotService {
           parse_mode: 'Markdown'
         });
       }
-
-      console.log(`✅ Sinal enviado via Telegram para ${signal.symbol}`);
-      return true; // Retorna true para indicar sucesso real
+      
+      console.log(`✅ Sinal enviado para ${signal.symbol}`);
+      return true;
     } catch (error) {
-      console.error(`❌ Erro ao enviar sinal via Telegram para ${signal.symbol}:`, error.message);
-      return false; // Retorna false para indicar falha real
+      console.error(`❌ Erro ao enviar sinal para ${signal.symbol}:`, error.message);
+      throw error; // Propaga erro para tratamento correto
     }
   }
 
   /**
-   * Formata mensagem do sinal
+   * Formata sinal de trading
    */
-  formatSignalMessage(signal) {
-    const { symbol, probability, entry, targets, stopLoss, riskRewardRatio, details, timeframe, isMLDriven } = signal;
+  formatTradingSignal(signal) {
+    const riskReward = signal.riskRewardRatio ? signal.riskRewardRatio.toFixed(2) : 'N/A';
+    const mlInfo = signal.isMLDriven ? ` 🤖 (ML: ${signal.mlContribution?.toFixed(1)}%)` : '';
     
-    // Determina se é LONG ou SHORT baseado na tendência
-    const isLong = signal.trend === 'BULLISH';
-    const direction = isLong ? 'COMPRA' : 'VENDA';
-    const directionEmoji = isLong ? '🟢' : '🔴';
-    const symbolName = symbol.split('/')[0];
-
-    // Adiciona identificação de ML se aplicável
-    const mlIndicator = isMLDriven ? ' 🤖 *ML*' : '';
+    let message = `🎯 *SINAL DE TRADING*${mlInfo}\n\n`;
+    message += `📊 *Par:* ${signal.symbol}\n`;
+    message += `📈 *Probabilidade:* ${signal.probability.toFixed(1)}%\n`;
+    message += `⏰ *Timeframe:* ${signal.timeframe}\n`;
+    message += `🎯 *Tendência:* ${signal.trend}\n\n`;
     
-    // Adiciona identificação de contra-tendência se aplicável
-    const counterTrendIndicator = (details && details.trendAdjustment && details.trendAdjustment.isCounterTrend) ? ' ⚠️ *REVERSÃO*' : '';
+    message += `💰 *Entrada:* $${signal.entry.toFixed(4)}\n\n`;
     
-    // Função para formatar preços com precisão adequada
-    const formatPrice = (price) => {
-      // Moedas principais: apenas 2 casas decimais
-      if (['BTC', 'ETH', 'SOL', 'LTC'].includes(symbolName)) {
-        return price.toFixed(2);
-      }
-      // Outras moedas: formatação baseada no valor
-      if (price >= 1) return price.toFixed(4);
-      if (price >= 0.01) return price.toFixed(6);
-      return price.toFixed(8);
-    };
-    
-    let message = `🚨 *SINAL LOBO #${symbolName}*${mlIndicator}${counterTrendIndicator} ${directionEmoji} *${direction}* (Futures)\n\n`;
-    message += `💰 #${symbolName} Futures\n`;
-    message += `📊 TEMPO GRÁFICO: ${timeframe || '1h'}\n`;
-    message += `📈 Alavancagem sugerida: 15x\n`;
-    
-    // Se for ML-driven, adiciona informação especial
-    if (isMLDriven) {
-      message += `🤖 *Sinal gerado por Machine Learning*\n`;
-    }
-    
-    // Se for contra-tendência, adiciona aviso especial
-    if (details && details.trendAdjustment && details.trendAdjustment.isCounterTrend) {
-      message += `⚠️ *Sinal contra-tendência aprovado*\n`;
-    }
-    
-    message += `🎯 Probabilidade: ${Math.round(probability)}/100\n`;
-    message += `⚡️ Entrada: $${formatPrice(entry)}\n\n`;
-
-    message += `🎯 Alvos:\n`;
-    targets.forEach((target, index) => {
-      const targetEmoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '🌕'][index] || '🎯';
-      const targetLabel = index === 5 ? (isLong ? 'Alvo 6 - Lua!' : 'Alvo 6 - Queda Infinita') : `Alvo ${index + 1}`;
-      message += `${targetEmoji} ${targetLabel}: $${formatPrice(target)}\n`;
+    message += `🎯 *Alvos:*\n`;
+    signal.targets.forEach((target, index) => {
+      const percentage = (((target - signal.entry) / signal.entry) * 100).toFixed(1);
+      message += `   TP${index + 1}: $${target.toFixed(4)} (+${percentage}%)\n`;
     });
-
-    // Adiciona aviso especial para sinais contra-tendência se disponível
-    if (signal.isCounterTrend || (details && details.trendAdjustment && details.trendAdjustment.reason && details.trendAdjustment.reason.includes('reversão'))) {
-      message += `\n⚠️ *SINAL CONTRA-TENDÊNCIA APROVADO*\n`;
-      message += `🔄 Padrões de reversão extremamente fortes detectados\n`;
-      if (signal.reversalStrength) {
-        message += `📊 Força de reversão: ${signal.reversalStrength}/100\n`;
+    
+    message += `\n🛑 *Stop Loss:* $${signal.stopLoss.toFixed(4)} (${TRADING_CONFIG.STOP_LOSS_PERCENTAGE}%)\n`;
+    message += `⚖️ *Risk/Reward:* 1:${riskReward}\n\n`;
+    
+    // Indicadores principais
+    if (signal.indicators) {
+      message += `📊 *Indicadores:*\n`;
+      if (signal.indicators.rsi) {
+        message += `   • RSI: ${signal.indicators.rsi.toFixed(1)}\n`;
       }
-      message += `💡 Gestão de risco ainda mais importante\n`;
+      if (signal.indicators.macd && signal.indicators.macd.MACD) {
+        message += `   • MACD: ${signal.indicators.macd.MACD.toFixed(2)}\n`;
+      }
+      if (signal.indicators.ma21 && signal.indicators.ma200) {
+        const maTrend = signal.indicators.ma21 > signal.indicators.ma200 ? '📈' : '📉';
+        message += `   • MA21/200: ${maTrend}\n`;
+      }
+      message += '\n';
     }
     
-    message += `\n🛑 Stop Loss: $${formatPrice(stopLoss)}\n\n`;
+    // Detalhes do score se disponível
+    if (signal.details) {
+      message += `🔍 *Análise:*\n`;
+      if (signal.details.indicators?.rsi) {
+        message += `   • ${signal.details.indicators.rsi.reason}\n`;
+      }
+      if (signal.details.indicators?.macd) {
+        message += `   • ${signal.details.indicators.macd.reason}\n`;
+      }
+      if (signal.details.patterns?.breakout) {
+        message += `   • ${signal.details.patterns.breakout.reason}\n`;
+      }
+      if (signal.details.bitcoinCorrelation) {
+        message += `   • ${signal.details.bitcoinCorrelation.recommendation}\n`;
+      }
+      message += '\n';
+    }
     
+    message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n`;
     message += `👑 Sinais Lobo Cripto`;
-
-    message += `\n⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
-
+    
     return message;
   }
 
   /**
-   * Formata mensagem de análise técnica
+   * Inicia monitoramento de preço em tempo real
    */
-  formatAnalysisMessage(signal) {
-    const { symbol, details, indicators, patterns, isMLDriven, mlContribution, marketTrend } = signal;
-    const symbolName = this.escapeMarkdown(symbol.split('/')[0]);
-
-
-    // Título diferente se for ML-driven
-    const analysisTitle = isMLDriven ? 
-      `🤖 *ANÁLISE ML + TÉCNICA #${symbolName}*\n\n` : 
-      `📊 *ANÁLISE TÉCNICA #${symbolName}*\n\n`;
-    
-    let message = analysisTitle;
-    
-    // Informações de tendência
-    if (marketTrend || details.trendAdjustment) {
-      message += `📈 *Análise de Tendência:*\n`;
-      if (marketTrend) {
-        const trendEmoji = this.getTrendEmoji(marketTrend);
-        message += `   • Tendência do mercado: ${trendEmoji} ${marketTrend}\n`;
-      }
-      if (details.trendAdjustment) {
-        const adj = details.trendAdjustment;
-        const adjEmoji = adj.adjustment > 0 ? '🟢' : adj.adjustment < 0 ? '🔴' : '🟡';
-        message += `   • ${this.escapeMarkdown(adj.reason)} ${adjEmoji}\n`;
-        if (adj.adjustment !== 0) {
-          message += `   • Ajuste de pontuação: ${adj.adjustment > 0 ? '+' : ''}${this.escapeMarkdown(adj.adjustment.toString())}%\n`;
-        }
-        
-        // Destaca sinais contra-tendência aprovados
-        if (adj.reason && adj.reason.includes('reversão')) {
-          message += `   ⚠️ *SINAL CONTRA-TENDÊNCIA APROVADO*\n`;
-          message += `   🔄 Padrões de reversão extremamente fortes detectados\n`;
-        }
-      }
-      message += '\n';
-    }
-
-    // Se for ML-driven, destaca a contribuição da IA
-    if (isMLDriven) {
-      message += `🤖 *Inteligência Artificial:*\n`;
-      message += `   • Contribuição IA: ${this.escapeMarkdown(mlContribution?.toFixed(1))}% da pontuação\n`;
-      message += `   • Modelo treinado com 500+ períodos históricos\n`;
-      message += `   • Padrões complexos detectados pela IA\n\n`;
-    }
-
-    // Indicadores técnicos
-    if (indicators) {
-      message += `📈 *Indicadores:*\n`;
+  async startPriceMonitoring(symbol, entry, targets, stopLoss, binanceService, signal, app, adaptiveScoring = null) {
+    try {
+      console.log(`🔄 Iniciando monitoramento para ${symbol}...`);
       
-      if (indicators.rsi !== null && indicators.rsi !== undefined) {
-        const rsiStatus = indicators.rsi < 25 ? 'Sobrevendido 🟢' : 
-                         indicators.rsi > 85 ? 'Sobrecomprado 🔴' : 'Neutro 🟡';
-        message += `   • RSI (14): ${this.escapeMarkdown(indicators.rsi.toFixed(1))} - ${rsiStatus}\n`;
+      // Verifica se monitor existe
+      if (!this.hasActiveMonitor(symbol)) {
+        console.log(`❌ Monitor não encontrado para ${symbol} - criando...`);
+        this.createMonitor(symbol, entry, targets, stopLoss, signal.signalId || 'unknown');
       }
-
-      if (indicators.macd && indicators.macd.MACD !== null) {
-        const macdStatus = indicators.macd.MACD > indicators.macd.signal ? 'Bullish 🟢' : 'Bearish 🔴';
-        message += `   • MACD: ${this.escapeMarkdown(indicators.macd.MACD.toFixed(4))} - ${macdStatus}\n`;
-      }
-
-      if (indicators.ma21 && indicators.ma200) {
-        const trendStatus = indicators.ma21 > indicators.ma200 ? 'Alta 🟢' : 'Baixa 🔴';
-        message += `   • Tendência (MA21/MA200): ${trendStatus}\n`;
-      }
-
-      message += '\n';
-    }
-
-    // Padrões gráficos
-    if (patterns) {
-      message += `🔍 *Padrões Detectados:*\n`;
       
-      if (patterns.support && patterns.resistance) {
-        message += `   • Suporte: $${this.escapeMarkdown(patterns.support.toFixed(2))}\n`;
-        message += `   • Resistência: $${this.escapeMarkdown(patterns.resistance.toFixed(2))}\n`;
-      }
-
-      if (patterns.breakout) {
-        if (patterns.breakout.type === 'BULLISH_BREAKOUT') {
-          message += `   • 🚀 Rompimento de Alta: Preço quebrou resistência com força\n`;
-          message += `     (Sinal forte de continuação da alta)\n`;
-        } else {
-          message += `   • 📉 Rompimento de Baixa: Preço quebrou suporte com força\n`;
-          message += `     (Sinal forte de continuação da queda)\n`;
-        }
-      }
-
-      if (patterns.triangle) {
-        const triangleExplanation = this.explainTrianglePattern(patterns.triangle);
-        message += `   • ${triangleExplanation}\n`;
-      }
-
-      if (patterns.flag) {
-        const flagExplanation = this.explainFlagPattern(patterns.flag);
-        message += `   • ${flagExplanation}\n`;
-      }
-
-      if (patterns.wedge) {
-        const wedgeExplanation = this.explainWedgePattern(patterns.wedge);
-        message += `   • ${wedgeExplanation}\n`;
-      }
-
-      if (patterns.double) {
-        const doubleExplanation = this.explainDoublePattern(patterns.double);
-        message += `   • ${doubleExplanation}\n`;
-      }
-
-      if (patterns.candlestick && patterns.candlestick.length > 0) {
-        patterns.candlestick.forEach(pattern => {
-          const candleExplanation = this.explainCandlestickPattern(pattern);
-          message += `   • ${candleExplanation}\n`;
-        });
-      }
-
-      message += '\n';
-    }
-
-    // Pontuação detalhada
-    if (details) {
-      message += `⚡ *Pontuação do Sinal:*\n`;
+      console.log(`📊 Monitor confirmado para ${symbol}. Iniciando WebSocket...`);
       
-      if (details.indicators) {
-        Object.entries(details.indicators).forEach(([key, data]) => {
-          if (data.score && data.reason) {
-            const emoji = data.score > 0 ? '🟢' : '🔴';
-            message += `   • ${this.escapeMarkdown(data.reason)}: ${data.score > 0 ? '+' : ''}${this.escapeMarkdown(data.score.toString())} ${emoji}\n`;
-          }
-        });
-      }
-
-      if (details.patterns) {
-        Object.entries(details.patterns).forEach(([key, data]) => {
-          if (data.score && data.reason) {
-            const emoji = data.score > 0 ? '🟢' : '🔴';
-            message += `   • ${this.escapeMarkdown(data.reason)}: ${data.score > 0 ? '+' : ''}${this.escapeMarkdown(data.score.toString())} ${emoji}\n`;
-          }
-        });
-      }
-
-      if (details.volume) {
-        message += `   • Volume: +${this.escapeMarkdown(details.volume.toString())} 🟢\n`;
-      }
-
-      if (details.machineLearning) {
-        message += `   • IA/ML: +${this.escapeMarkdown(details.machineLearning.toFixed(1))} 🤖\n`;
-      }
-    }
-
-    message += `\n👑 Sinais Lobo Cripto`;
-    return message;
-  }
-
-  /**
-   * Formata mensagem do gráfico
-   */
-  formatChartMessage(signal, chart) {
-    const { symbol } = signal;
-    const symbolName = this.escapeMarkdown(symbol.split('/')[0]);
-
-
-    let message = `📈 *DADOS DO GRÁFICO #${symbolName}*\n\n`;
-
-    if (chart && chart.data) {
-      const prices = chart.data.prices;
-      const currentPrice = prices[prices.length - 1];
-      const previousPrice = prices[prices.length - 2];
-      const change = ((currentPrice - previousPrice) / previousPrice * 100);
-
-      message += `💰 *Preço Atual:* $${this.escapeMarkdown(currentPrice.toFixed(2))}\n`;
-      message += `📊 *Variação:* ${change > 0 ? '+' : ''}${this.escapeMarkdown(change.toFixed(2))}%\n\n`;
-
-      // Últimos 5 preços
-      message += `📋 *Últimos 5 Candles:*\n`;
-      const lastPrices = prices.slice(-5);
-      lastPrices.forEach((price, index) => {
-        const emoji = index === lastPrices.length - 1 ? '🔥' : '•';
-        message += `   ${emoji} $${this.escapeMarkdown(price.toFixed(2))}\n`;
+      // Conecta WebSocket
+      const ws = await binanceService.connectWebSocket(symbol, '1m', (candleData) => {
+        this.handlePriceUpdate(symbol, candleData, app, adaptiveScoring);
       });
+      
+      if (ws) {
+        this.wsConnections.set(symbol, ws);
+        console.log(`✅ WebSocket conectado para ${symbol}`);
+      }
+      
+    } catch (error) {
+      console.error(`❌ Erro ao iniciar monitoramento para ${symbol}:`, error.message);
+      // Não remove monitor - pode funcionar sem WebSocket perfeito
     }
+  }
 
-    if (chart && chart.indicators) {
-      message += `\n🔢 *Indicadores Atuais:*\n`;
-      if (chart.indicators.rsi) {
-        message += `   • RSI: ${this.escapeMarkdown(chart.indicators.rsi.toFixed(1))}\n`;
+  /**
+   * Manipula atualizações de preço
+   */
+  handlePriceUpdate(symbol, candleData, app, adaptiveScoring = null) {
+    try {
+      const monitor = this.activeMonitors.get(symbol);
+      if (!monitor) {
+        console.log(`⚠️ Monitor não encontrado para ${symbol} - parando WebSocket`);
+        this.stopWebSocketForSymbol(symbol);
+        return;
       }
-      if (chart.indicators.ma21) {
-        message += `   • MA21: $${this.escapeMarkdown(chart.indicators.ma21.toFixed(2))}\n`;
+
+      const currentPrice = candleData.close;
+      monitor.lastPrice = currentPrice;
+
+      // Calcula P&L atual
+      const currentPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
+      
+      // Atualiza peak profit
+      if (currentPnL > monitor.peakProfit) {
+        monitor.peakProfit = currentPnL;
       }
-      if (chart.indicators.ma200) {
-        message += `   • MA200: $${this.escapeMarkdown(chart.indicators.ma200.toFixed(2))}\n`;
+      
+      // Calcula drawdown atual
+      monitor.currentDrawdown = monitor.peakProfit - currentPnL;
+
+      // Verifica alvos
+      let newTargetsHit = 0;
+      for (let i = 0; i < monitor.targets.length; i++) {
+        if (currentPrice >= monitor.targets[i]) {
+          newTargetsHit = i + 1;
+        } else {
+          break;
+        }
       }
+
+      // Se atingiu novo alvo
+      if (newTargetsHit > monitor.targetsHit) {
+        monitor.targetsHit = newTargetsHit;
+        monitor.maxTargetsHit = Math.max(monitor.maxTargetsHit, newTargetsHit);
+        
+        this.sendTargetHitNotification(symbol, newTargetsHit, monitor.targets[newTargetsHit - 1], currentPnL);
+        
+        // Se atingiu todos os alvos
+        if (newTargetsHit >= monitor.targets.length) {
+          this.completeMonitor(symbol, 'ALL_TARGETS', currentPnL, app, adaptiveScoring);
+          return;
+        }
+      }
+
+      // Verifica stop loss
+      if (currentPrice <= monitor.stopLoss) {
+        this.completeMonitor(symbol, 'STOP_LOSS', currentPnL, app, adaptiveScoring);
+        return;
+      }
+
+      // Log periódico (a cada 1% de mudança)
+      const priceChange = Math.abs(currentPnL);
+      if (priceChange > 0 && priceChange % 1 < 0.1) {
+        console.log(`📊 ${symbol}: $${currentPrice.toFixed(4)} (${currentPnL > 0 ? '+' : ''}${currentPnL.toFixed(2)}%) - ${monitor.targetsHit}/${monitor.targets.length} alvos`);
+      }
+
+    } catch (error) {
+      console.error(`Erro ao processar atualização de preço para ${symbol}:`, error.message);
     }
+  }
 
-    message += `\n⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
-    message += `\n👑 Sinais Lobo Cripto`;
+  /**
+   * Completa monitoramento
+   */
+  completeMonitor(symbol, reason, finalPnL, app, adaptiveScoring = null) {
+    try {
+      const monitor = this.activeMonitors.get(symbol);
+      if (!monitor) return;
 
-    return message;
+      const isWin = finalPnL > 0;
+      const leveragedPnL = finalPnL * 15; // Aplica alavancagem 15x
+      
+      // Registra resultado
+      if (app && app.performanceTracker) {
+        app.performanceTracker.updateSignalResult(symbol, monitor.targetsHit, leveragedPnL, reason);
+      }
+      
+      if (app && app.riskManagement) {
+        app.riskManagement.recordTrade(symbol, leveragedPnL, isWin);
+      }
+      
+      // Registra no sistema adaptativo
+      if (adaptiveScoring) {
+        adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, isWin, leveragedPnL);
+      }
+
+      // Envia notificação de conclusão
+      this.sendCompletionNotification(symbol, reason, finalPnL, leveragedPnL, monitor);
+      
+      // Remove monitor
+      this.removeMonitor(symbol, reason);
+      
+      console.log(`✅ Operação concluída: ${symbol} - ${reason} (${leveragedPnL > 0 ? '+' : ''}${leveragedPnL.toFixed(2)}% com 15x)`);
+      
+    } catch (error) {
+      console.error(`Erro ao completar monitor ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Envia notificação de alvo atingido
+   */
+  async sendTargetHitNotification(symbol, targetNumber, targetPrice, currentPnL) {
+    try {
+      const leveragedPnL = currentPnL * 15;
+      const message = `🎯 *ALVO ATINGIDO*\n\n` +
+                     `📊 *Par:* ${symbol}\n` +
+                     `🎯 *Alvo ${targetNumber}:* $${targetPrice.toFixed(4)}\n` +
+                     `💰 *Lucro:* +${currentPnL.toFixed(2)}% (+${leveragedPnL.toFixed(2)}% com 15x)\n\n` +
+                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n` +
+                     `👑 Sinais Lobo Cripto`;
+
+      if (this.isEnabled) {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      } else {
+        console.log(`🎯 [SIMULADO] Alvo ${targetNumber} atingido para ${symbol}: +${leveragedPnL.toFixed(2)}%`);
+      }
+    } catch (error) {
+      console.error(`Erro ao enviar notificação de alvo para ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Envia notificação de conclusão
+   */
+  async sendCompletionNotification(symbol, reason, finalPnL, leveragedPnL, monitor) {
+    try {
+      let emoji = '✅';
+      let reasonText = '';
+      
+      switch (reason) {
+        case 'ALL_TARGETS':
+          emoji = '🎉';
+          reasonText = 'Todos os alvos atingidos';
+          break;
+        case 'STOP_LOSS':
+          emoji = '🛑';
+          reasonText = 'Stop loss ativado';
+          break;
+        case 'MANUAL':
+          emoji = '👤';
+          reasonText = 'Fechamento manual';
+          break;
+        default:
+          reasonText = reason;
+      }
+
+      const duration = new Date() - monitor.timestamp;
+      const hours = Math.floor(duration / (1000 * 60 * 60));
+      const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
+      
+      const message = `${emoji} *OPERAÇÃO FINALIZADA*\n\n` +
+                     `📊 *Par:* ${symbol}\n` +
+                     `📝 *Motivo:* ${reasonText}\n` +
+                     `🎯 *Alvos atingidos:* ${monitor.targetsHit}/${monitor.targets.length}\n` +
+                     `💰 *Resultado:* ${finalPnL > 0 ? '+' : ''}${finalPnL.toFixed(2)}%\n` +
+                     `🚀 *Com alavancagem 15x:* ${leveragedPnL > 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n` +
+                     `⏱️ *Duração:* ${hours}h ${minutes}m\n` +
+                     `📈 *Pico de lucro:* +${monitor.peakProfit.toFixed(2)}%\n\n` +
+                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n` +
+                     `👑 Sinais Lobo Cripto`;
+
+      if (this.isEnabled) {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      } else {
+        console.log(`${emoji} [SIMULADO] Operação finalizada ${symbol}: ${leveragedPnL > 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%`);
+      }
+    } catch (error) {
+      console.error(`Erro ao enviar notificação de conclusão para ${symbol}:`, error.message);
+    }
   }
 
   /**
@@ -380,99 +412,43 @@ class TelegramBotService {
    */
   async sendBitcoinAnalysis(analysis) {
     try {
-      if (!this.isEnabled) {
-        console.log(`₿ [DEV] Análise do Bitcoin simulada: $${analysis.currentPrice.toLocaleString('pt-BR', {minimumFractionDigits: 2})} - ${analysis.trend}`);
-        return;
-      }
+      const trendEmoji = analysis.trend === 'BULLISH' ? '📈' : 
+                        analysis.trend === 'BEARISH' ? '📉' : '🟡';
       
-      // Determina emoji e hashtag baseado na tendência
-      const trendEmoji = this.getTrendEmoji(analysis.trend);
-      const trendHash = analysis.trend === 'BULLISH' ? '#BULL' : 
-                       analysis.trend === 'BEARISH' ? '#BEAR' : '#NEUTRAL';
-      const trendText = analysis.trend === 'BULLISH' ? 'ALTA' : 
-                       analysis.trend === 'BEARISH' ? 'BAIXA' : 'LATERAL';
+      let message = `₿ *ANÁLISE DO BITCOIN*\n\n`;
+      message += `💰 *Preço Atual:* $${analysis.currentPrice.toFixed(2)}\n`;
+      message += `${trendEmoji} *Tendência:* ${analysis.trend} (${analysis.strength}/100)\n`;
+      message += `🛡️ *Suporte:* $${analysis.support.toFixed(2)}\n`;
+      message += `🚧 *Resistência:* $${analysis.resistance.toFixed(2)}\n`;
+      message += `📊 *RSI:* ${analysis.rsi ? analysis.rsi.toFixed(1) : 'N/A'}\n\n`;
       
-      let message = `📈${trendEmoji} *ANÁLISE BTC ${trendHash}*\n\n`;
-      
-      message += `📊 *Tendência Atual:* ${trendText}\n`;
-      message += `⚡️ *Força:* ${this.escapeMarkdown(analysis.strength?.toFixed(0) || '50')}%\n`;
-      message += `⏱️ *Análise:* ${new Date().toLocaleString('pt-BR')}\n\n`;
-
-      message += `📊 *Níveis Importantes:*\n`;
-      message += `💲 *Preço Atual:* $${analysis.currentPrice.toLocaleString('pt-BR', {minimumFractionDigits: 2})}\n`;
-      message += `🔺 *Resistência:* $${analysis.resistance.toLocaleString('pt-BR', {minimumFractionDigits: 2})}\n`;
-      message += `🔻 *Suporte:* $${analysis.support.toLocaleString('pt-BR', {minimumFractionDigits: 2})}\n\n`;
-
       // Análise por timeframe
-      message += `📈 *ANÁLISE POR TIMEFRAME:*\n`;
-      if (analysis.timeframes) {
+      if (analysis.timeframes && analysis.timeframes.length > 0) {
+        message += `⏰ *Por Timeframe:*\n`;
         analysis.timeframes.forEach(tf => {
-          const tfEmoji = this.getTrendEmoji(tf.trend);
-          const tfText = tf.trend === 'BULLISH' ? 'ALTA' : 
-                        tf.trend === 'BEARISH' ? 'BAIXA' : 'LATERAL';
-          message += `📈${tfEmoji} *${tf.timeframe}:* ${tfText} (Score: ${tf.strength.toFixed(0)})\n`;
+          const tfEmoji = tf.trend === 'BULLISH' ? '📈' : tf.trend === 'BEARISH' ? '📉' : '🟡';
+          message += `   • ${tf.timeframe}: ${tfEmoji} ${tf.trend} (${tf.strength})\n`;
         });
-      } else {
-        // Fallback se não tiver dados de timeframes
-        message += `📈${trendEmoji} *4h:* ${trendText} (Score: ${(analysis.strength || 50).toFixed(0)})\n`;
+        message += '\n';
       }
-      message += '\n';
-
+      
       // Interpretação inteligente
-      message += `🔍 *INTERPRETAÇÃO:*\n\n`;
-      
-      // Usa interpretação inteligente se disponível
       if (analysis.smartInterpretation && analysis.smartInterpretation.length > 0) {
-        analysis.smartInterpretation.forEach(point => {
-          message += `${point}\n`;
+        message += `💡 *Interpretação:*\n`;
+        analysis.smartInterpretation.forEach(insight => {
+          message += `   • ${insight}\n`;
         });
-      } else {
-        // Fallback para interpretação básica
-        if (analysis.trend === 'BULLISH') {
-          message += `• Favorece sinais de *COMPRA* em timeframes menores\n`;
-          message += `• Possíveis quedas temporárias são oportunidades de compra\n`;
-          message += `• Mantenha posições de compra, mas com cautela\n`;
-          message += `• Evite posições de venda contra a tendência\n`;
-        } else if (analysis.trend === 'BEARISH') {
-          message += `• Favorece sinais de *VENDA* em timeframes menores\n`;
-          message += `• Possíveis subidas temporárias são oportunidades de venda\n`;
-          message += `• Mantenha posições de venda, mas com cautela\n`;
-          message += `• Evite posições de compra contra a tendência\n`;
-        } else {
-          message += `• Mercado em consolidação lateral\n`;
-          message += `• Aguarde o preço quebrar suporte ou resistência\n`;
-          message += `• Sinais de rompimento podem ser mais confiáveis\n`;
-          message += `• Gestão de risco é fundamental neste momento\n`;
-        }
+        message += '\n';
       }
       
-      // Adiciona informações extras se disponíveis
-      if (analysis.rsi) {
-        message += `\n📊 *Indicadores Extras:*\n`;
-        message += `• RSI(14): ${analysis.rsi.toFixed(1)}`;
-        if (analysis.rsi < 25) {
-          message += ` - Sobrevendido 🟢\n`;
-        } else if (analysis.rsi > 85) {
-          message += ` - Sobrecomprado 🔴\n`;
-        } else {
-          message += ` - Neutro 🟡\n`;
-        }
-      }
-      
-      if (analysis.volume && analysis.volumeAvg) {
-        const volumeRatio = analysis.volume / analysis.volumeAvg;
-        message += `• Volume: ${volumeRatio > 1.2 ? 'Alto 🟢' : volumeRatio < 0.8 ? 'Baixo 🔴' : 'Normal 🟡'}\n`;
-      }
-      
-      message += `\n⏱️ *Atualizado em:* ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n\n`;
-     
+      message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n`;
       message += `👑 Sinais Lobo Cripto`;
 
-      await this.bot.sendMessage(this.chatId, message, {
-        parse_mode: 'Markdown'
-      });
-
-      console.log('Análise do Bitcoin enviada');
+      if (this.isEnabled) {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      } else {
+        console.log(`₿ [SIMULADO] Análise Bitcoin: ${analysis.trend} $${analysis.currentPrice.toFixed(2)}`);
+      }
     } catch (error) {
       console.error('Erro ao enviar análise do Bitcoin:', error.message);
     }
@@ -483,48 +459,48 @@ class TelegramBotService {
    */
   async sendMarketSentiment(sentiment) {
     try {
-      if (!this.isEnabled) {
-        console.log(`🌍 [DEV] Sentimento do mercado simulado: ${sentiment.overall}`);
-        return;
-      }
+      const sentimentEmoji = sentiment.overall === 'OTIMISTA' ? '🟢' :
+                            sentiment.overall === 'PESSIMISTA' ? '🔴' : '🟡';
       
       let message = `🌍 *SENTIMENTO DO MERCADO*\n\n`;
+      message += `${sentimentEmoji} *Geral:* ${sentiment.overall}\n`;
+      message += `😱 *Fear & Greed:* ${sentiment.fearGreedIndex}/100 (${sentiment.fearGreedLabel})\n`;
       
-      const sentimentEmoji = sentiment.overall === 'BULLISH' ? '🟢' : 
-                           sentiment.overall === 'BEARISH' ? '🔴' : '🟡';
+      if (sentiment.isRealFearGreed) {
+        message += `   ✅ Dados reais da alternative.me\n`;
+      }
       
-      message += `${sentimentEmoji} *Sentimento Geral:* ${sentiment.overall}\n`;
-      message += `🔥 *Volatilidade:* ${sentiment.volatility.toFixed(2)}%\n\n`;
-
-      message += `📋 *Resumo:*\n`;
-      message += `   • Ativos em alta: ${sentiment.assetsUp}\n`;
-      message += `   • Ativos em baixa: ${sentiment.assetsDown}\n`;
-      message += `   • Volume vs média: ${sentiment.volumeVsAverage > 1 ? '+' : ''}${((sentiment.volumeVsAverage - 1) * 100).toFixed(1)}%\n\n`;
-
-      // Adiciona análise de redes sociais se disponível
-      if (sentiment.socialSentiment) {
-        const social = sentiment.socialSentiment;
-        message += `📱 *Redes Sociais:*\n`;
-        message += `   • Sentimento geral: ${social.overall} (${social.score}/100)\n`;
-        message += `   • Confiança: ${social.confidence}%\n`;
-        message += `   • Fontes: ${social.sources.length} plataformas analisadas\n`;
+      message += `💰 *Volume Total:* $${this.formatVolume(sentiment.totalVolume)}\n`;
+      message += `📊 *Volatilidade:* ${sentiment.volatility.toFixed(1)}%\n`;
+      message += `📈 *Ativos em alta:* ${sentiment.assetsUp}\n`;
+      message += `📉 *Ativos em baixa:* ${sentiment.assetsDown}\n\n`;
+      
+      // Market cap cripto se disponível
+      if (sentiment.cryptoMarketCap) {
+        message += `₿ *MERCADO CRIPTO:*\n`;
+        message += `   • Market Cap: $${sentiment.cryptoMarketCap.totalMarketCap.toFixed(2)}T\n`;
+        message += `   • Dominância BTC: ${sentiment.cryptoMarketCap.btcDominance.toFixed(1)}%\n`;
+        message += `   • Variação 24h: ${sentiment.cryptoMarketCap.change24h > 0 ? '+' : ''}${sentiment.cryptoMarketCap.change24h.toFixed(2)}%\n`;
         
-        if (social.breakdown) {
-          message += `   • Bullish: ${social.breakdown.bullish} | Bearish: ${social.breakdown.bearish} | Neutro: ${social.breakdown.neutral}\n`;
+        if (sentiment.cryptoMarketCap.isRealData) {
+          message += `   ✅ Dados reais da CoinGecko\n`;
+        }
+        
+        if (sentiment.altcoinSeason) {
+          if (sentiment.altcoinSeason.isAltcoinSeason) {
+            message += `   🚀 Temporada de Altcoins ativa (${sentiment.altcoinSeason.index}/100)\n`;
+          } else if (sentiment.altcoinSeason.isBitcoinSeason) {
+            message += `   ₿ Temporada do Bitcoin ativa (${sentiment.altcoinSeason.index}/100)\n`;
+          }
+          
+          if (sentiment.altcoinSeason.isRealData) {
+            message += `   ✅ Dados reais da blockchaincenter.net\n`;
+          }
         }
         message += '\n';
-        
-        // Adiciona detalhes das redes sociais
-        if (social.details && social.details.length > 0) {
-          message += `📊 *Detalhes Sociais:*\n`;
-          social.details.slice(0, 4).forEach(detail => {
-            message += `   • ${detail}\n`;
-          });
-          message += '\n';
-        }
       }
-
-      // Adiciona análise detalhada se disponível
+      
+      // Análise detalhada
       if (sentiment.analysis && sentiment.analysis.length > 0) {
         message += `🔍 *Análise:*\n`;
         sentiment.analysis.slice(0, 3).forEach(point => {
@@ -532,15 +508,17 @@ class TelegramBotService {
         });
         message += '\n';
       }
-      message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
+      
+      message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n`;
+      message += `👑 Sinais Lobo Cripto`;
 
-      await this.bot.sendMessage(this.chatId, message, {
-        parse_mode: 'Markdown'
-      });
-
-      console.log('Análise de sentimento enviada');
+      if (this.isEnabled) {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      } else {
+        console.log(`🌍 [SIMULADO] Sentimento: ${sentiment.overall} (F&G: ${sentiment.fearGreedIndex})`);
+      }
     } catch (error) {
-      console.error('Erro ao enviar análise de sentimento:', error.message);
+      console.error('Erro ao enviar sentimento do mercado:', error.message);
     }
   }
 
@@ -549,839 +527,76 @@ class TelegramBotService {
    */
   async sendVolatilityAlert(symbol, change, timeframe) {
     try {
-      if (!this.isEnabled) {
-        console.log(`🔥 [DEV] Alerta de volatilidade simulado: ${symbol} ${change.toFixed(2)}%`);
-        return;
-      }
-      
       const emoji = change > 0 ? '🚀' : '📉';
-      const direction = change > 0 ? 'ALTA' : 'BAIXA';
-      
-      let message = `${emoji} *ALERTA DE VOLATILIDADE*\n\n`;
-      message += `📊 *Par:* ${symbol}\n`;
-      message += `📈 *Variação:* ${change > 0 ? '+' : ''}${change.toFixed(2)}%\n`;
-      message += `⏱️ *Timeframe:* ${timeframe}\n`;
-      message += `🔥 *Movimento:* ${direction} ACENTUADA\n\n`;
-      message += `⚠️ *Atenção para possíveis oportunidades de entrada!*\n\n`;
-      message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
+      const message = `🔥 *ALTA VOLATILIDADE*\n\n` +
+                     `📊 *Par:* ${symbol}\n` +
+                     `${emoji} *Variação:* ${change > 0 ? '+' : ''}${change.toFixed(2)}%\n` +
+                     `⏰ *Timeframe:* ${timeframe}\n\n` +
+                     `💡 *Oportunidade de swing trading detectada*\n\n` +
+                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n` +
+                     `👑 Sinais Lobo Cripto`;
 
-      await this.bot.sendMessage(this.chatId, message, {
-        parse_mode: 'Markdown'
-      });
-
-      console.log(`Alerta de volatilidade enviado para ${symbol}`);
-    } catch (error) {
-      console.error('Erro ao enviar alerta de volatilidade:', error.message);
-    }
-  }
-
-  /**
-   * Envia notificação de alvo atingido
-   */
-  async sendTargetHit(symbol, targetLevel, targetNumber, currentPrice, signalTime) {
-    try {
-      if (!this.isEnabled) {
-        console.log(`🎯 [DEV] Alvo simulado atingido: ${symbol} TP${targetNumber}`);
-        return;
-      }
-      
-      // Evita duplicação de notificações de alvos
-      const targetKey = `${symbol}_target_${targetNumber}_${targetLevel.toFixed(6)}`;
-      const now = Date.now();
-      
-      if (!this.lastTargetNotification) {
-        this.lastTargetNotification = new Map();
-      }
-      
-      const lastSent = this.lastTargetNotification.get(targetKey);
-      if (lastSent && (now - lastSent) < 60000) { // 1 minuto de cooldown
-        console.log(`⚠️ Notificação de alvo duplicada ignorada para ${symbol} TP${targetNumber}`);
-        return;
-      }
-      
-      const targetEmoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '🌕'][targetNumber - 1] || '🎯';
-      
-      // Calcula lucro correto: da entrada até o alvo atual, multiplicado por 15x
-      const monitor = this.activeMonitors.get(symbol);
-      const entryPrice = monitor ? monitor.entry : targetLevel; // Fallback se monitor não existir
-      const priceChangePercent = ((targetLevel - entryPrice) / entryPrice) * 100;
-      const profitPercent = priceChangePercent * 15; // Alavancagem 15x
-      
-      // Calcula tempo decorrido
-      const timeElapsed = this.calculateTimeElapsed(signalTime);
-      
-      // Função para formatar preços
-      const symbolName = symbol.split('/')[0];
-      const formatPrice = (price) => {
-        if (['BTC', 'ETH', 'SOL', 'LTC'].includes(symbolName)) {
-          return price.toFixed(2);
-        }
-        if (price >= 1) return price.toFixed(4);
-        if (price >= 0.01) return price.toFixed(6);
-        return price.toFixed(8);
-      };
-      
-      let message = `✅ *ALVO ${targetNumber} ATINGIDO #${symbolName}*\n\n`;
-      message += `${targetEmoji} Alvo ${targetNumber} atingido no par #${symbolName}\n`;
-      message += `💰 Lucro: +${profitPercent.toFixed(2)}% (Alv. 15×)\n`;
-      
-      // Recomendações específicas por alvo
-      if (targetNumber === 1) {
-        message += `⚡️ Posição parcial realizada\n`;
-        message += `⚠️ Recomendação: Realize 50% da posição neste alvo\n`;
-      } else if (targetNumber === 2) {
-        message += `⚡️ Sugestão: Realizar lucro parcial de 25%\n`;
-        message += `📌 Mover stop loss para o ponto de entrada\n`;
-        message += `⚠️ Recomendação: Proteja o capital movendo o stop\n`;
-      } else if (targetNumber === 3) {
-        message += `⚡️ Sugestão: Realizar lucro parcial de 15%\n`;
-        message += `📌 Mover stop loss para o Alvo 2\n`;
-        message += `⚠️ Recomendação: Garanta lucros movendo stop para TP2\n`;
-      } else if (targetNumber === 4) {
-        message += `⚡️ Sugestão: Realizar lucro parcial de 10%\n`;
-        message += `📌 Mover stop loss para o Alvo 3\n`;
-        message += `⚠️ Recomendação: Proteja lucros movendo stop para TP3\n`;
-      } else if (targetNumber === 5) {
-        message += `⚡️ Sugestão: Realizar lucro parcial de 10%\n`;
-        message += `📌 Mover stop loss para o Alvo 4\n`;
-        message += `⚠️ Recomendação: Maximize lucros movendo stop para TP4\n`;
-      } else if (targetNumber === 6) {
-        message += `🎉 LUCRO MÁXIMO ALCANÇADO!\n`;
-        message += `🏆 Recomendação: Encerrar operação com todos os alvos atingidos\n`;
-        message += `🏆 Parabéns! Todos os alvos atingidos\n`;
-      }
-      
-      message += `📊 Entrada: $${formatPrice(entryPrice)}\n`;
-      message += `🎯 Preço do alvo: $${formatPrice(targetLevel)}\n`;
-      message += `💵 Preço atual: $${formatPrice(currentPrice)}\n`;
-      message += `⏱️ Tempo até o alvo: ${timeElapsed}\n\n`;
-      message += `👑 Sinais Lobo Cripto`;
-
-      await this.bot.sendMessage(this.chatId, message, {
-        parse_mode: 'Markdown'
-      });
-      
-      // Registra envio para evitar duplicatas
-      this.lastTargetNotification.set(targetKey, now);
-      
-      // Limpa registros antigos (mais de 5 minutos)
-      for (const [key, timestamp] of this.lastTargetNotification.entries()) {
-        if (now - timestamp > 300000) {
-          this.lastTargetNotification.delete(key);
-        }
-      }
-
-      console.log(`Notificação de alvo enviada: ${symbol} TP${targetNumber}`);
-    } catch (error) {
-      console.error('Erro ao enviar notificação de alvo:', error.message);
-    }
-  }
-
-  /**
-   * Envia notificação de stop loss
-   */
-  async sendStopLossHit(symbol, stopLossLevel, currentPrice, signalTime) {
-    try {
-      if (!this.isEnabled) {
-        console.log(`🛑 [DEV] Stop loss simulado: ${symbol}`);
-        return;
-      }
-      
-      // Evita duplicação de notificações de stop loss
-      const stopKey = `${symbol}_stop_${stopLossLevel.toFixed(6)}`;
-      const now = Date.now();
-      
-      if (!this.lastStopNotification) {
-        this.lastStopNotification = new Map();
-      }
-      
-      const lastSent = this.lastStopNotification.get(stopKey);
-      if (lastSent && (now - lastSent) < 60000) { // 1 minuto de cooldown
-        console.log(`⚠️ Notificação de stop loss duplicada ignorada para ${symbol}`);
-        return;
-      }
-      
-      // Calcula perda correta: da entrada até o preço atual, multiplicado por 15x
-      const monitorData = this.activeMonitors.get(symbol);
-      const entryPrice = monitorData ? monitorData.entry : stopLossLevel; // Fallback se monitor não existir
-      const priceChangePercent = ((stopLossLevel - entryPrice) / entryPrice) * 100;
-      const lossPercent = Math.abs(priceChangePercent) * 15; // Alavancagem 15x
-      
-      // Calcula tempo decorrido
-      const timeElapsed = this.calculateTimeElapsed(signalTime);
-      
-      // Função para formatar preços
-      const symbolName = symbol.split('/')[0];
-      const formatPrice = (price) => {
-        if (['BTC', 'ETH', 'SOL', 'LTC'].includes(symbolName)) {
-          return price.toFixed(2);
-        }
-        if (price >= 1) return price.toFixed(4);
-        if (price >= 0.01) return price.toFixed(6);
-        return price.toFixed(8);
-      };
-      
-      let message = `🛑 *STOP LOSS ATINGIDO #${symbolName}*\n\n`;
-      message += `🔴 Stop loss atingido no par #${symbolName}\n`;
-      message += `📉 Perda: -${lossPercent.toFixed(2)}% (Alv. 15×)\n`;
-      
-      // Contexto específico do stop loss
-      if (monitorData) {
-        if (monitorData.targetIndex === 0) {
-          message += `❌ Nenhum alvo foi atingido\n`;
-        } else if (monitorData.targetIndex <= 1) {
-          message += `⚠️ Apenas TP1 foi atingido - voltou para stop inicial\n`;
-        }
-      }
-      
-      message += `📊 Preço de entrada: $${formatPrice(entryPrice)}\n`;
-      message += `🛑 Preço do stop: $${formatPrice(stopLossLevel)}\n`;
-      message += `💵 Preço atual: $${formatPrice(currentPrice)}\n`;
-      message += `⏱️ Duração do trade: ${timeElapsed}\n\n`;
-      message += `⚠️ *Gestão de risco ativada - Capital protegido*\n\n`;
-      message += `👑 Sinais Lobo Cripto`;
-
-      await this.bot.sendMessage(this.chatId, message, {
-        parse_mode: 'Markdown'
-      });
-      
-      // Registra envio para evitar duplicatas
-      this.lastStopNotification.set(stopKey, now);
-      
-      // Limpa registros antigos (mais de 5 minutos)
-      for (const [key, timestamp] of this.lastStopNotification.entries()) {
-        if (now - timestamp > 300000) {
-          this.lastStopNotification.delete(key);
-        }
-      }
-
-      console.log(`Notificação de stop loss enviada: ${symbol}`);
-    } catch (error) {
-      console.error('Erro ao enviar notificação de stop loss:', error.message);
-    }
-  }
-
-  /**
-   * Envia notificação de stop de lucro
-   */
-  async sendProfitStopHit(symbol, stopLevel, currentPrice, stopType, signalTime) {
-    try {
-      if (!this.isEnabled) {
-        console.log(`✅ [DEV] Stop de lucro simulado: ${symbol}`);
-        return;
-      }
-      
-      // Calcula lucro correto: da entrada até o preço atual, multiplicado por 15x
-      const monitorData = this.activeMonitors.get(symbol);
-      const entryPrice = monitorData ? monitorData.entry : stopLevel; // Fallback se monitor não existir
-      const priceChangePercent = ((stopLevel - entryPrice) / entryPrice) * 100;
-      const profitPercent = priceChangePercent * 15; // Alavancagem 15x
-      
-      // Calcula tempo decorrido
-      const timeElapsed = this.calculateTimeElapsed(signalTime);
-      
-      // Função para formatar preços
-      const symbolName = symbol.split('/')[0];
-      const formatPrice = (price) => {
-        if (['BTC', 'ETH', 'SOL', 'LTC'].includes(symbolName)) {
-          return price.toFixed(2);
-        }
-        if (price >= 1) return price.toFixed(4);
-        if (price >= 0.01) return price.toFixed(6);
-        return price.toFixed(8);
-      };
-      
-      // Determina o tipo de stop
-      let stopDescription = '';
-      let stopMessage = '';
-      if (stopType === 'BREAKEVEN') {
-        stopDescription = 'Stop de Lucro em Breakeven';
-        stopMessage = '📌 Stop de lucro atingido no ponto de entrada (TP2+ atingidos)';
-      } else if (stopType === 'TARGET_2') {
-        stopDescription = 'Stop Loss no Alvo 2';
-        stopMessage = '📌 Stop loss atingido no Alvo 2 - lucros protegidos';
-      } else if (stopType === 'TARGET_3') {
-        stopDescription = 'Stop Loss no Alvo 3';
-        stopMessage = '📌 Stop loss atingido no Alvo 3 - excelente resultado';
-      } else if (stopType === 'TARGET_4') {
-        stopDescription = 'Stop Loss no Alvo 4';
-        stopMessage = '📌 Stop loss atingido no Alvo 4 - resultado excepcional';
-      } else if (stopType.startsWith('TARGET_')) {
-        const targetNum = stopType.replace('TARGET_', '');
-        stopDescription = `Stop Loss no Alvo ${targetNum}`;
-        stopMessage = `📌 Stop loss atingido no Alvo ${targetNum}`;
-      }
-      
-      let message = `✅ *STOP DE LUCRO ATINGIDO #${symbolName}*\n\n`;
-      message += `🟢 Stop de lucro atingido no par #${symbolName}\n`;
-      message += `💰 Lucro: +${profitPercent.toFixed(2)}% (Alv. 15×)\n`;
-      message += `${stopMessage}\n`;
-      message += `📊 Preço de entrada: $${formatPrice(entryPrice)}\n`;
-      message += `✅ Preço do stop: $${formatPrice(stopLevel)}\n`;
-      message += `💵 Preço atual: $${formatPrice(currentPrice)}\n`;
-      message += `⏱️ Duração do trade: ${timeElapsed}\n\n`;
-      
-      // Mensagem específica por tipo de stop
-      if (stopType === 'BREAKEVEN') {
-        message += `🛡️ *Capital protegido após TP2+ - Operação sem risco*\n`;
-        message += `✅ Lucros de múltiplos alvos garantidos!\n\n`;
+      if (this.isEnabled) {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
       } else {
-        message += `🎯 *Gestão de lucro ativada - Lucros garantidos*\n`;
-        message += `✅ Excelente disciplina de trading!\n\n`;
-      }
-      
-      message += `👑 Sinais Lobo Cripto`;
-
-      await this.bot.sendMessage(this.chatId, message, {
-        parse_mode: 'Markdown'
-      });
-
-      console.log(`Notificação de stop de lucro enviada: ${symbol}`);
-    } catch (error) {
-      console.error('Erro ao enviar notificação de stop de lucro:', error.message);
-    }
-  }
-
-  /**
-   * Envia notificação de operação completa (todos os alvos)
-   */
-  async sendOperationComplete(symbol, signalTime) {
-    try {
-      if (!this.isEnabled) {
-        console.log(`🏆 [DEV] Operação completa simulada: ${symbol}`);
-        return;
-      }
-      
-      const symbolName = symbol.split('/')[0];
-      const timeElapsed = this.calculateTimeElapsed(signalTime);
-      
-      // Calcula lucro total (aproximado para TP6)
-      const monitorData = this.activeMonitors.get(symbol);
-      let totalProfitPercent = 135; // 9% * 15x = 135% (aproximado para TP6)
-      
-      if (monitorData) {
-        const lastTarget = monitorData.targets[monitorData.targets.length - 1];
-        const entryPrice = monitorData.entry;
-        const priceChangePercent = ((lastTarget - entryPrice) / entryPrice) * 100;
-        totalProfitPercent = priceChangePercent * 15; // Alavancagem 15x
-      }
-      
-      let message = `🏆 *OPERAÇÃO COMPLETA #${symbolName}*\n\n`;
-      message += `🎉 TODOS OS 6 ALVOS ATINGIDOS! 🎉\n`;
-      message += `💰 Lucro máximo: +${totalProfitPercent.toFixed(2)}% (Alv. 15×)\n`;
-      message += `🎯 Performance: 6/6 alvos (100%)\n`;
-      message += `⏱️ Duração total: ${timeElapsed}\n\n`;
-      message += `🏅 *RESULTADO PERFEITO!*\n`;
-      message += `✅ Disciplina exemplar na gestão de risco\n`;
-      message += `🚀 Operação executada com precisão máxima\n`;
-      message += `💎 Parabéns por seguir o plano até o fim!\n\n`;
-      message += `👑 Sinais Lobo Cripto`;
-
-      await this.bot.sendMessage(this.chatId, message, {
-        parse_mode: 'Markdown'
-      });
-
-      console.log(`Notificação de operação completa enviada: ${symbol}`);
-    } catch (error) {
-      console.error('Erro ao enviar notificação de operação completa:', error.message);
-    }
-  }
-
-  /**
-   * Calcula tempo decorrido desde o sinal
-   */
-  calculateTimeElapsed(signalTime) {
-    const now = new Date();
-    const diffMs = now - signalTime;
-    
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays > 0) {
-      const remainingHours = diffHours % 24;
-      return `${diffDays} dia${diffDays > 1 ? 's' : ''}${remainingHours > 0 ? ` e ${remainingHours}h` : ''}`;
-    } else if (diffHours > 0) {
-      const remainingMinutes = diffMinutes % 60;
-      return `${diffHours}h${remainingMinutes > 0 ? ` e ${remainingMinutes}min` : ''}`;
-    } else {
-      return `${diffMinutes} minuto${diffMinutes !== 1 ? 's' : ''}`;
-    }
-  }
-
-  /**
-   * Inicia monitoramento de preço
-   */
-  startPriceMonitoring(symbol, entry, targets, stopLoss, binanceService, signal, app = null, adaptiveScoring = null) {
-    console.log(`🗑️ Removendo monitor para ${symbol} - Motivo: ${reason}`);
-    
-    if (this.activeMonitors.has(symbol)) {
-      const monitor = this.activeMonitors.get(symbol);
-      // VERIFICA SE MONITOR JÁ FOI CRIADO
-      if (!this.activeMonitors.has(symbol)) {
-        console.error(`❌ ERRO: Monitor não existe para ${symbol} - criando agora`);
-        this.activeMonitors.set(symbol, {
-          symbol,
-          entry,
-          targets: [...targets],
-          stopLoss,
-          targetsHit: 0,
-          startTime: new Date(),
-          isActive: true,
-          simulatedMode: false
-        });
-      }
-    }
-    console.log(`🔄 Iniciando monitoramento TEMPO REAL para ${symbol}`);
-    console.log(`📊 Alvos: ${targets.map(t => t.toFixed(2)).join(', ')}`);
-    console.log(`🛑 Stop: ${stopLoss.toFixed(2)}`);
-    
-    const monitor = {
-      symbol,
-      entry,
-      targets: [...targets],
-      stopLoss,
-      targetIndex: 0,
-      signalTime: new Date(),
-      currentStopLevel: stopLoss,
-      targetsHit: 0,
-      maxTargetsHit: 0,
-      peakProfit: 0,
-      currentDrawdown: 0
-      stopType: 'INITIAL',
-      trend: signal ? signal.trend : 'BULLISH', // Adiciona tendência para verificações corretas
-      adaptiveScoring: adaptiveScoring,
-      indicators: signal ? signal.indicators : null,
-      lastUpdateTime: 0,
-      isProcessingStop: false,
-      isProcessingTarget: false
-    };
-
-    this.activeMonitors.set(symbol, monitor);
-
-    // 🚀 INICIA WEBSOCKET TEMPO REAL com throttling
-    let lastUpdateTime = 0;
-    const updateInterval = 2000; // Máximo 1 update a cada 2 segundos
-    
-    try {
-      binanceService.connectWebSocket(symbol, '1m', (candleData) => {
-        const now = Date.now();
-        
-        // Throttling: só processa se passou tempo suficiente
-        if (now - lastUpdateTime < updateInterval) {
-          const monitor = this.activeMonitors.get(symbol);
-          console.log(`📊 Iniciando monitoramento para ${symbol}. Monitor existe: ${!!monitor}`);
-          console.log(`📊 Total de monitores ativos: ${this.activeMonitors.size}`);
-          console.log(`📊 Lista de símbolos ativos: [${Array.from(this.activeMonitors.keys()).join(', ')}]`);
-          return;
-        }
-        lastUpdateTime = now;
-        
-        // Verifica se monitor ainda existe
-        const currentMonitor = this.activeMonitors.get(symbol);
-        if (!currentMonitor) {
-          return;
-        }
-        
-        const ticker = {
-          last: candleData.close,
-          timestamp: candleData.timestamp
-        };
-        
-        if (currentMonitor.lastUpdateTime && (Date.now() - currentMonitor.lastUpdateTime) < 2000) {
-          return;
-        }
-        currentMonitor.lastUpdateTime = Date.now();
-        
-        // ⚡ VERIFICA ALVOS E STOP (com proteção contra loop)
-        this.handlePriceUpdate(symbol, ticker.last, currentMonitor, app);
-      });
-      
-      console.log(`🔄 Monitoramento WebSocket iniciado para ${symbol}`);
-    } catch (error) {
-      console.error(`❌ Erro ao iniciar WebSocket para ${symbol}:`, error.message);
-      
-      // Remove monitor se falhou
-      if (this.activeMonitors.has(symbol)) {
-        this.activeMonitors.delete(symbol);
-        console.log(`🗑️ Monitor removido devido ao erro: ${symbol}`);
-      }
-    }
-  }
-
-  /**
-   * Manipula atualizações de preço
-   */
-  async handlePriceUpdate(symbol, currentPrice, monitor, app = null) {
-    try {
-      // Verifica se o monitor ainda existe (pode ter sido removido)
-      if (!this.activeMonitors.has(symbol)) {
-        return;
-      }
-
-      // Evita processamento duplicado muito rápido
-      const now = Date.now();
-      const lastUpdate = monitor.lastUpdateTime || 0;
-      if (now - lastUpdate < 500) { // Mínimo 500ms entre updates
-        return;
-      }
-      monitor.lastUpdateTime = now;
-
-      const isLong = monitor.trend === 'BULLISH';
-      
-      // 🔍 VERIFICA STOP LOSS PRIMEIRO
-      const stopHit = isLong 
-        ? currentPrice <= monitor.currentStopLevel  // COMPRA: stop abaixo
-        : currentPrice >= monitor.currentStopLevel; // VENDA: stop acima
-        
-      if (stopHit) {
-        // Marca como processando para evitar duplicatas
-        if (monitor.isProcessingStop) {
-          return;
-        }
-        monitor.isProcessingStop = true;
-        
-        // STOP LOSS: Quando é stop inicial OU quando só atingiu TP1 e voltou para stop inicial
-        if (monitor.stopType === 'INITIAL') {
-          console.log(`🛑 STOP LOSS atingido para ${symbol}: ${currentPrice}`);
-          await this.sendStopLossHit(symbol, monitor.currentStopLevel, currentPrice, monitor.signalTime);
-          
-          // Registra resultado no performance tracker
-          if (app && app.performanceTracker) {
-            const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-            app.performanceTracker.updateSignalResult(symbol, 0, finalPnL, 'STOP_LOSS');
-          }
-          
-          // Registra resultado negativo no sistema adaptativo
-          if (monitor.adaptiveScoring && monitor.indicators) {
-            const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-            monitor.adaptiveScoring.recordTradeResult(symbol, monitor.indicators, false, finalPnL);
-          }
-        } else if (monitor.stopType === 'BREAKEVEN') {
-          // BREAKEVEN: Pode ser stop loss (só TP1) ou stop de lucro (TP2+)
-          if (monitor.targetIndex <= 1) {
-            // Só atingiu TP1 - ainda é STOP LOSS
-            console.log(`🛑 STOP LOSS atingido para ${symbol}: ${currentPrice} (só TP1 atingido)`);
-            await this.sendStopLossHit(symbol, monitor.currentStopLevel, currentPrice, monitor.signalTime);
-            
-            // Registra resultado no performance tracker
-            if (app && app.performanceTracker) {
-              const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-              app.performanceTracker.updateSignalResult(symbol, monitor.targetIndex, finalPnL, 'STOP_LOSS');
-            }
-            
-            // Registra resultado negativo no sistema adaptativo
-            if (monitor.adaptiveScoring && monitor.indicators) {
-              const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-              monitor.adaptiveScoring.recordTradeResult(symbol, monitor.indicators, false, finalPnL);
-            }
-          } else {
-            // TP2+ atingidos - é STOP DE LUCRO
-            console.log(`✅ STOP DE LUCRO atingido para ${symbol}: ${currentPrice} (TP2+ atingidos)`);
-            await this.sendProfitStopHit(symbol, monitor.currentStopLevel, currentPrice, monitor.stopType, monitor.signalTime);
-            
-            // Registra resultado no performance tracker
-            if (app && app.performanceTracker) {
-              const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-              const targetsHit = monitor.targetIndex;
-              app.performanceTracker.updateSignalResult(symbol, targetsHit, finalPnL, monitor.stopType);
-            }
-            
-            // Registra resultado positivo no sistema adaptativo
-            if (monitor.adaptiveScoring && monitor.indicators) {
-              const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-              monitor.adaptiveScoring.recordTradeResult(symbol, monitor.indicators, true, finalPnL);
-            }
-          }
-        } else {
-          // STOP DE LUCRO: Quando stop foi movido para TP2, TP3, TP4 (TARGET_2, TARGET_3, TARGET_4)
-          console.log(`✅ STOP DE LUCRO atingido para ${symbol}: ${currentPrice}`);
-          await this.sendProfitStopHit(symbol, monitor.currentStopLevel, currentPrice, monitor.stopType, monitor.signalTime);
-          
-          // Registra resultado no performance tracker
-          if (app && app.performanceTracker) {
-            const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-            const targetsHit = monitor.targetIndex;
-            app.performanceTracker.updateSignalResult(symbol, targetsHit, finalPnL, monitor.stopType);
-          }
-          
-          // Registra resultado positivo no sistema adaptativo
-          if (monitor.adaptiveScoring && monitor.indicators) {
-            const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-            monitor.adaptiveScoring.recordTradeResult(symbol, monitor.indicators, true, finalPnL);
-          }
-        }
-        
-        // Remove monitor ANTES de parar WebSocket
-        this.activeMonitors.delete(symbol);
-        
-        // Para o WebSocket para este símbolo
-        if (app && app.binanceService) {
-          app.binanceService.stopWebSocketForSymbol(symbol);
-        }
-        
-        console.log(`🏁 Operação finalizada para ${symbol} - ${monitor.stopType === 'INITIAL' ? 'STOP LOSS' : 'STOP DE LUCRO'}`);
-        return;
-      }
-
-      // 🎯 VERIFICA ALVOS EM SEQUÊNCIA
-      if (monitor.targetIndex < monitor.targets.length) {
-        const currentTarget = monitor.targets[monitor.targetIndex];
-        
-        const targetHit = isLong 
-          ? currentPrice >= currentTarget  // COMPRA: alvos acima
-          : currentPrice <= currentTarget; // VENDA: alvos abaixo
-          
-        if (targetHit) {
-          // Evita processamento duplicado de alvos
-          if (monitor.isProcessingTarget) {
-            return;
-          }
-          monitor.isProcessingTarget = true;
-          
-          console.log(`🎯 ALVO ${monitor.targetIndex + 1} atingido para ${symbol}: ${currentPrice}`);
-          await this.sendTargetHit(symbol, currentTarget, monitor.targetIndex + 1, currentPrice, monitor.signalTime);
-          monitor.targetIndex++;
-          
-          // Reset flag após processamento
-          monitor.isProcessingTarget = false;
-          
-          // 📌 GERENCIAMENTO AUTOMÁTICO DE STOP
-          if (monitor.targetIndex === 2) {
-            // TP2 atingido: move stop para entrada (breakeven)
-            // AGORA é STOP DE LUCRO se voltar (TP2 já foi atingido)
-            monitor.currentStopLevel = monitor.entry;
-            monitor.stopType = 'BREAKEVEN';
-            console.log(`📌 Stop movido para BREAKEVEN: ${monitor.entry}`);
-          } else if (monitor.targetIndex === 3) {
-            // TP3 atingido: move stop para TP2
-            monitor.currentStopLevel = monitor.targets[1]; // TP2 (índice 1)
-            monitor.stopType = 'TARGET_2';
-            console.log(`📌 Stop movido para TP2: ${monitor.currentStopLevel}`);
-          } else if (monitor.targetIndex === 4) {
-            // TP4 atingido: move stop para TP3
-            monitor.currentStopLevel = monitor.targets[2]; // TP3 (índice 2)
-            monitor.stopType = 'TARGET_3';
-            console.log(`📌 Stop movido para TP3: ${monitor.currentStopLevel}`);
-          } else if (monitor.targetIndex === 5) {
-            // TP5 atingido: move stop para TP4
-            monitor.currentStopLevel = monitor.targets[3]; // TP4 (índice 3)
-            monitor.stopType = 'TARGET_4';
-            console.log(`📌 Stop movido para TP4: ${monitor.currentStopLevel}`);
-          }
-          
-          // Se todos os alvos foram atingidos, para o monitoramento
-          if (monitor.targetIndex >= monitor.targets.length) {
-            console.log(`🏆 TODOS OS ALVOS atingidos para ${symbol}!`);
-            await this.sendOperationComplete(symbol, monitor.signalTime);
-            
-            // Registra resultado completo no performance tracker
-            if (app && app.performanceTracker) {
-              const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-              app.performanceTracker.updateSignalResult(symbol, 6, finalPnL, 'ALL_TARGETS');
-            }
-            
-            // Registra resultado muito positivo no sistema adaptativo
-            if (monitor.adaptiveScoring && monitor.indicators) {
-              const finalPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-              monitor.adaptiveScoring.recordTradeResult(symbol, monitor.indicators, true, finalPnL);
-            }
-            
-            // Remove monitor ANTES de parar WebSocket
-            this.activeMonitors.delete(symbol);
-            
-            // Para o WebSocket para este símbolo
-            if (app && app.binanceService) {
-              app.binanceService.stopWebSocketForSymbol(symbol);
-            }
-            
-            console.log(`🏁 Operação COMPLETA para ${symbol} - TODOS OS ALVOS`);
-          }
-        }
+        console.log(`🔥 [SIMULADO] Volatilidade ${symbol}: ${change > 0 ? '+' : ''}${change.toFixed(2)}%`);
       }
     } catch (error) {
-      console.error(`Erro no monitoramento de ${symbol}:`, error.message);
+      console.error(`Erro ao enviar alerta de volatilidade para ${symbol}:`, error.message);
     }
   }
 
   /**
-   * Para WebSocket para um símbolo específico
+   * Para WebSocket para um símbolo
    */
   stopWebSocketForSymbol(symbol) {
-    // Implementação será feita no BinanceService se necessário
-    console.log(`🔌 WebSocket parado para ${symbol}`);
-  }
-
-  /**
-   * Para monitoramento de um símbolo
-   */
-  stopPriceMonitoring(symbol, reason = 'Manual') {
-    try {
-      console.log(`🛑 Parando monitoramento para ${symbol} - Motivo: ${reason}`);
-      
-      if (!this.activeMonitors.has(symbol)) {
-        console.log('⚠️ Telegram não configurado - simulando envio de sinal (modo desenvolvimento)');
-        console.log(`📤 [SIMULADO] Sinal para ${signal.symbol}: ${signal.probability.toFixed(1)}%`);
-        // Em modo desenvolvimento, considera como enviado com sucesso
+    if (this.wsConnections.has(symbol)) {
+      try {
+        const ws = this.wsConnections.get(symbol);
+        ws.close();
+        this.wsConnections.delete(symbol);
+        console.log(`🔌 WebSocket parado para ${symbol}`);
         return true;
+      } catch (error) {
+        console.error(`Erro ao parar WebSocket ${symbol}:`, error.message);
+        return false;
       }
-
-      // Remove do mapa de monitores
-      this.activeMonitors.delete(symbol);
-      console.log(`🗑️ Monitor removido para ${symbol}: ${reason}`);
-      console.log(`   • Alvos atingidos: ${monitor.targetsHit || 0}/${monitor.targets?.length || 0}`);
-      console.log(`   • Duração: ${monitor.timestamp ? Math.round((Date.now() - monitor.timestamp.getTime()) / 60000) : 0} minutos`);
-      console.log(`📊 Símbolos ativos restantes: [${this.getActiveSymbols().join(', ') || 'Nenhum'}]`);
-      console.log(`📋 Monitores ativos restantes: [${Array.from(this.activeMonitors.keys()).join(', ') || 'Nenhum'}]`);
-
-      return true;
-    } catch (error) {
-      console.log(`⚠️ Tentativa de remover monitor inexistente: ${symbol}`);
-      console.error(`Erro ao parar monitoramento de ${symbol}:`, error.message);
-      throw error; // Propaga erro para tratamento no app.js
     }
-  }
-
-  /**
-   * Verifica se um símbolo tem operação ativa
-   */
-  hasActiveMonitor(symbol) {
-    const hasActive = this.activeMonitors.has(symbol);
-    if (hasActive) {
-      const monitor = this.activeMonitors.get(symbol);
-      console.log(`🔍 Operação ativa encontrada para ${symbol}:`);
-      console.log(`   • Entrada: $${(monitor.entry || 0).toFixed(4)}`);
-      console.log(`   • Alvos atingidos: ${monitor.targetsHit || 0}/${monitor.targets?.length || 0}`);
-      console.log(`   • Status: ${monitor.status || 'UNKNOWN'}`);
-      console.log(`   • Timestamp: ${monitor.timestamp || 'N/A'}`);
-      console.log(`   • Stop atual: $${monitor.currentStopLevel.toFixed(4)}`);
-      console.log(`   • Tempo ativo: ${this.calculateTimeElapsed(monitor.signalTime)}`);
-    }
-    return hasActive;
-  }
-
-  /**
-   * Obtém lista de símbolos com operações ativas
-   */
-  getActiveSymbols() {
-    const activeSymbols = Array.from(this.activeMonitors.keys());
-    console.log(`📊 Símbolos ativos consultados: ${activeSymbols.join(', ') || 'Nenhum'} (${activeSymbols.length} total)`);
-    return activeSymbols;
-  }
-
-  /**
-   * Obtém emoji da tendência
-   */
-  getTrendEmoji(trend) {
-    switch (trend) {
-      case 'BULLISH': return '🟢';
-      case 'BEARISH': return '🔴';
-      case 'SIDEWAYS': return '🟡';
-      default: return '⚪';
-    }
+    return false;
   }
 
   /**
    * Formata volume
    */
   formatVolume(volume) {
-    // Garante que volume é um número válido
-    if (!volume || isNaN(volume) || volume === null || volume === undefined) {
-      return '0';
+    if (!volume || isNaN(volume)) return '0';
+    if (volume >= 1e9) return `${(volume / 1e9).toFixed(1)}B`;
+    if (volume >= 1e6) return `${(volume / 1e6).toFixed(1)}M`;
+    if (volume >= 1e3) return `${(volume / 1e3).toFixed(1)}K`;
+    return volume.toFixed(0);
+  }
+
+  /**
+   * Lista operações ativas (para debugging)
+   */
+  listActiveOperations() {
+    console.log(`📊 Operações ativas (${this.activeMonitors.size}):`);
+    
+    if (this.activeMonitors.size === 0) {
+      console.log('   Nenhuma operação ativa');
+      return;
     }
     
-    // Converte para número se for string
-    volume = Number(volume);
-    
-    if (volume >= 1e9) {
-      return (volume / 1e9).toFixed(2) + 'B';
-    } else if (volume >= 1e6) {
-      return (volume / 1e6).toFixed(2) + 'M';
-    } else if (volume >= 1e3) {
-      return (volume / 1e3).toFixed(2) + 'K';
-    }
-    return volume.toFixed(2);
-  }
-
-  /**
-   * Escapa caracteres especiais do Markdown
-   */
-  escapeMarkdown(text) {
-    if (typeof text !== 'string') {
-      text = String(text);
-    }
-    
-    // Escapa caracteres especiais do Telegram Markdown
-    return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
-  }
-
-  /**
-   * Explica padrões de triângulo para iniciantes
-   */
-  explainTrianglePattern(triangle) {
-    switch (triangle.type) {
-      case 'ASCENDING_TRIANGLE':
-        return '📈 Triângulo Ascendente: Preço faz topos iguais e fundos crescentes\n     (Pressão compradora aumentando - sinal de alta)';
-      case 'DESCENDING_TRIANGLE':
-        return '📉 Triângulo Descendente: Preço faz fundos iguais e topos decrescentes\n     (Pressão vendedora aumentando - sinal de baixa)';
-      default:
-        return `📊 ${triangle.type}: Padrão de consolidação detectado`;
-    }
-  }
-
-  /**
-   * Explica padrões de bandeira para iniciantes
-   */
-  explainFlagPattern(flag) {
-    if (flag.type === 'BULLISH_FLAG') {
-      return '🚩 Bandeira de Alta: Após subida forte, preço consolida lateralmente\n     (Pausa para respirar antes de continuar subindo)';
-    } else {
-      return '🚩 Bandeira de Baixa: Após queda forte, preço consolida lateralmente\n     (Pausa para respirar antes de continuar caindo)';
-    }
-  }
-
-  /**
-   * Explica padrões de cunha para iniciantes
-   */
-  explainWedgePattern(wedge) {
-    if (wedge.type === 'RISING_WEDGE') {
-      return '📐 Cunha Ascendente: Preço sobe mas com força decrescente\n     (Sinal de possível reversão para baixa)';
-    } else {
-      return '📐 Cunha Descendente: Preço desce mas com força decrescente\n     (Sinal de possível reversão para alta)';
-    }
-  }
-
-  /**
-   * Explica padrões duplos para iniciantes
-   */
-  explainDoublePattern(double) {
-    if (double.type === 'DOUBLE_TOP') {
-      return '⛰️ Topo Duplo: Preço testou resistência 2x e não conseguiu passar\n     (Sinal forte de reversão para baixa)';
-    } else {
-      return '🏔️ Fundo Duplo: Preço testou suporte 2x e não conseguiu quebrar\n     (Sinal forte de reversão para alta)';
-    }
-  }
-
-  /**
-   * Explica padrões de candlestick para iniciantes
-   */
-  explainCandlestickPattern(pattern) {
-    const emoji = pattern.bias === 'BULLISH' ? '🟢' : pattern.bias === 'BEARISH' ? '🔴' : '🟡';
-    
-    switch (pattern.type) {
-      case 'DOJI':
-        return `🎯 Doji: Abertura = Fechamento (Indecisão do mercado) ${emoji}`;
-      case 'BULLISH_ENGULFING':
-        return `🟢 Engolfo de Alta: Candle verde "engole" o vermelho anterior\n     (Compradores assumiram controle)`;
-      case 'BEARISH_ENGULFING':
-        return `🔴 Engolfo de Baixa: Candle vermelho "engole" o verde anterior\n     (Vendedores assumiram controle)`;
-      case 'HAMMER':
-        return `🔨 Martelo: Candle com sombra longa embaixo\n     (Compradores rejeitaram preços baixos - sinal de alta)`;
-      case 'HANGING_MAN':
-        return `🪓 Enforcado: Candle com sombra longa em cima\n     (Vendedores rejeitaram preços altos - sinal de baixa)`;
-      default:
-        return `${pattern.type} ${emoji}`;
-    }
+    this.activeMonitors.forEach((monitor, symbol) => {
+      const targetsHit = monitor.targetsHit || 0;
+      const totalTargets = monitor.targets?.length || 0;
+      
+      console.log(`🔍 Operação ativa encontrada para ${symbol}:`);
+      console.log(`   • Entrada: $${monitor.entry.toFixed(4)}`);
+      console.log(`   • Alvos atingidos: ${targetsHit}/${totalTargets}`);
+      console.log(`   • Status: ${monitor.status || 'ACTIVE'}`);
+      console.log(`   • Timestamp: ${monitor.timestamp}`);
+    });
   }
 }
 
