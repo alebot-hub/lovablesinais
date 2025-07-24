@@ -850,14 +850,20 @@ class TradingBotApp {
 
       // CRIA MONITOR IMEDIATAMENTE ANTES DO ENVIO
       console.log(`📊 Criando monitor para ${signal.symbol}...`);
-      this.telegramBot.createMonitor(
-        signal.symbol,
-        signal.entry,
-        signal.targets,
-        signal.stopLoss,
-        signalId
-      );
-      console.log(`✅ Monitor criado para ${signal.symbol}. Total: ${this.telegramBot.activeMonitors.size}`);
+      
+      // Verifica se monitor já existe (evita duplicação)
+      if (!this.telegramBot.hasActiveMonitor(signal.symbol)) {
+        this.telegramBot.createMonitor(
+          signal.symbol,
+          signal.entry,
+          signal.targets,
+          signal.stopLoss,
+          signalId
+        );
+        console.log(`✅ Monitor criado para ${signal.symbol}. Total: ${this.telegramBot.activeMonitors.size}`);
+      } else {
+        console.log(`⚠️ Monitor já existe para ${signal.symbol} - usando existente`);
+      }
 
       // Envia via Telegram
       try {

@@ -3,6 +3,7 @@
  */
 
 import TelegramBot from 'node-telegram-bot-api';
+import { TRADING_CONFIG } from '../config/constants.js';
 
 class TelegramBotService {
   constructor() {
