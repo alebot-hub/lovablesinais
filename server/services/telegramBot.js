@@ -1160,14 +1160,25 @@ class TelegramBotService {
   /**
    * Para monitoramento de um símbolo
    */
-  stopPriceMonitoring(symbol) {
-    if (this.activeMonitors.has(symbol)) {
+  stopPriceMonitoring(symbol, reason = 'Manual') {
+    try {
+      console.log(`🛑 Parando monitoramento para ${symbol} - Motivo: ${reason}`);
+      
+      if (!this.activeMonitors.has(symbol)) {
+        console.log(`⚠️ Monitor não encontrado para ${symbol} - já foi removido`);
+        return false;
+      }
+
+      // Remove do mapa de monitores
       this.activeMonitors.delete(symbol);
-      this.stopWebSocketForSymbol(symbol);
-      console.log(`Monitoramento parado para ${symbol}`);
+      console.log(`✅ Monitor removido para ${symbol} - ${reason}. Monitores restantes: ${this.activeMonitors.size}`);
+      console.log(`📋 Monitores ativos restantes: [${Array.from(this.activeMonitors.keys()).join(', ') || 'Nenhum'}]`);
+
       return true;
+    } catch (error) {
+      console.error(`Erro ao parar monitoramento de ${symbol}:`, error.message);
+      return false;
     }
-    return false;
   }
 
   /**
