@@ -862,13 +862,23 @@ class TradingBotApp {
       console.log(`✅ Monitor criado para ${signal.symbol}. Total: ${this.telegramBot.activeMonitors.size}`);
 
       // Envia via Telegram
-      const signalSent = await this.telegramBot.sendTradingSignal(signal, chart);
-      
-      if (!signalSent) {
-        console.error(`❌ ERRO: Falha ao enviar sinal para ${signal.symbol}`);
-        // Remove monitor se envio falhou
+      try {
+        const sendResult = await this.telegramBot.sendTradingSignal(signal, chart);
+        console.log(`📤 Resultado do envio para ${signal.symbol}: ${sendResult ? 'SUCESSO' : 'FALHA'}`);
+        
+        // Se envio realmente falhou (não é modo simulado)
+        if (sendResult === false && this.telegramBot.isEnabled) {
+          console.error(`❌ ERRO REAL: Falha ao enviar sinal para ${signal.symbol}`);
+          this.telegramBot.activeMonitors.delete(signal.symbol);
+          console.log(`🗑️ Monitor removido devido à falha real no envio: ${signal.symbol}`);
+          return;
+        }
+        
+        console.log(`✅ Sinal processado com sucesso para ${signal.symbol}`);
+      } catch (error) {
+        console.error(`❌ Erro crítico ao enviar sinal para ${signal.symbol}:`, error.message);
         this.telegramBot.activeMonitors.delete(signal.symbol);
-        console.log(`🗑️ Monitor removido devido à falha no envio: ${signal.symbol}`);
+        console.log(`🗑️ Monitor removido devido ao erro crítico: ${signal.symbol}`);
         return;
       }
 
@@ -892,16 +902,22 @@ class TradingBotApp {
       }
 
       // Inicia monitoramento de preço
-      await this.telegramBot.startPriceMonitoring(
-        signal.symbol,
-        signal.entry,
-        signal.targets,
-        signal.stopLoss,
-        this.binanceService,
-        signal,
-        this,
-        this.adaptiveScoring
-      );
+      try {
+        await this.telegramBot.startPriceMonitoring(
+          signal.symbol,
+          signal.entry,
+          signal.targets,
+          signal.stopLoss,
+          this.binanceService,
+          signal,
+          this,
+          this.adaptiveScoring
+        );
+        console.log(`🔄 Monitoramento WebSocket iniciado para ${signal.symbol}`);
+      } catch (monitorError) {
+        console.error(`❌ Erro ao iniciar monitoramento para ${signal.symbol}:`, monitorError.message);
+        // Não remove monitor aqui - pode funcionar mesmo sem WebSocket
+      }
 
       console.log(`📤 Sinal enviado e monitoramento iniciado para ${signal.symbol}`);
       

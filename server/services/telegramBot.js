@@ -881,11 +881,27 @@ class TelegramBotService {
    * Inicia monitoramento de preço
    */
   startPriceMonitoring(symbol, entry, targets, stopLoss, binanceService, signal, app = null, adaptiveScoring = null) {
+    console.log(`🗑️ Removendo monitor para ${symbol} - Motivo: ${reason}`);
+    
     if (this.activeMonitors.has(symbol)) {
-      console.log(`🔄 Iniciando monitoramento TEMPO REAL para ${symbol}`);
-      console.log(`📊 Alvos: ${targets.map(t => t.toFixed(2)).join(', ')}`);
-      console.log(`🛑 Stop: ${stopLoss.toFixed(2)}`);
+      // VERIFICA SE MONITOR JÁ FOI CRIADO
+      if (!this.activeMonitors.has(symbol)) {
+        console.error(`❌ ERRO: Monitor não existe para ${symbol} - criando agora`);
+        this.activeMonitors.set(symbol, {
+          symbol,
+          entry,
+          targets: [...targets],
+          stopLoss,
+          targetsHit: 0,
+          startTime: new Date(),
+          isActive: true,
+          simulatedMode: false
+        });
+      }
     }
+    console.log(`🔄 Iniciando monitoramento TEMPO REAL para ${symbol}`);
+    console.log(`📊 Alvos: ${targets.map(t => t.toFixed(2)).join(', ')}`);
+    console.log(`🛑 Stop: ${stopLoss.toFixed(2)}`);
     
     const monitor = {
       symbol,
@@ -916,6 +932,10 @@ class TelegramBotService {
         
         // Throttling: só processa se passou tempo suficiente
         if (now - lastUpdateTime < updateInterval) {
+          const monitor = this.activeMonitors.get(symbol);
+          console.log(`📊 Iniciando monitoramento para ${symbol}. Monitor existe: ${!!monitor}`);
+          console.log(`📊 Total de monitores ativos: ${this.activeMonitors.size}`);
+          console.log(`📊 Lista de símbolos ativos: [${Array.from(this.activeMonitors.keys()).join(', ')}]`);
           return;
         }
         lastUpdateTime = now;
@@ -931,7 +951,11 @@ class TelegramBotService {
           timestamp: candleData.timestamp
         };
         
+        if (currentMonitor.lastUpdateTime && (Date.now() - currentMonitor.lastUpdateTime) < 2000) {
+          return;
+        }
         currentMonitor.lastUpdateTime = Date.now();
+        
         // ⚡ VERIFICA ALVOS E STOP (com proteção contra loop)
         this.handlePriceUpdate(symbol, ticker.last, currentMonitor, app);
       });
@@ -940,8 +964,8 @@ class TelegramBotService {
     } catch (error) {
       console.error(`❌ Erro ao iniciar WebSocket para ${symbol}:`, error.message);
       
+      // Remove monitor se falhou
       if (this.activeMonitors.has(symbol)) {
-        const currentMonitor = this.activeMonitors.get(symbol);
         this.activeMonitors.delete(symbol);
         console.log(`🗑️ Monitor removido devido ao erro: ${symbol}`);
       }
@@ -1159,19 +1183,23 @@ class TelegramBotService {
       console.log(`🛑 Parando monitoramento para ${symbol} - Motivo: ${reason}`);
       
       if (!this.activeMonitors.has(symbol)) {
-        console.log(`⚠️ Monitor não encontrado para ${symbol} - já foi removido`);
-        return false;
+        console.log('⚠️ Telegram não configurado - simulando envio de sinal (modo desenvolvimento)');
+        console.log(`📤 [SIMULADO] Sinal para ${signal.symbol}: ${signal.probability.toFixed(1)}%`);
+        // Em modo desenvolvimento, considera como enviado com sucesso
+        return true;
       }
 
       // Remove do mapa de monitores
       this.activeMonitors.delete(symbol);
-      console.log(`✅ Monitor removido para ${symbol} - ${reason}. Monitores restantes: ${this.activeMonitors.size}`);
+      console.log(`✅ Monitor removido para ${symbol}. Monitores restantes: ${this.activeMonitors.size}`);
+      console.log(`📊 Símbolos ativos restantes: [${this.getActiveSymbols().join(', ') || 'Nenhum'}]`);
       console.log(`📋 Monitores ativos restantes: [${Array.from(this.activeMonitors.keys()).join(', ') || 'Nenhum'}]`);
 
       return true;
     } catch (error) {
+      console.log(`⚠️ Tentativa de remover monitor inexistente: ${symbol}`);
       console.error(`Erro ao parar monitoramento de ${symbol}:`, error.message);
-      return false;
+      throw error; // Propaga erro para tratamento no app.js
     }
   }
 
