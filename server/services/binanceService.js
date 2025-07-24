@@ -281,7 +281,11 @@ class BinanceService {
     const connectionKey = `${symbol}_${timeframe}`;
     if (this.wsConnections.has(connectionKey)) {
       const ws = this.wsConnections.get(connectionKey);
-      ws.close();
+      try {
+        ws.close();
+      } catch (error) {
+        console.error(`Erro ao fechar WebSocket ${connectionKey}:`, error.message);
+      }
       this.wsConnections.delete(connectionKey);
       this.reconnectAttempts.delete(connectionKey);
       console.log(`🔌 WebSocket parado para ${symbol}`);

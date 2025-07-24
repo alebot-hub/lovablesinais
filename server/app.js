@@ -588,7 +588,7 @@ class TradingBotApp {
     // Análise de sentimento a cada 6 horas
     schedule.scheduleJob(SCHEDULE_CONFIG.MARKET_SENTIMENT, () => {
       console.log('🌍 Executando análise de sentimento agendada...');
-      this.analyzeMarketSentiment();
+      this.sendScheduledMarketSentiment();
     });
 
     // Verificação de volatilidade a cada 15 minutos
@@ -596,17 +596,24 @@ class TradingBotApp {
       this.checkVolatility();
     });
 
-    // Relatório semanal (domingos às 20h)
+    // Relatório semanal (domingos às 20h - horário de Brasília)
     schedule.scheduleJob('0 20 * * 0', () => {
       this.sendWeeklyReport();
     });
 
-    // Relatório macro diário (7h da manhã)
-    schedule.scheduleJob('0 7 * * *', () => {
+    // Relatório macro diário (7h da manhã - horário de Brasília)
+    schedule.scheduleJob('0 10 * * *', () => {
       this.sendDailyMacroReport();
     });
 
     console.log('✅ Tarefas agendadas configuradas');
+    console.log('⏰ Horários configurados para UTC (Brasília = UTC-3):');
+    console.log('   • Sinais: A cada hora');
+    console.log('   • Bitcoin: A cada 4 horas');
+    console.log('   • Sentimento: A cada 6 horas (0, 6, 12, 18 UTC)');
+    console.log('   • Volatilidade: A cada 15 minutos');
+    console.log('   • Macro: Diário às 10 UTC (7h Brasília)');
+    console.log('   • Semanal: Domingos às 20 UTC (17h Brasília)');
   }
 
   /**

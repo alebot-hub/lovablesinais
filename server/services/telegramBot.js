@@ -33,9 +33,14 @@ class TelegramBotService {
       // Verifica se já enviou este sinal recentemente (evita duplicatas)
       const signalKey = `${signal.symbol}_${signal.entry}_${signal.timeframe}`;
       const now = Date.now();
+      
+      if (!this.lastSignalSent) {
+        this.lastSignalSent = new Map();
+      }
+      
       const lastSent = this.lastSignalSent?.get?.(signalKey);
       
-      if (lastSent && (now - lastSent) < 60000) { // 1 minuto de cooldown
+      if (lastSent && (now - lastSent) < 300000) { // 5 minutos de cooldown
         console.log(`⚠️ Sinal duplicado ignorado para ${signal.symbol} (enviado há ${Math.round((now - lastSent)/1000)}s)`);
         return;
       }
@@ -48,14 +53,11 @@ class TelegramBotService {
       });
 
       // Registra envio para evitar duplicatas
-      if (!this.lastSignalSent) {
-        this.lastSignalSent = new Map();
-      }
       this.lastSignalSent.set(signalKey, now);
       
       // Limpa registros antigos (mais de 5 minutos)
       for (const [key, timestamp] of this.lastSignalSent.entries()) {
-        if (now - timestamp > 300000) { // 5 minutos
+        if (now - timestamp > 600000) { // 10 minutos
           this.lastSignalSent.delete(key);
         }
       }
@@ -552,6 +554,20 @@ class TelegramBotService {
         return;
       }
       
+      // Evita duplicação de notificações de alvos
+      const targetKey = `${symbol}_target_${targetNumber}_${targetLevel.toFixed(6)}`;
+      const now = Date.now();
+      
+      if (!this.lastTargetNotification) {
+        this.lastTargetNotification = new Map();
+      }
+      
+      const lastSent = this.lastTargetNotification.get(targetKey);
+      if (lastSent && (now - lastSent) < 60000) { // 1 minuto de cooldown
+        console.log(`⚠️ Notificação de alvo duplicada ignorada para ${symbol} TP${targetNumber}`);
+        return;
+      }
+      
       const targetEmoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '🌕'][targetNumber - 1] || '🎯';
       
       // Calcula lucro correto: da entrada até o alvo atual, multiplicado por 15x
@@ -613,6 +629,16 @@ class TelegramBotService {
       await this.bot.sendMessage(this.chatId, message, {
         parse_mode: 'Markdown'
       });
+      
+      // Registra envio para evitar duplicatas
+      this.lastTargetNotification.set(targetKey, now);
+      
+      // Limpa registros antigos (mais de 5 minutos)
+      for (const [key, timestamp] of this.lastTargetNotification.entries()) {
+        if (now - timestamp > 300000) {
+          this.lastTargetNotification.delete(key);
+        }
+      }
 
       console.log(`Notificação de alvo enviada: ${symbol} TP${targetNumber}`);
     } catch (error) {
@@ -627,6 +653,20 @@ class TelegramBotService {
     try {
       if (!this.isEnabled) {
         console.log(`🛑 [DEV] Stop loss simulado: ${symbol}`);
+        return;
+      }
+      
+      // Evita duplicação de notificações de stop loss
+      const stopKey = `${symbol}_stop_${stopLossLevel.toFixed(6)}`;
+      const now = Date.now();
+      
+      if (!this.lastStopNotification) {
+        this.lastStopNotification = new Map();
+      }
+      
+      const lastSent = this.lastStopNotification.get(stopKey);
+      if (lastSent && (now - lastSent) < 60000) { // 1 minuto de cooldown
+        console.log(`⚠️ Notificação de stop loss duplicada ignorada para ${symbol}`);
         return;
       }
       
@@ -673,6 +713,16 @@ class TelegramBotService {
       await this.bot.sendMessage(this.chatId, message, {
         parse_mode: 'Markdown'
       });
+      
+      // Registra envio para evitar duplicatas
+      this.lastStopNotification.set(stopKey, now);
+      
+      // Limpa registros antigos (mais de 5 minutos)
+      for (const [key, timestamp] of this.lastStopNotification.entries()) {
+        if (now - timestamp > 300000) {
+          this.lastStopNotification.delete(key);
+        }
+      }
 
       console.log(`Notificação de stop loss enviada: ${symbol}`);
     } catch (error) {
@@ -858,14 +908,17 @@ class TelegramBotService {
       stopType: 'INITIAL',
       trend: signal ? signal.trend : 'BULLISH', // Adiciona tendência para verificações corretas
       adaptiveScoring: adaptiveScoring,
-      indicators: signal ? signal.indicators : null
+      indicators: signal ? signal.indicators : null,
+      lastUpdateTime: 0,
+      isProcessingStop: false,
+      isProcessingTarget: false
     };
 
     this.activeMonitors.set(symbol, monitor);
 
     // 🚀 INICIA WEBSOCKET TEMPO REAL com throttling
     let lastUpdateTime = 0;
-    const updateInterval = 1000; // Máximo 1 update por segundo
+    const updateInterval = 2000; // Máximo 1 update a cada 2 segundos
     
     try {
       binanceService.connectWebSocket(symbol, '1m', (candleData) => {
@@ -878,8 +931,8 @@ class TelegramBotService {
         lastUpdateTime = now;
         
         // Verifica se monitor ainda existe
-        if (!this.activeMonitors.has(symbol)) {
-          console.log(`⚠️ Monitor removido para ${symbol} - parando WebSocket callback`);
+        const currentMonitor = this.activeMonitors.get(symbol);
+        if (!currentMonitor) {
           return;
         }
         
@@ -891,7 +944,7 @@ class TelegramBotService {
         };
         
         // ⚡ VERIFICA ALVOS E STOP (com proteção contra loop)
-        this.handlePriceUpdate(symbol, ticker.last, this.activeMonitors.get(symbol), app);
+        this.handlePriceUpdate(symbol, ticker.last, currentMonitor, app);
       });
       
       console.log(`🔄 Monitoramento WebSocket iniciado para ${symbol}`);
@@ -908,9 +961,16 @@ class TelegramBotService {
     try {
       // Verifica se o monitor ainda existe (pode ter sido removido)
       if (!this.activeMonitors.has(symbol)) {
-        console.log(`⚠️ Monitor para ${symbol} não existe mais - parando verificação`);
         return;
       }
+
+      // Evita processamento duplicado muito rápido
+      const now = Date.now();
+      const lastUpdate = monitor.lastUpdateTime || 0;
+      if (now - lastUpdate < 500) { // Mínimo 500ms entre updates
+        return;
+      }
+      monitor.lastUpdateTime = now;
 
       const isLong = monitor.trend === 'BULLISH';
       
@@ -920,6 +980,12 @@ class TelegramBotService {
         : currentPrice >= monitor.currentStopLevel; // VENDA: stop acima
         
       if (stopHit) {
+        // Marca como processando para evitar duplicatas
+        if (monitor.isProcessingStop) {
+          return;
+        }
+        monitor.isProcessingStop = true;
+        
         // STOP LOSS: Quando é stop inicial OU quando só atingiu TP1 e voltou para stop inicial
         if (monitor.stopType === 'INITIAL') {
           console.log(`🛑 STOP LOSS atingido para ${symbol}: ${currentPrice}`);
@@ -990,10 +1056,14 @@ class TelegramBotService {
             monitor.adaptiveScoring.recordTradeResult(symbol, monitor.indicators, true, finalPnL);
           }
         }
+        
+        // Remove monitor ANTES de parar WebSocket
         this.activeMonitors.delete(symbol);
         
         // Para o WebSocket para este símbolo
-        this.stopWebSocketForSymbol(symbol);
+        if (app && app.binanceService) {
+          app.binanceService.stopWebSocketForSymbol(symbol);
+        }
         
         console.log(`🏁 Operação finalizada para ${symbol} - ${monitor.stopType === 'INITIAL' ? 'STOP LOSS' : 'STOP DE LUCRO'}`);
         return;
@@ -1008,9 +1078,18 @@ class TelegramBotService {
           : currentPrice <= currentTarget; // VENDA: alvos abaixo
           
         if (targetHit) {
+          // Evita processamento duplicado de alvos
+          if (monitor.isProcessingTarget) {
+            return;
+          }
+          monitor.isProcessingTarget = true;
+          
           console.log(`🎯 ALVO ${monitor.targetIndex + 1} atingido para ${symbol}: ${currentPrice}`);
           await this.sendTargetHit(symbol, currentTarget, monitor.targetIndex + 1, currentPrice, monitor.signalTime);
           monitor.targetIndex++;
+          
+          // Reset flag após processamento
+          monitor.isProcessingTarget = false;
           
           // 📌 GERENCIAMENTO AUTOMÁTICO DE STOP
           if (monitor.targetIndex === 2) {
@@ -1053,10 +1132,13 @@ class TelegramBotService {
               monitor.adaptiveScoring.recordTradeResult(symbol, monitor.indicators, true, finalPnL);
             }
             
+            // Remove monitor ANTES de parar WebSocket
             this.activeMonitors.delete(symbol);
             
             // Para o WebSocket para este símbolo
-            this.stopWebSocketForSymbol(symbol);
+            if (app && app.binanceService) {
+              app.binanceService.stopWebSocketForSymbol(symbol);
+            }
             
             console.log(`🏁 Operação COMPLETA para ${symbol} - TODOS OS ALVOS`);
           }
