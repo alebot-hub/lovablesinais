@@ -850,15 +850,13 @@ class TradingBotApp {
 
       // CRIA MONITOR IMEDIATAMENTE ANTES DO ENVIO
       console.log(`📊 Criando monitor para ${signal.symbol}...`);
-      this.telegramBot.activeMonitors.set(signal.symbol, {
-        symbol: signal.symbol,
-        entry: signal.entry,
-        targets: [...signal.targets],
-        stopLoss: signal.stopLoss,
-        timestamp: new Date(),
-        signalId: signalId,
-        status: 'ACTIVE'
-      });
+      this.telegramBot.createMonitor(
+        signal.symbol,
+        signal.entry,
+        signal.targets,
+        signal.stopLoss,
+        signalId
+      );
       console.log(`✅ Monitor criado para ${signal.symbol}. Total: ${this.telegramBot.activeMonitors.size}`);
 
       // Envia via Telegram
@@ -889,15 +887,13 @@ class TradingBotApp {
         console.error(`📊 Total de monitores: ${this.telegramBot.activeMonitors.size}`);
         
         // Força criação do monitor se não existe
-        this.telegramBot.activeMonitors.set(signal.symbol, {
-          symbol: signal.symbol,
-          entry: signal.entry,
-          targets: [...signal.targets],
-          stopLoss: signal.stopLoss,
-          timestamp: new Date(),
-          signalId: signalId,
-          status: 'ACTIVE'
-        });
+        this.telegramBot.createMonitor(
+          signal.symbol,
+          signal.entry,
+          signal.targets,
+          signal.stopLoss,
+          signalId
+        );
         console.log(`🔧 Monitor forçado para ${signal.symbol}. Total: ${this.telegramBot.activeMonitors.size}`);
       }
 

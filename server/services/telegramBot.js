@@ -69,6 +69,38 @@ class TelegramBotService {
   }
 
   /**
+   * Envia sinal de trading via Telegram
+   */
+  async sendTradingSignal(signal, chart = null) {
+    try {
+      if (!this.isEnabled) {
+        console.log(`📤 [SIMULADO] Sinal para ${signal.symbol}: ${signal.probability.toFixed(1)}%`);
+        console.log(`📊 [SIMULADO] Monitor mantido para ${signal.symbol} (modo desenvolvimento)`);
+        return true; // Retorna true para indicar sucesso simulado
+      }
+
+      const message = this.formatTradingSignal(signal);
+      
+      if (chart) {
+        await this.bot.sendPhoto(this.chatId, chart, { 
+          caption: message,
+          parse_mode: 'Markdown'
+        });
+      } else {
+        await this.bot.sendMessage(this.chatId, message, {
+          parse_mode: 'Markdown'
+        });
+      }
+
+      console.log(`✅ Sinal enviado via Telegram para ${signal.symbol}`);
+      return true; // Retorna true para indicar sucesso real
+    } catch (error) {
+      console.error(`❌ Erro ao enviar sinal via Telegram para ${signal.symbol}:`, error.message);
+      return false; // Retorna false para indicar falha real
+    }
+  }
+
+  /**
    * Formata mensagem do sinal
    */
   formatSignalMessage(signal) {
@@ -884,6 +916,7 @@ class TelegramBotService {
     console.log(`🗑️ Removendo monitor para ${symbol} - Motivo: ${reason}`);
     
     if (this.activeMonitors.has(symbol)) {
+      const monitor = this.activeMonitors.get(symbol);
       // VERIFICA SE MONITOR JÁ FOI CRIADO
       if (!this.activeMonitors.has(symbol)) {
         console.error(`❌ ERRO: Monitor não existe para ${symbol} - criando agora`);
@@ -911,6 +944,10 @@ class TelegramBotService {
       targetIndex: 0,
       signalTime: new Date(),
       currentStopLevel: stopLoss,
+      targetsHit: 0,
+      maxTargetsHit: 0,
+      peakProfit: 0,
+      currentDrawdown: 0
       stopType: 'INITIAL',
       trend: signal ? signal.trend : 'BULLISH', // Adiciona tendência para verificações corretas
       adaptiveScoring: adaptiveScoring,
@@ -1191,7 +1228,9 @@ class TelegramBotService {
 
       // Remove do mapa de monitores
       this.activeMonitors.delete(symbol);
-      console.log(`✅ Monitor removido para ${symbol}. Monitores restantes: ${this.activeMonitors.size}`);
+      console.log(`🗑️ Monitor removido para ${symbol}: ${reason}`);
+      console.log(`   • Alvos atingidos: ${monitor.targetsHit || 0}/${monitor.targets?.length || 0}`);
+      console.log(`   • Duração: ${monitor.timestamp ? Math.round((Date.now() - monitor.timestamp.getTime()) / 60000) : 0} minutos`);
       console.log(`📊 Símbolos ativos restantes: [${this.getActiveSymbols().join(', ') || 'Nenhum'}]`);
       console.log(`📋 Monitores ativos restantes: [${Array.from(this.activeMonitors.keys()).join(', ') || 'Nenhum'}]`);
 
@@ -1211,8 +1250,10 @@ class TelegramBotService {
     if (hasActive) {
       const monitor = this.activeMonitors.get(symbol);
       console.log(`🔍 Operação ativa encontrada para ${symbol}:`);
-      console.log(`   • Entrada: $${monitor.entry.toFixed(4)}`);
-      console.log(`   • Alvos atingidos: ${monitor.targetIndex}/6`);
+      console.log(`   • Entrada: $${(monitor.entry || 0).toFixed(4)}`);
+      console.log(`   • Alvos atingidos: ${monitor.targetsHit || 0}/${monitor.targets?.length || 0}`);
+      console.log(`   • Status: ${monitor.status || 'UNKNOWN'}`);
+      console.log(`   • Timestamp: ${monitor.timestamp || 'N/A'}`);
       console.log(`   • Stop atual: $${monitor.currentStopLevel.toFixed(4)}`);
       console.log(`   • Tempo ativo: ${this.calculateTimeElapsed(monitor.signalTime)}`);
     }
