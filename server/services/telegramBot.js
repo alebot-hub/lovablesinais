@@ -883,16 +883,20 @@ class TelegramBotService {
    */
   startPriceMonitoring(symbol, entry, targets, stopLoss, binanceService, signal, app = null, adaptiveScoring = null) {
     if (this.activeMonitors.has(symbol)) {
-      console.log(`⚠️ Monitoramento já ativo para ${symbol} - parando o anterior`);
-      this.stopPriceMonitoring(symbol);
-    }
-
-    // Verifica se o símbolo não está na blacklist do sistema adaptativo
-    if (adaptiveScoring && adaptiveScoring.isSymbolBlacklisted && adaptiveScoring.isSymbolBlacklisted(symbol)) {
-      console.log(`🚫 ${symbol} está na blacklist - não iniciando monitoramento`);
-      return;
-    }
-
+      // VERIFICA SE MONITOR JÁ FOI CRIADO
+      if (!this.activeMonitors.has(symbol)) {
+        console.error(`❌ ERRO: Monitor não existe para ${symbol} - criando agora`);
+        this.activeMonitors.set(symbol, {
+          symbol,
+          entry,
+          targets: [...targets],
+          stopLoss,
+          targetsHit: 0,
+          startTime: new Date(),
+          isActive: true,
+          simulatedMode: false
+        });
+      }
     console.log(`🔄 Iniciando monitoramento TEMPO REAL para ${symbol}`);
     console.log(`📊 Alvos: ${targets.map(t => t.toFixed(2)).join(', ')}`);
     console.log(`🛑 Stop: ${stopLoss.toFixed(2)}`);
@@ -926,7 +930,10 @@ class TelegramBotService {
         
         // Throttling: só processa se passou tempo suficiente
         if (now - lastUpdateTime < updateInterval) {
-          return;
+      const monitor = this.activeMonitors.get(symbol);
+      console.log(`📊 Iniciando monitoramento para ${symbol}. Monitor existe: ${!!monitor}`);
+      console.log(`📊 Total de monitores ativos: ${this.activeMonitors.size}`);
+      console.log(`📊 Lista de símbolos ativos: [${Array.from(this.activeMonitors.keys()).join(', ')}]`);
         }
         lastUpdateTime = now;
         
@@ -936,13 +943,13 @@ class TelegramBotService {
           return;
         }
         
-        // Converte dados do candle para formato de ticker
+        const currentMonitor = this.activeMonitors.get(symbol);
         const ticker = {
           last: candleData.close,
-          symbol: candleData.symbol,
+        if (currentMonitor.lastUpdateTime && (Date.now() - currentMonitor.lastUpdateTime) < 2000) {
           timestamp: candleData.timestamp
         };
-        
+        currentMonitor.lastUpdateTime = Date.now();
         // ⚡ VERIFICA ALVOS E STOP (com proteção contra loop)
         this.handlePriceUpdate(symbol, ticker.last, currentMonitor, app);
       });
@@ -950,6 +957,12 @@ class TelegramBotService {
       console.log(`🔄 Monitoramento WebSocket iniciado para ${symbol}`);
     } catch (error) {
       console.error(`❌ Erro ao iniciar WebSocket para ${symbol}:`, error.message);
+      
+      // Remove monitor se falhou
+      if (this.activeMonitors.has(symbol)) {
+        this.activeMonitors.delete(symbol);
+        console.log(`🗑️ Monitor removido devido ao erro: ${symbol}`);
+      }
       this.activeMonitors.delete(symbol);
     }
   }

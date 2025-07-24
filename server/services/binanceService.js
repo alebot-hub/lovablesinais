@@ -6,6 +6,18 @@ import ccxt from 'ccxt';
 
 class BinanceService {
   constructor() {
+    // Rate limiting
+    this.requestQueue = [];
+    this.isProcessingQueue = false;
+    this.requestsPerMinute = 0;
+    this.maxRequestsPerMinute = 1200; // 50% do limite da Binance (2400)
+    this.requestWindow = 60 * 1000; // 1 minuto
+    this.lastRequestReset = Date.now();
+    
+    // Cache de dados OHLCV
+    this.ohlcvCache = new Map();
+    this.cacheTimeout = 5 * 60 * 1000; // 5 minutos
+    
     try {
       // Configuração para usar apenas endpoints públicos da Binance Futures
       this.exchange = new ccxt.binance({
@@ -30,6 +42,92 @@ class BinanceService {
    * Obtém dados OHLCV históricos usando endpoint público
    */
   async getOHLCVData(symbol, timeframe, limit = 100) {
+    // Verifica cache primeiro
+    const cacheKey = `${symbol}_${timeframe}_${limit}`;
+    const cached = this.getCachedData(cacheKey);
+    if (cached) {
+      console.log(`📦 Cache hit para ${symbol} ${timeframe}`);
+      return cached;
+    }
+    
+    // Adiciona à fila de rate limiting
+    return new Promise((resolve, reject) => {
+      this.requestQueue.push({
+        symbol,
+        timeframe,
+        limit,
+        cacheKey,
+        resolve,
+        reject
+      });
+      
+      this.processRequestQueue();
+    });
+  }
+
+  /**
+   * Processa fila de requests com rate limiting
+   */
+  async processRequestQueue() {
+    if (this.isProcessingQueue || this.requestQueue.length === 0) {
+      return;
+    }
+    
+    this.isProcessingQueue = true;
+    
+    while (this.requestQueue.length > 0) {
+      // Reset contador se passou 1 minuto
+      const now = Date.now();
+      if (now - this.lastRequestReset >= this.requestWindow) {
+        this.requestsPerMinute = 0;
+        this.lastRequestReset = now;
+      }
+      
+      // Verifica limite
+      if (this.requestsPerMinute >= this.maxRequestsPerMinute) {
+        const waitTime = this.requestWindow - (now - this.lastRequestReset);
+        console.log(`⏳ Rate limit atingido. Aguardando ${Math.ceil(waitTime / 1000)}s...`);
+        await this.sleep(waitTime);
+        this.requestsPerMinute = 0;
+        this.lastRequestReset = Date.now();
+      }
+      
+      const request = this.requestQueue.shift();
+      
+      try {
+        const data = await this.executeOHLCVRequest(request.symbol, request.timeframe, request.limit);
+        
+        // Armazena no cache
+        this.setCachedData(request.cacheKey, data);
+        
+        request.resolve(data);
+        this.requestsPerMinute++;
+        
+        // Pausa entre requests
+        await this.sleep(100);
+        
+      } catch (error) {
+        console.error(`❌ Erro na request ${request.symbol}:`, error.message);
+        
+        // Se for rate limit, recoloca na fila
+        if (error.message.includes('429') || error.message.includes('Too Many Requests')) {
+          console.log(`🔄 Recolocando ${request.symbol} na fila devido ao rate limit`);
+          this.requestQueue.unshift(request);
+          await this.sleep(5000); // Aguarda 5 segundos
+          continue;
+        }
+        
+        request.reject(error);
+      }
+    }
+    
+    this.isProcessingQueue = false;
+  }
+
+  /**
+   * Executa request OHLCV real
+   */
+  async executeOHLCVRequest(symbol, timeframe, limit) {
     try {
       // Usa endpoint público para dados históricos
       const binanceSymbol = symbol.replace('/', '');
@@ -89,6 +187,40 @@ class BinanceService {
       console.error(`Erro ao obter dados OHLCV para ${symbol}:`, error.message);
       throw error;
     }
+  }
+
+  /**
+   * Obtém dados do cache
+   */
+  getCachedData(key) {
+    const cached = this.ohlcvCache.get(key);
+    if (cached && (Date.now() - cached.timestamp) < this.cacheTimeout) {
+      return cached.data;
+    }
+    return null;
+  }
+
+  /**
+   * Armazena dados no cache
+   */
+  setCachedData(key, data) {
+    this.ohlcvCache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+    
+    // Limpa cache antigo
+    if (this.ohlcvCache.size > 500) {
+      const oldestKey = this.ohlcvCache.keys().next().value;
+      this.ohlcvCache.delete(oldestKey);
+    }
+  }
+
+  /**
+   * Função sleep
+   */
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**

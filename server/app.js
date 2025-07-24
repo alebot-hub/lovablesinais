@@ -836,12 +836,6 @@ class TradingBotApp {
    */
   async sendTradingSignal(signal) {
     try {
-      // VERIFICAÇÃO CRÍTICA ANTES DO ENVIO
-      if (this.telegramBot.hasActiveMonitor(signal.symbol)) {
-        console.log(`🚫 ENVIO CANCELADO: ${signal.symbol} já tem operação ativa`);
-        return;
-      }
-
       // Gera gráfico
       const chart = await this.chartGenerator.generatePriceChart(
         signal.symbol,
@@ -854,17 +848,51 @@ class TradingBotApp {
       // Registra sinal no performance tracker
       const signalId = this.performanceTracker.recordSignal(signal);
 
+      // CRIA MONITOR IMEDIATAMENTE ANTES DO ENVIO
+      console.log(`📊 Criando monitor para ${signal.symbol}...`);
+      this.telegramBot.activeMonitors.set(signal.symbol, {
+        symbol: signal.symbol,
+        entry: signal.entry,
+        targets: [...signal.targets],
+        stopLoss: signal.stopLoss,
+        timestamp: new Date(),
+        signalId: signalId,
+        status: 'ACTIVE'
+      });
+      console.log(`✅ Monitor criado para ${signal.symbol}. Total: ${this.telegramBot.activeMonitors.size}`);
+
       // Envia via Telegram
-      await this.telegramBot.sendTradingSignal(signal, chart);
+      const signalSent = await this.telegramBot.sendTradingSignal(signal, chart);
+      
+      if (!signalSent) {
+        console.error(`❌ ERRO: Falha ao enviar sinal para ${signal.symbol}`);
+        // Remove monitor se envio falhou
+        this.telegramBot.activeMonitors.delete(signal.symbol);
+        console.log(`🗑️ Monitor removido devido à falha no envio: ${signal.symbol}`);
+        return;
+      }
 
       // VERIFICAÇÃO: Confirma que monitor foi criado
       if (!this.telegramBot.hasActiveMonitor(signal.symbol)) {
         console.error(`❌ ERRO CRÍTICO: Monitor não foi criado para ${signal.symbol}`);
-        return;
+        console.error(`📊 Monitores ativos: [${this.telegramBot.getActiveSymbols().join(', ')}]`);
+        console.error(`📊 Total de monitores: ${this.telegramBot.activeMonitors.size}`);
+        
+        // Força criação do monitor se não existe
+        this.telegramBot.activeMonitors.set(signal.symbol, {
+          symbol: signal.symbol,
+          entry: signal.entry,
+          targets: [...signal.targets],
+          stopLoss: signal.stopLoss,
+          timestamp: new Date(),
+          signalId: signalId,
+          status: 'ACTIVE'
+        });
+        console.log(`🔧 Monitor forçado para ${signal.symbol}. Total: ${this.telegramBot.activeMonitors.size}`);
       }
 
       // Inicia monitoramento de preço
-      this.telegramBot.startPriceMonitoring(
+      await this.telegramBot.startPriceMonitoring(
         signal.symbol,
         signal.entry,
         signal.targets,
@@ -879,6 +907,12 @@ class TradingBotApp {
       
     } catch (error) {
       console.error('Erro ao enviar sinal:', error.message);
+      
+      // Remove monitor se algo deu errado
+      if (this.telegramBot.hasActiveMonitor(signal.symbol)) {
+        this.telegramBot.removeMonitor(signal.symbol, 'ERRO_ENVIO');
+        console.log(`🗑️ Monitor removido devido ao erro: ${signal.symbol}`);
+      }
     }
   }
 
