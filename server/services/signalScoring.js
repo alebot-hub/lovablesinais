@@ -8,7 +8,7 @@ class SignalScoringService {
   /**
    * Calcula pontuação total do sinal
    */
-  calculateSignalScore(data, indicators, patterns, mlProbability, marketTrend = null) {
+  calculateSignalScore(data, indicators, patterns, mlProbability, marketTrend = null, bitcoinCorrelation = null) {
     let score = 0;
     const details = {};
     let isMLDriven = false;
@@ -57,8 +57,22 @@ class SignalScoringService {
         isMLDriven = true;
       }
 
+      // Correlação com Bitcoin
+      if (bitcoinCorrelation && bitcoinCorrelation.alignment !== 'NEUTRAL') {
+        const btcScore = bitcoinCorrelation.bonus || bitcoinCorrelation.penalty || 0;
+        score += btcScore;
+        details.bitcoinCorrelation = {
+          btcTrend: bitcoinCorrelation.btcTrend,
+          btcStrength: bitcoinCorrelation.btcStrength,
+          alignment: bitcoinCorrelation.alignment,
+          score: btcScore,
+          priceCorrelation: bitcoinCorrelation.priceCorrelation,
+          recommendation: bitcoinCorrelation.recommendation
+        };
+        console.log(`₿ Score Bitcoin: ${btcScore} (${bitcoinCorrelation.alignment})`);
+      }
       // Aplica lógica de priorização de tendência
-      const trendAdjustment = this.applyTrendPriority(score, indicators, patterns, marketTrend);
+      const trendAdjustment = this.applyTrendPriority(score, indicators, patterns, marketTrend, bitcoinCorrelation);
       score = trendAdjustment.adjustedScore;
       details.trendAdjustment = trendAdjustment.details;
       console.log('📈 Score após ajuste de tendência:', score);
@@ -381,12 +395,13 @@ class SignalScoringService {
   /**
    * Aplica lógica de priorização de tendência
    */
-  applyTrendPriority(currentScore, indicators, patterns, marketTrend) {
+  applyTrendPriority(currentScore, indicators, patterns, marketTrend, bitcoinCorrelation = null) {
     const signalTrend = this.detectSignalTrend(indicators, patterns);
     let adjustedScore = currentScore;
     const details = {
       marketTrend,
       signalTrend,
+      bitcoinInfluence: bitcoinCorrelation ? bitcoinCorrelation.btcTrend : null,
       adjustment: 0,
       reason: ''
     };
@@ -395,10 +410,21 @@ class SignalScoringService {
     const effectiveTrend = marketTrend || this.detectLocalTrend(indicators);
     details.effectiveTrend = effectiveTrend;
 
+    // Considera influência do Bitcoin se disponível
+    let finalTrend = effectiveTrend;
+    if (bitcoinCorrelation && bitcoinCorrelation.btcStrength > 70) {
+      // Bitcoin muito forte influencia a tendência efetiva
+      if (bitcoinCorrelation.btcTrend !== 'NEUTRAL') {
+        finalTrend = bitcoinCorrelation.btcTrend;
+        details.bitcoinOverride = true;
+        details.reason += ` (Bitcoin ${bitcoinCorrelation.btcTrend} forte sobrepõe tendência local)`;
+        console.log(`₿ Bitcoin forte (${bitcoinCorrelation.btcStrength}) sobrepõe tendência: ${effectiveTrend} → ${finalTrend}`);
+      }
+    }
     // Verifica limites de sinais contra-tendência (se adaptiveScoring disponível)
     const now = Date.now();
-    const isCounterTrend = (effectiveTrend === 'BULLISH' && signalTrend === 'BEARISH') ||
-                          (effectiveTrend === 'BEARISH' && signalTrend === 'BULLISH');
+    const isCounterTrend = (finalTrend === 'BULLISH' && signalTrend === 'BEARISH') ||
+                          (finalTrend === 'BEARISH' && signalTrend === 'BULLISH');
     
     if (isCounterTrend && this.adaptiveScoring) {
       // Verifica limite diário
@@ -422,21 +448,40 @@ class SignalScoringService {
     }
 
     // LÓGICA DE PRIORIZAÇÃO
-    if (effectiveTrend === 'BULLISH') {
+    if (finalTrend === 'BULLISH') {
       if (signalTrend === 'BULLISH') {
-        // Tendência de alta + sinal de compra = PRIORIDADE MÁXIMA
-        adjustedScore *= 1.20; // +20% bonus (aumentado)
-        details.adjustment = 20;
-        details.reason = 'COMPRA alinhada com tendência de alta - PRIORIDADE';
+        // Tendência de alta + sinal de compra = PRIORIDADE MÁXIMA  
+        let bonus = 1.20; // Base +20%
+        
+        // Bônus extra se Bitcoin também estiver bullish
+        if (bitcoinCorrelation && bitcoinCorrelation.btcTrend === 'BULLISH' && bitcoinCorrelation.btcStrength > 70) {
+          bonus = 1.30; // +30% se Bitcoin muito bullish
+          details.reason = 'COMPRA alinhada: Ativo + Bitcoin BULLISH - PRIORIDADE MÁXIMA';
+        } else {
+          details.reason = 'COMPRA alinhada com tendência de alta - PRIORIDADE';
+        }
+        
+        adjustedScore *= bonus;
+        details.adjustment = (bonus - 1) * 100;
       } else if (signalTrend === 'BEARISH') {
-        // Tendência de alta + sinal de venda = EXCEÇÃO RARA (precisa ser EXTREMAMENTE forte)
+        // Tendência de alta + sinal de venda = EXCEÇÃO RARA
         const reversalStrength = this.calculateReversalStrength(indicators, patterns);
-        console.log(`⚠️ Sinal VENDA em tendência de ALTA - Força de reversão: ${reversalStrength}/100`);
+        
+        // Penalidade extra se Bitcoin também estiver bullish
+        let penalty = TRADING_CONFIG.COUNTER_TREND.PENALTY_WEAK_REVERSAL;
+        if (bitcoinCorrelation && bitcoinCorrelation.btcTrend === 'BULLISH' && bitcoinCorrelation.btcStrength > 80) {
+          penalty = 0.2; // Penalidade ainda maior (80% redução)
+          console.log(`⚠️ Sinal VENDA contra ALTA + Bitcoin BULLISH forte - Força: ${reversalStrength}/100`);
+        } else {
+          console.log(`⚠️ Sinal VENDA em tendência de ALTA - Força de reversão: ${reversalStrength}/100`);
+        }
         
         if (reversalStrength < TRADING_CONFIG.COUNTER_TREND.MIN_REVERSAL_STRENGTH) {
-          adjustedScore *= TRADING_CONFIG.COUNTER_TREND.PENALTY_WEAK_REVERSAL;
-          details.adjustment = -70;
-          details.reason = 'VENDA contra tendência de ALTA - padrão de reversão INSUFICIENTE';
+          adjustedScore *= penalty;
+          details.adjustment = -(100 - penalty * 100);
+          details.reason = bitcoinCorrelation?.btcTrend === 'BULLISH' ? 
+            'VENDA contra ALTA + Bitcoin BULLISH - reversão INSUFICIENTE' :
+            'VENDA contra tendência de ALTA - padrão de reversão INSUFICIENTE';
         } else if (reversalStrength >= TRADING_CONFIG.COUNTER_TREND.EXTREME_REVERSAL_THRESHOLD) {
           adjustedScore *= TRADING_CONFIG.COUNTER_TREND.BONUS_EXTREME_REVERSAL;
           details.adjustment = 10;
@@ -465,21 +510,40 @@ class SignalScoringService {
           }
         }
       }
-    } else if (effectiveTrend === 'BEARISH') {
+    } else if (finalTrend === 'BEARISH') {
       if (signalTrend === 'BEARISH') {
         // Tendência de baixa + sinal de venda = PRIORIDADE MÁXIMA
-        adjustedScore *= 1.20; // +20% bonus (aumentado)
-        details.adjustment = 20;
-        details.reason = 'VENDA alinhada com tendência de baixa - PRIORIDADE';
+        let bonus = 1.20; // Base +20%
+        
+        // Bônus extra se Bitcoin também estiver bearish
+        if (bitcoinCorrelation && bitcoinCorrelation.btcTrend === 'BEARISH' && bitcoinCorrelation.btcStrength > 70) {
+          bonus = 1.30; // +30% se Bitcoin muito bearish
+          details.reason = 'VENDA alinhada: Ativo + Bitcoin BEARISH - PRIORIDADE MÁXIMA';
+        } else {
+          details.reason = 'VENDA alinhada com tendência de baixa - PRIORIDADE';
+        }
+        
+        adjustedScore *= bonus;
+        details.adjustment = (bonus - 1) * 100;
       } else if (signalTrend === 'BULLISH') {
-        // Tendência de baixa + sinal de compra = EXCEÇÃO RARA (precisa ser EXTREMAMENTE forte)
+        // Tendência de baixa + sinal de compra = EXCEÇÃO RARA
         const reversalStrength = this.calculateReversalStrength(indicators, patterns);
-        console.log(`⚠️ Sinal COMPRA em tendência de BAIXA - Força de reversão: ${reversalStrength}/100`);
+        
+        // Penalidade extra se Bitcoin também estiver bearish
+        let penalty = TRADING_CONFIG.COUNTER_TREND.PENALTY_WEAK_REVERSAL;
+        if (bitcoinCorrelation && bitcoinCorrelation.btcTrend === 'BEARISH' && bitcoinCorrelation.btcStrength > 80) {
+          penalty = 0.2; // Penalidade ainda maior (80% redução)
+          console.log(`⚠️ Sinal COMPRA contra BAIXA + Bitcoin BEARISH forte - Força: ${reversalStrength}/100`);
+        } else {
+          console.log(`⚠️ Sinal COMPRA em tendência de BAIXA - Força de reversão: ${reversalStrength}/100`);
+        }
         
         if (reversalStrength < TRADING_CONFIG.COUNTER_TREND.MIN_REVERSAL_STRENGTH) {
-          adjustedScore *= TRADING_CONFIG.COUNTER_TREND.PENALTY_WEAK_REVERSAL;
-          details.adjustment = -70;
-          details.reason = 'COMPRA contra tendência de BAIXA - padrão de reversão INSUFICIENTE';
+          adjustedScore *= penalty;
+          details.adjustment = -(100 - penalty * 100);
+          details.reason = bitcoinCorrelation?.btcTrend === 'BEARISH' ? 
+            'COMPRA contra BAIXA + Bitcoin BEARISH - reversão INSUFICIENTE' :
+            'COMPRA contra tendência de BAIXA - padrão de reversão INSUFICIENTE';
         } else if (reversalStrength >= TRADING_CONFIG.COUNTER_TREND.EXTREME_REVERSAL_THRESHOLD) {
           adjustedScore *= TRADING_CONFIG.COUNTER_TREND.BONUS_EXTREME_REVERSAL;
           details.adjustment = 10;

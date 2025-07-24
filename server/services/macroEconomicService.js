@@ -751,14 +751,18 @@ class MacroEconomicService {
    */
   shouldSendDailyReport() {
     const now = new Date();
-    const hour = now.getHours();
+    const hour = now.getUTCHours(); // Usa UTC para consistência
     const today = now.toDateString();
     
-    // Envia todo dia às 7h da manhã
-    if (hour === 7 && this.lastDailyReport !== today) {
+    console.log(`🕐 [MACRO] Verificando horário: ${hour}h UTC (${hour-3}h Brasília), Último envio: ${this.lastDailyReport}, Hoje: ${today}`);
+    
+    // Envia todo dia às 10h UTC (7h Brasília)
+    if (hour === 10 && this.lastDailyReport !== today) {
+      console.log('✅ [MACRO] Condições atendidas para envio do relatório');
       return true;
     }
     
+    console.log('⏭️ [MACRO] Condições não atendidas - não enviando relatório');
     return false;
   }
 

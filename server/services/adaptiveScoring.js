@@ -67,7 +67,7 @@ class AdaptiveScoringService {
   /**
    * Calcula score adaptativo baseado na performance histórica
    */
-  calculateAdaptiveScore(data, indicators, patterns, mlProbability, marketTrend = null, symbol) {
+  calculateAdaptiveScore(data, indicators, patterns, mlProbability, marketTrend = null, symbol, bitcoinCorrelation = null) {
     // Reset contador diário se mudou o dia
     const today = new Date().toDateString();
     if (this.todayDate !== today) {
@@ -91,7 +91,7 @@ class AdaptiveScoringService {
     this.updateMarketRegime(indicators, patterns);
 
     // Calcula score base
-    const baseScore = this.calculateBaseScore(data, indicators, patterns, mlProbability);
+    const baseScore = this.calculateBaseScore(data, indicators, patterns, mlProbability, bitcoinCorrelation);
 
     // Aplica ajustes adaptativos
     const adaptiveAdjustments = this.applyAdaptiveAdjustments(baseScore, symbol);
@@ -126,7 +126,7 @@ class AdaptiveScoringService {
   /**
    * Calcula score base usando pesos atuais
    */
-  calculateBaseScore(data, indicators, patterns, mlProbability) {
+  calculateBaseScore(data, indicators, patterns, mlProbability, bitcoinCorrelation = null) {
     let total = 0;
     const details = {};
 
@@ -210,6 +210,21 @@ class AdaptiveScoringService {
     total += mlScore;
     details.machineLearning = mlScore;
     this.recordIndicatorUsage('ML_WEIGHT', mlScore);
+
+    // Correlação com Bitcoin
+    if (bitcoinCorrelation && bitcoinCorrelation.alignment !== 'NEUTRAL') {
+      const btcScore = bitcoinCorrelation.bonus || bitcoinCorrelation.penalty || 0;
+      total += btcScore;
+      details.bitcoinCorrelation = {
+        btcTrend: bitcoinCorrelation.btcTrend,
+        btcStrength: bitcoinCorrelation.btcStrength,
+        alignment: bitcoinCorrelation.alignment,
+        score: btcScore,
+        priceCorrelation: bitcoinCorrelation.priceCorrelation,
+        recommendation: bitcoinCorrelation.recommendation
+      };
+      this.recordIndicatorUsage('BITCOIN_CORRELATION', btcScore);
+    }
 
     return { total, details };
   }

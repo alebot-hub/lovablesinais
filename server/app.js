@@ -25,6 +25,7 @@ import PerformanceTrackerService from './services/performanceTracker.js';
 import MacroEconomicService from './services/macroEconomicService.js';
 import SocialSentimentService from './services/socialSentimentService.js';
 import AlertSystemService from './services/alertSystem.js';
+import BitcoinCorrelationService from './services/bitcoinCorrelationService.js';
 
 // Configurações
 import { CRYPTO_SYMBOLS, TIMEFRAMES, TRADING_CONFIG, SCHEDULE_CONFIG } from './config/constants.js';
@@ -55,6 +56,7 @@ class TradingBotApp {
     this.macroEconomic = new MacroEconomicService();
     this.socialSentiment = new SocialSentimentService();
     this.alertSystem = new AlertSystemService(this.telegramBot);
+    this.bitcoinCorrelation = new BitcoinCorrelationService(this.binanceService, this.technicalAnalysis);
     
     // Market Analysis com Social Sentiment
     this.marketAnalysis = new MarketAnalysisService(
@@ -669,6 +671,12 @@ class TradingBotApp {
 
       // Envia melhor sinal se encontrado
       if (bestSignal && bestScore >= TRADING_CONFIG.MIN_SIGNAL_PROBABILITY) {
+        // Verificação final antes de enviar
+        if (this.telegramBot.hasActiveMonitor(bestSignal.symbol)) {
+          console.log(`🚫 ${bestSignal.symbol}: Operação já ativa detectada antes do envio - cancelando`);
+          return;
+        }
+        
         await this.sendTradingSignal(bestSignal);
         this.signalsGenerated++;
         console.log(`✅ Sinal enviado: ${bestSignal.symbol} ${bestSignal.timeframe} (${bestScore.toFixed(1)}%)`);
@@ -746,17 +754,21 @@ class TradingBotApp {
       // Detecta tendência do mercado
       const marketTrend = this.technicalAnalysis.detectTrend(indicators);
 
+      // Analisa correlação com Bitcoin
+      const bitcoinCorrelation = await this.bitcoinCorrelation.analyzeCorrelation(symbol, marketTrend, data);
+      console.log(`🔗 ${this.bitcoinCorrelation.generateCorrelationSummary(symbol, bitcoinCorrelation)}`);
+
       // Calcula pontuação (com sistema adaptativo se disponível)
       let scoring;
       if (this.adaptiveScoring) {
         // Passa referência do adaptiveScoring para o signalScoring
         this.signalScoring.adaptiveScoring = this.adaptiveScoring;
         scoring = this.adaptiveScoring.calculateAdaptiveScore(
-          data, indicators, patterns, mlProbability, marketTrend, symbol
+          data, indicators, patterns, mlProbability, marketTrend, symbol, bitcoinCorrelation
         );
       } else {
         scoring = this.signalScoring.calculateSignalScore(
-          data, indicators, patterns, mlProbability, marketTrend
+          data, indicators, patterns, mlProbability, marketTrend, bitcoinCorrelation
         );
       }
 
@@ -785,6 +797,13 @@ class TradingBotApp {
         console.log(`🚫 ${symbol}: Operação já ativa - aguardando finalização`);
         return null;
       }
+
+      // Verificação adicional no mapa de monitores ativos
+      if (this.telegramBot.activeMonitors && this.telegramBot.activeMonitors.has(symbol)) {
+        console.log(`🚫 ${symbol}: Monitor ativo encontrado - pulando análise`);
+        return null;
+      }
+
       return {
         ...scoring,
         ...levels,
@@ -1127,7 +1146,11 @@ class TradingBotApp {
    */
   async sendDailyMacroReport() {
     try {
+      console.log('🏛️ [AGENDADO] Verificando se deve enviar relatório macro diário...');
+      
       if (this.macroEconomic.shouldSendDailyReport()) {
+        console.log('✅ [AGENDADO] Enviando relatório macro diário...');
+        
         const macroAnalysis = await this.macroEconomic.getMacroEconomicData();
         const report = this.macroEconomic.generateDailyMacroReport(macroAnalysis);
         
@@ -1136,10 +1159,12 @@ class TradingBotApp {
         });
         
         this.macroEconomic.markDailyReportSent();
-        console.log('🌍 Relatório macro diário enviado');
+        console.log('✅ [AGENDADO] Relatório macro diário enviado com sucesso');
+      } else {
+        console.log('⏭️ [AGENDADO] Relatório macro já foi enviado hoje');
       }
     } catch (error) {
-      console.error('Erro ao enviar relatório macro:', error.message);
+      console.error('❌ [AGENDADO] Erro ao enviar relatório macro:', error.message);
     }
   }
 

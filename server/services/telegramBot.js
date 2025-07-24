@@ -1190,7 +1190,9 @@ class TelegramBotService {
    * Obtém lista de símbolos com operações ativas
    */
   getActiveSymbols() {
-    return Array.from(this.activeMonitors.keys());
+    const activeSymbols = Array.from(this.activeMonitors.keys());
+    console.log(`📊 Símbolos ativos consultados: ${activeSymbols.join(', ') || 'Nenhum'} (${activeSymbols.length} total)`);
+    return activeSymbols;
   }
 
   /**
