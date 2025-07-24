@@ -836,8 +836,8 @@ class TradingBotApp {
    */
   async sendTradingSignal(signal) {
     try {
-      // Gera gráfico
-      const chart = await this.chartGenerator.generatePriceChart(
+      // Gera dados do gráfico (sem renderização visual)
+      const chartData = await this.chartGenerator.generatePriceChart(
         signal.symbol,
         { close: [signal.entry], timestamp: [Date.now()], volume: [1000] },
         signal.indicators,
@@ -863,11 +863,12 @@ class TradingBotApp {
         console.log(`✅ Monitor criado para ${signal.symbol}. Total: ${this.telegramBot.activeMonitors.size}`);
       } else {
         console.log(`⚠️ Monitor já existe para ${signal.symbol} - usando existente`);
+        // Não cria monitor duplicado
       }
 
       // Envia via Telegram
       try {
-        const sendResult = await this.telegramBot.sendTradingSignal(signal, chart);
+        const sendResult = await this.telegramBot.sendTradingSignal(signal, null);
         console.log(`📤 Resultado do envio para ${signal.symbol}: ${sendResult ? 'SUCESSO' : 'FALHA'}`);
         
         // Se envio realmente falhou (não é modo simulado)

@@ -116,16 +116,10 @@ class TelegramBotService {
       const message = this.formatTradingSignal(signal);
       
       // Envia mensagem
-      if (chart) {
-        await this.bot.sendPhoto(this.chatId, Buffer.from(''), {
-          caption: message,
-          parse_mode: 'Markdown'
-        });
-      } else {
-        await this.bot.sendMessage(this.chatId, message, {
-          parse_mode: 'Markdown'
-        });
-      }
+      // Sempre envia como mensagem de texto (sem imagem)
+      await this.bot.sendMessage(this.chatId, message, {
+        parse_mode: 'Markdown'
+      });
       
       console.log(`✅ Sinal enviado para ${signal.symbol}`);
       return true;
