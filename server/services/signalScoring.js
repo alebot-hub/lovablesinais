@@ -354,8 +354,14 @@ class SignalScoringService {
    * Calcula níveis de entrada, alvos e stop-loss
    */
   calculateTradingLevels(currentPrice, trend = 'BULLISH') {
+    console.log(`💰 CALCULANDO NÍVEIS DE TRADING:`);
+    console.log(`   💰 Preço atual: $${currentPrice.toFixed(8)}`);
+    console.log(`   📈 Tendência: ${trend}`);
+    
     const entry = currentPrice;
     const isLong = trend === 'BULLISH';
+    
+    console.log(`   🎯 Tipo de operação: ${isLong ? 'LONG (COMPRA)' : 'SHORT (VENDA)'}`);
     
     // Calcula alvos baseado na direção
     const targets = TRADING_CONFIG.TARGET_PERCENTAGES.map(percentage => {
@@ -368,11 +374,79 @@ class SignalScoringService {
 
     // Calcula stop-loss baseado na direção
     const stopLoss = isLong 
-      ? entry * (1 + TRADING_CONFIG.STOP_LOSS_PERCENTAGE / 100) // COMPRA: stop abaixo
-      : entry * (1 - TRADING_CONFIG.STOP_LOSS_PERCENTAGE / 100); // VENDA: stop acima
+      ? entry * (1 - TRADING_CONFIG.STOP_LOSS_PERCENTAGE / 100) // COMPRA: stop abaixo
+      : entry * (1 + TRADING_CONFIG.STOP_LOSS_PERCENTAGE / 100); // VENDA: stop acima
 
+    console.log(`   🎯 Alvos calculados:`);
+    targets.forEach((target, i) => {
+      console.log(`      ${i + 1}. $${target.toFixed(8)} (${isLong ? '+' : '-'}${TRADING_CONFIG.TARGET_PERCENTAGES[i]}%)`);
+    });
+    console.log(`   🛑 Stop Loss: $${stopLoss.toFixed(8)} (${isLong ? '-' : '+'}${TRADING_CONFIG.STOP_LOSS_PERCENTAGE}%)`);
+    
+    // Validação crítica dos níveis
+    let hasInvalidLevels = false;
+    
+    if (isLong) {
+      // Para LONG: todos os alvos devem ser maiores que entrada
+      targets.forEach((target, i) => {
+        if (target <= entry) {
+          console.error(`❌ ERRO: Alvo ${i + 1} LONG inválido: $${target.toFixed(8)} <= $${entry.toFixed(8)}`);
+          hasInvalidLevels = true;
+        }
+      });
+      // Para LONG: stop deve ser menor que entrada
+      if (stopLoss >= entry) {
+        console.error(`❌ ERRO: Stop Loss LONG inválido: $${stopLoss.toFixed(8)} >= $${entry.toFixed(8)}`);
+        hasInvalidLevels = true;
+      }
+    } else {
+      // Para SHORT: todos os alvos devem ser menores que entrada
+      targets.forEach((target, i) => {
+        if (target >= entry) {
+          console.error(`❌ ERRO: Alvo ${i + 1} SHORT inválido: $${target.toFixed(8)} >= $${entry.toFixed(8)}`);
+          hasInvalidLevels = true;
+        }
+      });
+      // Para SHORT: stop deve ser maior que entrada
+      if (stopLoss <= entry) {
+        console.error(`❌ ERRO: Stop Loss SHORT inválido: $${stopLoss.toFixed(8)} <= $${entry.toFixed(8)}`);
+        hasInvalidLevels = true;
+      }
+    }
+    
+    if (hasInvalidLevels) {
+      console.error(`❌ NÍVEIS INVÁLIDOS DETECTADOS - Corrigindo...`);
+      // Força recálculo correto
+      const correctedTargets = TRADING_CONFIG.TARGET_PERCENTAGES.map(percentage => {
+        if (isLong) {
+          return entry * (1 + percentage / 100);
+        } else {
+          return entry * (1 - percentage / 100);
+        }
+      });
+      
+      const correctedStopLoss = isLong 
+        ? entry * (1 - TRADING_CONFIG.STOP_LOSS_PERCENTAGE / 100)
+        : entry * (1 + TRADING_CONFIG.STOP_LOSS_PERCENTAGE / 100);
+        
+      console.log(`✅ NÍVEIS CORRIGIDOS:`);
+      console.log(`   🎯 Alvos: ${correctedTargets.map(t => '$' + t.toFixed(8)).join(', ')}`);
+      console.log(`   🛑 Stop: $${correctedStopLoss.toFixed(8)}`);
+      
+      return {
+        entry,
+        targets: correctedTargets,
+        stopLoss: correctedStopLoss,
+        riskRewardRatio: Math.abs((correctedTargets[0] - entry) / (entry - correctedStopLoss))
+      };
+    }
     // Calcula risk/reward ratio
-    const riskRewardRatio = (targets[0] - entry) / (entry - stopLoss);
+    const riskRewardRatio = isLong 
+      ? (targets[0] - entry) / (entry - stopLoss)  // LONG: (target - entry) / (entry - stop)
+      : (entry - targets[0]) / (stopLoss - entry); // SHORT: (entry - target) / (stop - entry)
+
+    console.log(`   📊 Risk/Reward: ${Math.abs(riskRewardRatio).toFixed(2)}:1`);
+    console.log(`✅ NÍVEIS VALIDADOS com sucesso`);
 
     return {
       entry,

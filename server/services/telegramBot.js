@@ -31,7 +31,7 @@ class TelegramBotService {
   /**
    * Cria monitor para um símbolo
    */
-  createMonitor(symbol, entry, targets, stopLoss, signalId) {
+  createMonitor(symbol, entry, targets, stopLoss, signalId, trend = 'BULLISH') {
     try {
       console.log(`📊 Criando monitor para ${symbol}...`);
       
@@ -40,6 +40,7 @@ class TelegramBotService {
         entry: entry,
         targets: targets,
         stopLoss: stopLoss,
+        isShort: trend === 'BEARISH', // Identifica se é operação SHORT
         currentStopLoss: stopLoss, // Stop loss atual (pode ser móvel)
         signalId: signalId,
         timestamp: new Date(),
@@ -129,6 +130,14 @@ class TelegramBotService {
     // Extrai símbolo base (ex: BNB de BNB/USDT)
     const baseSymbol = signal.symbol.split('/')[0];
     const trendEmoji = signal.trend === 'BULLISH' ? '🟢 COMPRA' : '🔴 VENDA';
+    const isShort = signal.trend === 'BEARISH';
+    
+    console.log(`📝 FORMATANDO SINAL:`);
+    console.log(`   💰 Símbolo: ${signal.symbol}`);
+    console.log(`   📈 Tendência: ${signal.trend} (${isShort ? 'SHORT' : 'LONG'})`);
+    console.log(`   💰 Entrada: $${signal.entry.toFixed(8)}`);
+    console.log(`   🎯 Alvos: ${signal.targets.map(t => '$' + t.toFixed(8)).join(', ')}`);
+    console.log(`   🛑 Stop: $${signal.stopLoss.toFixed(8)}`);
     
     let message = `🚨 *SINAL LOBO #${baseSymbol}* ${trendEmoji} (Futures)\n\n`;
     
@@ -136,26 +145,68 @@ class TelegramBotService {
     message += `📊 *TEMPO GRÁFICO:* ${signal.timeframe}\n`;
     message += `📈 *Alavancagem sugerida:* 15x\n`;
     message += `🎯 *Probabilidade:* ${Math.round(signal.probability)}/100\n`;
-    message += `⚡️ *Entrada:* $${signal.entry.toFixed(4)}\n\n`;
+    message += `⚡️ *Entrada:* $${signal.entry.toFixed(8)}\n\n`;
     
     message += `🎯 *Alvos:*\n`;
     signal.targets.forEach((target, index) => {
       if (index === 0) {
-        message += `1️⃣ *Alvo 1:* $${target.toFixed(4)}\n`;
+        message += `1️⃣ *Alvo 1:* $${target.toFixed(8)}\n`;
       } else if (index === 1) {
-        message += `2️⃣ *Alvo 2:* $${target.toFixed(4)}\n`;
+        message += `2️⃣ *Alvo 2:* $${target.toFixed(8)}\n`;
       } else if (index === 2) {
-        message += `3️⃣ *Alvo 3:* $${target.toFixed(4)}\n`;
+        message += `3️⃣ *Alvo 3:* $${target.toFixed(8)}\n`;
       } else if (index === 3) {
-        message += `4️⃣ *Alvo 4:* $${target.toFixed(4)}\n`;
+        message += `4️⃣ *Alvo 4:* $${target.toFixed(8)}\n`;
       } else if (index === 4) {
-        message += `5️⃣ *Alvo 5:* $${target.toFixed(4)}\n`;
+        message += `5️⃣ *Alvo 5:* $${target.toFixed(8)}\n`;
       } else if (index === 5) {
-        message += `🌕 *Alvo 6 - Lua!:* $${target.toFixed(4)}\n`;
+        message += `🌕 *Alvo 6 - Lua!:* $${target.toFixed(8)}\n`;
       }
     });
     
-    message += `\n🛑 *Stop Loss:* $${signal.stopLoss.toFixed(4)}\n\n`;
+    message += `\n🛑 *Stop Loss:* $${signal.stopLoss.toFixed(8)}\n\n`;
+    
+    // Validação final dos alvos antes do envio
+    let hasErrors = false;
+    
+    if (isShort) {
+      // Para SHORT: alvos devem ser menores que entrada
+      const invalidTargets = signal.targets.filter(target => target >= signal.entry);
+      if (invalidTargets.length > 0) {
+        console.error(`❌ ERRO CRÍTICO: Alvos SHORT inválidos para ${signal.symbol}:`);
+        invalidTargets.forEach((target, i) => {
+          console.error(`   🎯 Alvo inválido: $${target.toFixed(8)} >= $${signal.entry.toFixed(8)}`);
+        });
+        hasErrors = true;
+      }
+      // Para SHORT: stop deve ser maior que entrada
+      if (signal.stopLoss <= signal.entry) {
+        console.error(`❌ ERRO CRÍTICO: Stop SHORT inválido para ${signal.symbol}: $${signal.stopLoss.toFixed(8)} <= $${signal.entry.toFixed(8)}`);
+        hasErrors = true;
+      }
+    } else {
+      // Para LONG: alvos devem ser maiores que entrada
+      const invalidTargets = signal.targets.filter(target => target <= signal.entry);
+      if (invalidTargets.length > 0) {
+        console.error(`❌ ERRO CRÍTICO: Alvos LONG inválidos para ${signal.symbol}:`);
+        invalidTargets.forEach((target, i) => {
+          console.error(`   🎯 Alvo inválido: $${target.toFixed(8)} <= $${signal.entry.toFixed(8)}`);
+        });
+        hasErrors = true;
+      }
+      // Para LONG: stop deve ser menor que entrada
+      if (signal.stopLoss >= signal.entry) {
+        console.error(`❌ ERRO CRÍTICO: Stop LONG inválido para ${signal.symbol}: $${signal.stopLoss.toFixed(8)} >= $${signal.entry.toFixed(8)}`);
+        hasErrors = true;
+      }
+    }
+    
+    if (hasErrors) {
+      console.error(`❌ SINAL COM ERROS - NÃO DEVE SER ENVIADO`);
+      message += `\n⚠️ *ATENÇÃO: SINAL COM ERROS DETECTADOS*\n`;
+    } else {
+      console.log(`✅ SINAL VALIDADO: Todos os níveis estão corretos`);
+    }
     
     message += `👑 *Sinais Lobo Cripto*\n`;
     message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
@@ -201,30 +252,55 @@ class TelegramBotService {
     try {
       const monitor = this.activeMonitors.get(symbol);
       if (!monitor) {
-        console.log(`⚠️ Monitor não encontrado para ${symbol} - fechando WebSocket`);
+        console.log(`⚠️ MONITOR INEXISTENTE: ${symbol} - fechando WebSocket`);
         // Para o WebSocket imediatamente e remove da lista
         if (this.wsConnections.has(symbol)) {
           try {
             const ws = this.wsConnections.get(symbol);
+            ws._intentionalClose = true; // Marca como fechamento intencional
             ws.close();
             this.wsConnections.delete(symbol);
-            console.log(`🔌 WebSocket fechado para ${symbol} (monitor inexistente)`);
+            console.log(`🔌 WebSocket fechado intencionalmente: ${symbol}`);
           } catch (error) {
-            console.error(`Erro ao fechar WebSocket ${symbol}:`, error.message);
+            console.error(`❌ Erro ao fechar WebSocket ${symbol}:`, error.message);
           }
         }
         return;
       }
 
       const currentPrice = candleData.close;
+      
+      // Validação crítica do preço recebido
+      if (!currentPrice || currentPrice <= 0 || isNaN(currentPrice) || !isFinite(currentPrice)) {
+        console.error(`❌ PREÇO INVÁLIDO recebido para ${symbol}: ${currentPrice}`);
+        return;
+      }
+      
       monitor.lastPrice = currentPrice;
+      
+      // Log detalhado do preço
+      const priceChange = monitor.lastPrice ? 
+        ((currentPrice - monitor.entry) / monitor.entry) * 100 : 0;
+      
+      console.log(`📊 UPDATE ${symbol}: $${currentPrice.toFixed(8)} (${priceChange > 0 ? '+' : ''}${priceChange.toFixed(2)}%)`);
 
       // Calcula P&L atual
-      const currentPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
+      // Calcula P&L baseado no tipo de operação (LONG ou SHORT)
+      let currentPnL;
+      if (monitor.isShort) {
+        // Para SHORT: lucro quando preço desce
+        currentPnL = ((monitor.entry - currentPrice) / monitor.entry) * 100;
+        console.log(`📉 SHORT P&L: Entrada $${monitor.entry.toFixed(8)} → Atual $${currentPrice.toFixed(8)} = ${currentPnL.toFixed(2)}%`);
+      } else {
+        // Para LONG: lucro quando preço sobe
+        currentPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
+        console.log(`📈 LONG P&L: Entrada $${monitor.entry.toFixed(8)} → Atual $${currentPrice.toFixed(8)} = ${currentPnL.toFixed(2)}%`);
+      }
       
       // Atualiza peak profit
       if (currentPnL > monitor.peakProfit) {
         monitor.peakProfit = currentPnL;
+        console.log(`🚀 NOVO PICO: ${monitor.peakProfit.toFixed(2)}%`);
       }
       
       // Calcula drawdown atual
@@ -232,16 +308,37 @@ class TelegramBotService {
 
       // Verifica alvos
       let newTargetsHit = 0;
-      for (let i = 0; i < monitor.targets.length; i++) {
-        if (currentPrice >= monitor.targets[i]) {
-          newTargetsHit = i + 1;
-        } else {
-          break;
+      
+      console.log(`🎯 VERIFICANDO ALVOS para ${symbol}:`);
+      console.log(`   💰 Preço atual: $${currentPrice.toFixed(8)}`);
+      console.log(`   🎯 Alvos: ${monitor.targets.map(t => '$' + t.toFixed(8)).join(', ')}`);
+      console.log(`   🔄 Tipo: ${monitor.isShort ? 'SHORT' : 'LONG'}`);
+      
+      if (monitor.isShort) {
+        // Para SHORT: alvos são atingidos quando preço desce
+        for (let i = 0; i < monitor.targets.length; i++) {
+          if (currentPrice <= monitor.targets[i]) {
+            newTargetsHit = i + 1;
+            console.log(`🎯 SHORT: Alvo ${i + 1} atingido ($${currentPrice.toFixed(8)} <= $${monitor.targets[i].toFixed(8)})`);
+          } else {
+            break;
+          }
+        }
+      } else {
+        // Para LONG: alvos são atingidos quando preço sobe
+        for (let i = 0; i < monitor.targets.length; i++) {
+          if (currentPrice >= monitor.targets[i]) {
+            newTargetsHit = i + 1;
+            console.log(`🎯 LONG: Alvo ${i + 1} atingido ($${currentPrice.toFixed(8)} >= $${monitor.targets[i].toFixed(8)})`);
+          } else {
+            break;
+          }
         }
       }
 
       // Se atingiu novo alvo
       if (newTargetsHit > monitor.targetsHit) {
+        console.log(`🎉 NOVO ALVO ATINGIDO: ${newTargetsHit} (anterior: ${monitor.targetsHit})`);
         monitor.targetsHit = newTargetsHit;
         monitor.maxTargetsHit = Math.max(monitor.maxTargetsHit, newTargetsHit);
         
@@ -249,13 +346,31 @@ class TelegramBotService {
         
         // Se atingiu todos os alvos
         if (newTargetsHit >= monitor.targets.length) {
+          console.log(`🌕 TODOS OS ALVOS ATINGIDOS: ${symbol}`);
           this.completeMonitor(symbol, 'ALL_TARGETS', currentPnL, app, adaptiveScoring);
           return;
         }
       }
 
       // Verifica stop loss
-      if (currentPrice <= monitor.stopLoss) {
+      let stopHit = false;
+      console.log(`🛑 VERIFICANDO STOP LOSS:`);
+      console.log(`   💰 Preço atual: $${currentPrice.toFixed(8)}`);
+      console.log(`   🛑 Stop Loss: $${monitor.stopLoss.toFixed(8)}`);
+      console.log(`   🔄 Tipo: ${monitor.isShort ? 'SHORT' : 'LONG'}`);
+      
+      if (monitor.isShort) {
+        // Para SHORT: stop loss quando preço sobe acima do stop
+        stopHit = currentPrice >= monitor.stopLoss;
+        console.log(`🛑 SHORT: Stop ${stopHit ? 'ATINGIDO' : 'OK'} ($${currentPrice.toFixed(8)} ${stopHit ? '>=' : '<'} $${monitor.stopLoss.toFixed(8)})`);
+      } else {
+        // Para LONG: stop loss quando preço desce abaixo do stop
+        stopHit = currentPrice <= monitor.stopLoss;
+        console.log(`🛑 LONG: Stop ${stopHit ? 'ATINGIDO' : 'OK'} ($${currentPrice.toFixed(8)} ${stopHit ? '<=' : '>'} $${monitor.stopLoss.toFixed(8)})`);
+      }
+      
+      if (stopHit) {
+        console.log(`🛑 STOP LOSS ATIVADO: ${symbol}`);
         this.completeMonitor(symbol, 'STOP_LOSS', currentPnL, app, adaptiveScoring);
         return;
       }
@@ -263,11 +378,11 @@ class TelegramBotService {
       // Log periódico (a cada 1% de mudança)
       const priceChange = Math.abs(currentPnL);
       if (priceChange > 0 && priceChange % 1 < 0.1) {
-        console.log(`📊 ${symbol}: $${currentPrice.toFixed(4)} (${currentPnL > 0 ? '+' : ''}${currentPnL.toFixed(2)}%) - ${monitor.targetsHit}/${monitor.targets.length} alvos`);
+        console.log(`📊 PROGRESSO ${symbol}: $${currentPrice.toFixed(8)} (${currentPnL > 0 ? '+' : ''}${currentPnL.toFixed(2)}%) - ${monitor.targetsHit}/${monitor.targets.length} alvos`);
       }
 
     } catch (error) {
-      console.error(`Erro ao processar atualização de preço para ${symbol}:`, error.message);
+      console.error(`❌ ERRO ao processar update de preço ${symbol}:`, error.message);
     }
   }
 
@@ -317,6 +432,12 @@ class TelegramBotService {
       const leveragedPnL = currentPnL * 15;
       const baseSymbol = symbol.split('/')[0];
       
+      console.log(`🎯 ENVIANDO NOTIFICAÇÃO DE ALVO:`);
+      console.log(`   💰 Símbolo: ${symbol}`);
+      console.log(`   🎯 Alvo: ${targetNumber}`);
+      console.log(`   💰 Preço: $${targetPrice.toFixed(8)}`);
+      console.log(`   📊 P&L: ${currentPnL.toFixed(2)}% (${leveragedPnL.toFixed(2)}% com 15x)`);
+      
       let targetEmoji = '';
       if (targetNumber === 1) targetEmoji = '1️⃣';
       else if (targetNumber === 2) targetEmoji = '2️⃣';
@@ -327,18 +448,19 @@ class TelegramBotService {
       
       const message = `🎯 *ALVO ${targetNumber} ATINGIDO* ${targetEmoji}\n\n` +
                      `💰 *#${baseSymbol} Futures*\n` +
-                     `🎯 *Alvo ${targetNumber}:* $${targetPrice.toFixed(4)}\n` +
+                     `🎯 *Alvo ${targetNumber}:* $${targetPrice.toFixed(8)}\n` +
                      `💰 *Lucro:* +${currentPnL.toFixed(2)}% (+${leveragedPnL.toFixed(2)}% com 15x)\n\n` +
                      `👑 Sinais Lobo Cripto\n` +
                      `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
 
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+        console.log(`✅ NOTIFICAÇÃO ENVIADA: Alvo ${targetNumber} para ${symbol}`);
       } else {
-        console.log(`🎯 [SIMULADO] Alvo ${targetNumber} atingido para ${symbol}: +${leveragedPnL.toFixed(2)}%`);
+        console.log(`🎯 [SIMULADO] Alvo ${targetNumber} atingido: ${symbol} +${leveragedPnL.toFixed(2)}%`);
       }
     } catch (error) {
-      console.error(`Erro ao enviar notificação de alvo para ${symbol}:`, error.message);
+      console.error(`❌ ERRO ao enviar notificação de alvo ${symbol}:`, error.message);
     }
   }
 

@@ -129,13 +129,23 @@ class BinanceService {
    */
   async executeOHLCVRequest(symbol, timeframe, limit) {
     try {
+      console.log(`🔍 Executando request para ${symbol} ${timeframe} (limit: ${limit})`);
+      
       // Usa endpoint público para dados históricos
       const binanceSymbol = symbol.replace('/', '');
+      console.log(`📊 Símbolo Binance: ${binanceSymbol}`);
+      
       const candles = await this.exchange.fapiPublicGetKlines({
         symbol: binanceSymbol,
         interval: this.convertTimeframe(timeframe),
         limit: limit
       });
+      
+      console.log(`📈 Recebidos ${candles.length} candles para ${symbol}`);
+      
+      if (!candles || candles.length === 0) {
+        throw new Error(`Nenhum dado recebido para ${symbol}`);
+      }
       
       // Converte formato da resposta para o formato esperado
       const formattedCandles = candles.map(candle => [
@@ -149,30 +159,74 @@ class BinanceService {
       
       // Validação crítica dos dados
       const lastPrice = formattedCandles[formattedCandles.length - 1][4]; // close
-      console.log(`📊 ${symbol} ${timeframe}: Último preço = $${lastPrice.toFixed(6)}`);
+      const firstPrice = formattedCandles[0][4]; // close
+      const priceChange = ((lastPrice - firstPrice) / firstPrice) * 100;
+      
+      console.log(`📊 ${symbol} ${timeframe}:`);
+      console.log(`   💰 Primeiro preço: $${firstPrice.toFixed(6)}`);
+      console.log(`   💰 Último preço: $${lastPrice.toFixed(6)}`);
+      console.log(`   📈 Variação: ${priceChange > 0 ? '+' : ''}${priceChange.toFixed(2)}%`);
+      console.log(`   📊 Total candles: ${formattedCandles.length}`);
       
       // Validação específica por tipo de ativo
       let isValidPrice = true;
+      let expectedRange = { min: 0, max: 0 };
+      
       if (symbol.includes('BTC')) {
         // Bitcoin: $1k - $1M
-        if (lastPrice < 1000 || lastPrice > 1000000) {
+        expectedRange = { min: 1000, max: 1000000 };
+        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
           isValidPrice = false;
         }
       } else if (symbol.includes('ETH')) {
         // Ethereum: $1 - $50k
-        if (lastPrice < 1 || lastPrice > 50000) {
+        expectedRange = { min: 1, max: 50000 };
+        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
+          isValidPrice = false;
+        }
+      } else if (symbol.includes('1000')) {
+        // Tokens com multiplicador 1000: $0.001 - $1000
+        expectedRange = { min: 0.001, max: 1000 };
+        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
           isValidPrice = false;
         }
       } else {
         // Outros ativos: validação mais ampla
-        if (lastPrice < 0.000001 || lastPrice > 100000) {
+        expectedRange = { min: 0.000001, max: 100000 };
+        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
           isValidPrice = false;
         }
       }
       
       if (!isValidPrice) {
-        console.error(`❌ ERRO: Preço fora da faixa válida para ${symbol}: $${lastPrice}`);
-        console.error('🔧 Possível problema na API da Binance');
+        console.error(`❌ ERRO CRÍTICO: Preço fora da faixa válida para ${symbol}:`);
+        console.error(`   💰 Preço atual: $${lastPrice}`);
+        console.error(`   📊 Faixa esperada: $${expectedRange.min} - $${expectedRange.max}`);
+        console.error(`   🔧 Possível problema na API da Binance ou símbolo inválido`);
+        throw new Error(`Preço inválido para ${symbol}: $${lastPrice}`);
+      }
+      
+      // Validação de consistência dos dados
+      let invalidCandles = 0;
+      for (let i = 0; i < formattedCandles.length; i++) {
+        const [timestamp, open, high, low, close, volume] = formattedCandles[i];
+        
+        // Verifica se high >= low >= 0
+        if (high < low || low < 0 || open < 0 || close < 0 || volume < 0) {
+          invalidCandles++;
+          console.warn(`⚠️ Candle inválido ${i}: H:${high} L:${low} O:${open} C:${close} V:${volume}`);
+        }
+        
+        // Verifica se timestamp é válido
+        if (!timestamp || timestamp < 1000000000000) { // Timestamp deve ser em ms
+          invalidCandles++;
+          console.warn(`⚠️ Timestamp inválido ${i}: ${timestamp}`);
+        }
+      }
+      
+      if (invalidCandles > formattedCandles.length * 0.1) { // Mais de 10% inválidos
+        console.error(`❌ Muitos candles inválidos para ${symbol}: ${invalidCandles}/${formattedCandles.length}`);
+        throw new Error(`Dados inconsistentes para ${symbol}`);
       }
       
       return {
@@ -184,7 +238,9 @@ class BinanceService {
         volume: formattedCandles.map(c => c[5])
       };
     } catch (error) {
-      console.error(`Erro ao obter dados OHLCV para ${symbol}:`, error.message);
+      console.error(`❌ ERRO CRÍTICO ao obter dados OHLCV para ${symbol}:`);
+      console.error(`   📄 Mensagem: ${error.message}`);
+      console.error(`   🔧 Stack: ${error.stack?.split('\n')[0]}`);
       throw error;
     }
   }

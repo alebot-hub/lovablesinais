@@ -709,73 +709,119 @@ class TradingBotApp {
     try {
       // VERIFICAÇÃO CRÍTICA: Impede análise se operação já ativa
       if (this.telegramBot.hasActiveMonitor(symbol)) {
-        console.log(`🚫 ${symbol}: Operação já ativa - pulando análise completa`);
+        console.log(`🚫 ${symbol} ${timeframe}: Operação já ativa - pulando análise`);
         return null;
       }
 
-      console.log(`🔍 Analisando ${symbol} ${timeframe}...`);
+      console.log(`\n🔍 ===== ANALISANDO ${symbol} ${timeframe} =====`);
 
       // Obtém dados históricos
       const data = await this.binanceService.getOHLCVData(symbol, timeframe, 200);
       
       if (!data || !data.close || data.close.length < 50) {
-        console.log(`⚠️ ${symbol} ${timeframe}: Dados insuficientes`);
+        console.error(`❌ ${symbol} ${timeframe}: Dados insuficientes (${data?.close?.length || 0} < 50)`);
         return null;
       }
 
       // Validação crítica dos dados
       const lastPrice = data.close[data.close.length - 1];
-      console.log(`📊 ${symbol} ${timeframe}: Último preço = $${lastPrice.toFixed(6)}`);
+      const firstPrice = data.close[0];
+      const priceRange = {
+        min: Math.min(...data.close),
+        max: Math.max(...data.close),
+        avg: data.close.reduce((a, b) => a + b, 0) / data.close.length
+      };
+      
+      console.log(`📊 DADOS RECEBIDOS para ${symbol} ${timeframe}:`);
+      console.log(`   💰 Preço atual: $${lastPrice.toFixed(8)}`);
+      console.log(`   💰 Preço inicial: $${firstPrice.toFixed(8)}`);
+      console.log(`   📊 Faixa: $${priceRange.min.toFixed(8)} - $${priceRange.max.toFixed(8)}`);
+      console.log(`   📊 Média: $${priceRange.avg.toFixed(8)}`);
+      console.log(`   📊 Candles: ${data.close.length}`);
       
       // Validação específica por tipo de ativo
       let isValidPrice = true;
+      let expectedRange = { min: 0, max: 0 };
+      
       if (symbol.includes('BTC')) {
         // Bitcoin: $1k - $1M
-        if (lastPrice < 1000 || lastPrice > 1000000) {
+        expectedRange = { min: 1000, max: 1000000 };
+        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
           isValidPrice = false;
         }
       } else if (symbol.includes('ETH')) {
         // Ethereum: $1 - $50k
-        if (lastPrice < 1 || lastPrice > 50000) {
+        expectedRange = { min: 1, max: 50000 };
+        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
+          isValidPrice = false;
+        }
+      } else if (symbol.includes('1000')) {
+        // Tokens com multiplicador 1000: $0.001 - $1000
+        expectedRange = { min: 0.001, max: 1000 };
+        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
           isValidPrice = false;
         }
       } else {
-        // Outros ativos: $0.000001 - $100k
-        if (lastPrice < 0.000001 || lastPrice > 100000) {
+        // Outros ativos: validação baseada no preço médio
+        const avgPrice = priceRange.avg;
+        if (avgPrice > 1000) {
+          // Ativos caros: $100 - $100k
+          expectedRange = { min: 100, max: 100000 };
+        } else if (avgPrice > 1) {
+          // Ativos médios: $0.01 - $10k
+          expectedRange = { min: 0.01, max: 10000 };
+        } else {
+          // Ativos baratos: $0.000001 - $100
+          expectedRange = { min: 0.000001, max: 100 };
+        }
+        
+        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
           isValidPrice = false;
         }
       }
       
       if (!isValidPrice) {
-        console.error(`❌ ERRO: Preço fora da faixa válida para ${symbol}: $${lastPrice}`);
-        console.error('🔧 Possível problema na API da Binance ou conversão de dados');
+        console.error(`❌ ERRO CRÍTICO: Preço inválido para ${symbol}:`);
+        console.error(`   💰 Preço atual: $${lastPrice.toFixed(8)}`);
+        console.error(`   📊 Faixa esperada: $${expectedRange.min} - $${expectedRange.max}`);
+        console.error(`   🔧 Possível problema na API ou símbolo inválido`);
         return null;
       }
+      
+      console.log(`✅ PREÇO VALIDADO: $${lastPrice.toFixed(8)} está na faixa esperada`);
 
       // Análise técnica
       const indicators = this.technicalAnalysis.calculateIndicators(data);
       
-      // Validação crítica dos indicadores
+      if (!indicators || Object.keys(indicators).length === 0) {
+        console.error(`❌ ERRO: Nenhum indicador calculado para ${symbol}`);
+        return null;
+      }
+      
+      console.log(`📊 INDICADORES CALCULADOS: ${Object.keys(indicators).length} indicadores`);
 
       // Detecção de padrões
       const patterns = this.patternDetection.detectPatterns(data);
+      console.log(`📈 PADRÕES DETECTADOS: ${Object.keys(patterns || {}).length} padrões`);
 
       // Treina modelo ML se necessário (apenas para símbolos principais)
       const mainSymbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'ADA/USDT'];
       if (mainSymbols.includes(symbol) && timeframe === '1h' && !this.machineLearning.models.has(symbol)) {
-        console.log(`🧠 Treinando modelo ML para ${symbol}...`);
+        console.log(`🧠 TREINANDO ML: Modelo para ${symbol}...`);
         await this.machineLearning.trainModel(symbol, data);
       }
 
       // Previsão ML
       const mlProbability = await this.machineLearning.predict(symbol, data, indicators);
+      console.log(`🤖 ML PREDICTION: ${(mlProbability * 100).toFixed(1)}%`);
 
       // Detecta tendência do mercado
       const marketTrend = this.technicalAnalysis.detectTrend(indicators);
+      console.log(`📈 TENDÊNCIA DETECTADA: ${marketTrend}`);
 
       // Analisa correlação com Bitcoin
       const bitcoinCorrelation = await this.bitcoinCorrelation.analyzeCorrelation(symbol, marketTrend, data);
-      console.log(`🔗 ${this.bitcoinCorrelation.generateCorrelationSummary(symbol, bitcoinCorrelation)}`);
+      console.log(`₿ CORRELAÇÃO BTC: ${this.bitcoinCorrelation.generateCorrelationSummary(symbol, bitcoinCorrelation)}`);
 
       // Calcula pontuação (com sistema adaptativo se disponível)
       let scoring;
@@ -791,31 +837,42 @@ class TradingBotApp {
         );
       }
 
-      console.log(`📊 ${symbol} ${timeframe}: Score ${scoring.totalScore.toFixed(1)}% - ${scoring.isValid ? 'VÁLIDO' : 'INVÁLIDO'}`);
+      console.log(`\n🎯 RESULTADO FINAL para ${symbol} ${timeframe}:`);
+      console.log(`   📊 Score: ${scoring.totalScore.toFixed(1)}%`);
+      console.log(`   ✅ Válido: ${scoring.isValid ? 'SIM' : 'NÃO'} (threshold: ${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY}%)`);
+      
       if (scoring.isMLDriven) {
-        console.log(`🤖 ${symbol}: Sinal baseado em ML (${scoring.mlContribution?.toFixed(1)}% contribuição)`);
+        console.log(`   🤖 ML-Driven: ${scoring.mlContribution?.toFixed(1)}% contribuição`);
       }
 
       if (!scoring.isValid) {
-        console.log(`❌ ${symbol} ${timeframe}: Score ${scoring.totalScore.toFixed(1)}% abaixo do mínimo`);
+        console.log(`❌ REJEITADO: Score ${scoring.totalScore.toFixed(1)}% < ${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY}%`);
         return null;
       }
 
       // Calcula níveis de trading
       const levels = this.signalScoring.calculateTradingLevels(lastPrice, marketTrend);
+      
+      console.log(`💰 NÍVEIS DE TRADING:`);
+      console.log(`   🎯 Entrada: $${levels.entry.toFixed(8)}`);
+      console.log(`   🎯 Alvos: ${levels.targets.map(t => '$' + t.toFixed(8)).join(', ')}`);
+      console.log(`   🛑 Stop: $${levels.stopLoss.toFixed(8)}`);
+      console.log(`   📊 R/R: ${levels.riskRewardRatio.toFixed(2)}`);
 
       // Verifica gestão de risco
       const riskCheck = this.riskManagement.canOpenTrade(symbol, this.telegramBot.activeMonitors);
       if (!riskCheck.allowed) {
-        console.log(`🚫 ${symbol}: ${riskCheck.reason}`);
+        console.log(`🚫 RISCO REJEITADO: ${riskCheck.reason}`);
         return null;
       }
 
       // VERIFICAÇÃO FINAL CRÍTICA: Última verificação antes de retornar sinal
       if (this.telegramBot.hasActiveMonitor(symbol)) {
-        console.log(`🚫 ${symbol}: VERIFICAÇÃO FINAL - Operação ativa detectada`);
+        console.log(`🚫 VERIFICAÇÃO FINAL: Operação ativa detectada para ${symbol}`);
         return null;
       }
+      
+      console.log(`✅ SINAL APROVADO: ${symbol} ${timeframe} (${scoring.totalScore.toFixed(1)}%)`);
 
       return {
         ...scoring,
@@ -831,7 +888,9 @@ class TradingBotApp {
       };
 
     } catch (error) {
-      console.error(`Erro ao analisar ${symbol} ${timeframe}:`, error.message);
+      console.error(`❌ ERRO CRÍTICO na análise ${symbol} ${timeframe}:`);
+      console.error(`   📄 Mensagem: ${error.message}`);
+      console.error(`   🔧 Stack: ${error.stack?.split('\n')[0]}`);
       return null;
     }
   }
@@ -863,7 +922,8 @@ class TradingBotApp {
           signal.entry,
           signal.targets,
           signal.stopLoss,
-          signalId
+          signalId,
+          signal.trend // Passa a tendência para identificar SHORT/LONG
         );
         console.log(`✅ Monitor criado para ${signal.symbol}. Total: ${this.telegramBot.activeMonitors.size}`);
       } else {

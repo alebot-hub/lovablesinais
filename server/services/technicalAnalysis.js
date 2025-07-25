@@ -14,12 +14,36 @@ class TechnicalAnalysisService {
 
     try {
       if (!data || !data.close || data.close.length < 10) {
-        console.warn(`Dados insuficientes para análise técnica: ${data?.close?.length || 0} candles`);
+        console.error(`❌ DADOS INSUFICIENTES para análise técnica:`);
+        console.error(`   📊 Candles disponíveis: ${data?.close?.length || 0}`);
+        console.error(`   📊 Mínimo necessário: 10`);
         return {};
       }
 
-      console.log(`📊 Calculando indicadores com ${data.close.length} candles`);
-      console.log(`💰 Preços: ${data.close.slice(-3).map(p => p.toFixed(4)).join(', ')}`);
+      const currentPrice = data.close[data.close.length - 1];
+      const previousPrice = data.close[data.close.length - 2];
+      const priceChange = ((currentPrice - previousPrice) / previousPrice) * 100;
+      
+      console.log(`📊 ANÁLISE TÉCNICA - ${data.close.length} candles:`);
+      console.log(`   💰 Preço atual: $${currentPrice.toFixed(6)}`);
+      console.log(`   💰 Preço anterior: $${previousPrice.toFixed(6)}`);
+      console.log(`   📈 Variação: ${priceChange > 0 ? '+' : ''}${priceChange.toFixed(2)}%`);
+      
+      // Validação crítica dos preços
+      const prices = data.close;
+      let invalidPrices = 0;
+      
+      for (let i = 0; i < prices.length; i++) {
+        if (prices[i] <= 0 || isNaN(prices[i]) || !isFinite(prices[i])) {
+          invalidPrices++;
+          console.error(`❌ Preço inválido no índice ${i}: ${prices[i]}`);
+        }
+      }
+      
+      if (invalidPrices > 0) {
+        console.error(`❌ ERRO: ${invalidPrices} preços inválidos encontrados`);
+        return {};
+      }
 
       // RSI
       const rsi = technicalindicators.RSI.calculate({
@@ -27,7 +51,15 @@ class TechnicalAnalysisService {
         values: data.close
       });
       indicators.rsi = rsi.length > 0 ? rsi[rsi.length - 1] : null;
-      console.log(`📈 RSI: ${indicators.rsi?.toFixed(2) || 'null'}`);
+      
+      if (indicators.rsi !== null) {
+        console.log(`📈 RSI: ${indicators.rsi.toFixed(2)} (${
+          indicators.rsi < 30 ? 'SOBREVENDIDO' :
+          indicators.rsi > 70 ? 'SOBRECOMPRADO' : 'NEUTRO'
+        })`);
+      } else {
+        console.warn(`⚠️ RSI não calculado`);
+      }
 
       // MACD
       const macd = technicalindicators.MACD.calculate({
@@ -37,7 +69,13 @@ class TechnicalAnalysisService {
         values: data.close
       });
       indicators.macd = macd.length > 0 ? macd[macd.length - 1] : null;
-      console.log(`📊 MACD: ${indicators.macd?.MACD?.toFixed(4) || 'null'}`);
+      
+      if (indicators.macd && indicators.macd.MACD !== null) {
+        const macdTrend = indicators.macd.MACD > indicators.macd.signal ? 'BULLISH' : 'BEARISH';
+        console.log(`📊 MACD: ${indicators.macd.MACD.toFixed(4)} (${macdTrend})`);
+      } else {
+        console.warn(`⚠️ MACD não calculado`);
+      }
 
       // Ichimoku Cloud
       if (data.high && data.low && data.high.length >= 52 && data.low.length >= 52) {
@@ -49,8 +87,13 @@ class TechnicalAnalysisService {
           spanPeriod: INDICATORS_CONFIG.ICHIMOKU.spanPeriod
         });
         indicators.ichimoku = ichimoku.length > 0 ? ichimoku[ichimoku.length - 1] : null;
+        
+        if (indicators.ichimoku) {
+          console.log(`☁️ Ichimoku: Conversão=${indicators.ichimoku.conversionLine?.toFixed(4)} Base=${indicators.ichimoku.baseLine?.toFixed(4)}`);
+        }
       } else {
         indicators.ichimoku = null;
+        console.log(`⚠️ Ichimoku: Dados insuficientes (${data.high?.length || 0} < 52)`);
       }
 
       // Médias Móveis
@@ -62,6 +105,7 @@ class TechnicalAnalysisService {
         indicators.ma21 = ma21.length > 0 ? ma21[ma21.length - 1] : null;
       } else {
         indicators.ma21 = null;
+        console.warn(`⚠️ MA21: Dados insuficientes (${data.close.length} < 21)`);
       }
 
       if (data.close.length >= 200) {
@@ -78,43 +122,53 @@ class TechnicalAnalysisService {
             values: data.close
           });
           indicators.ma200 = ma50.length > 0 ? ma50[ma50.length - 1] : null;
-          console.log('⚠️ Usando MA50 como fallback para MA200');
+          console.log(`⚠️ MA200: Usando MA50 como fallback (${data.close.length} < 200)`);
         } else {
           indicators.ma200 = null;
+          console.warn(`⚠️ MA200: Dados insuficientes (${data.close.length} < 50)`);
         }
       }
       
-      console.log(`📊 MA21: ${indicators.ma21?.toFixed(4) || 'null'}`);
-      console.log(`📊 MA200: ${indicators.ma200?.toFixed(4) || 'null'}`);
+      if (indicators.ma21) {
+        console.log(`📊 MA21: $${indicators.ma21.toFixed(6)}`);
+      }
+      if (indicators.ma200) {
+        console.log(`📊 MA200: $${indicators.ma200.toFixed(6)}`);
+      }
       
       // Validação crítica dos indicadores
-      const currentPrice = data.close[data.close.length - 1];
       
       // Validação MA21 - deve estar próxima do preço atual
       if (indicators.ma21) {
         const ma21Ratio = indicators.ma21 / currentPrice;
-        console.log(`🔍 MA21 Ratio: ${ma21Ratio.toFixed(3)} (MA21: $${indicators.ma21.toFixed(2)}, Preço: $${currentPrice.toFixed(2)})`);
+        console.log(`🔍 VALIDAÇÃO MA21:`);
+        console.log(`   📊 MA21: $${indicators.ma21.toFixed(6)}`);
+        console.log(`   💰 Preço: $${currentPrice.toFixed(6)}`);
+        console.log(`   📈 Ratio: ${ma21Ratio.toFixed(3)} (deve estar entre 0.8-1.2)`);
         
         // MA21 pode variar entre 80% e 120% do preço atual (muito próxima)
         if (ma21Ratio > 1.2 || ma21Ratio < 0.8) {
-          console.error(`❌ MA21 fora da faixa aceitável: Ratio ${ma21Ratio.toFixed(3)} (deve estar entre 0.8-1.2)`);
+          console.error(`❌ MA21 REJEITADA: Ratio ${ma21Ratio.toFixed(3)} fora da faixa 0.8-1.2`);
           indicators.ma21 = null;
         } else {
-          console.log(`✅ MA21 validada: $${indicators.ma21.toFixed(2)} (${(ma21Ratio * 100).toFixed(1)}% do preço)`);
+          console.log(`✅ MA21 VALIDADA: ${(ma21Ratio * 100).toFixed(1)}% do preço atual`);
         }
       }
       
       // Validação MA200 - pode estar mais distante
       if (indicators.ma200) {
         const ma200Ratio = indicators.ma200 / currentPrice;
-        console.log(`🔍 MA200 Ratio: ${ma200Ratio.toFixed(3)} (MA200: $${indicators.ma200.toFixed(2)}, Preço: $${currentPrice.toFixed(2)})`);
+        console.log(`🔍 VALIDAÇÃO MA200:`);
+        console.log(`   📊 MA200: $${indicators.ma200.toFixed(6)}`);
+        console.log(`   💰 Preço: $${currentPrice.toFixed(6)}`);
+        console.log(`   📈 Ratio: ${ma200Ratio.toFixed(3)} (deve estar entre 0.6-1.4)`);
         
         // MA200 pode variar entre 60% e 140% do preço atual
         if (ma200Ratio > 1.4 || ma200Ratio < 0.6) {
-          console.error(`❌ MA200 fora da faixa aceitável: Ratio ${ma200Ratio.toFixed(3)} (deve estar entre 0.6-1.4)`);
+          console.error(`❌ MA200 REJEITADA: Ratio ${ma200Ratio.toFixed(3)} fora da faixa 0.6-1.4`);
           indicators.ma200 = null;
         } else {
-          console.log(`✅ MA200 validada: $${indicators.ma200.toFixed(2)} (${(ma200Ratio * 100).toFixed(1)}% do preço)`);
+          console.log(`✅ MA200 VALIDADA: ${(ma200Ratio * 100).toFixed(1)}% do preço atual`);
         }
       }
 

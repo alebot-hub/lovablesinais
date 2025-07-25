@@ -53,9 +53,9 @@ export const SCORING_WEIGHTS = {
 
 // Configurações de trading
 export const TRADING_CONFIG = {
-  MIN_SIGNAL_PROBABILITY: 50, // Threshold mais baixo para mercado atual
+  MIN_SIGNAL_PROBABILITY: 45, // Threshold ainda mais baixo para permitir mais sinais
   TARGET_PERCENTAGES: [1.5, 3.0, 4.5, 6.0, 7.5, 9.0],
-  STOP_LOSS_PERCENTAGE: -4.5,
+  STOP_LOSS_PERCENTAGE: 4.5, // Sempre positivo - direção aplicada no cálculo
   VOLATILITY_THRESHOLD: 5.0, // Threshold para alertas de volatilidade
   
   // Configurações específicas para sinais contra-tendência
