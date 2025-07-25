@@ -113,24 +113,24 @@ class SignalScoringService {
 
     // RSI
     if (indicators.rsi !== null && indicators.rsi !== undefined) {
-      if (indicators.rsi < 30) {
+      if (indicators.rsi < 35) {
         total += SCORING_WEIGHTS.RSI_OVERSOLD;
         details.rsi = { value: indicators.rsi, score: SCORING_WEIGHTS.RSI_OVERSOLD, reason: 'Sobrevendido' };
         console.log('✅ RSI sobrevendido:', SCORING_WEIGHTS.RSI_OVERSOLD);
-      } else if (indicators.rsi > 70) {
+      } else if (indicators.rsi > 75) {
         total -= Math.abs(SCORING_WEIGHTS.RSI_OVERBOUGHT);
         details.rsi = { value: indicators.rsi, score: -Math.abs(SCORING_WEIGHTS.RSI_OVERBOUGHT), reason: 'Sobrecomprado' };
         console.log('❌ RSI sobrecomprado:', -Math.abs(SCORING_WEIGHTS.RSI_OVERBOUGHT));
-      } else if (indicators.rsi < 40) {
+      } else if (indicators.rsi < 45) {
         // RSI moderadamente sobrevendido
-        total += 20;
-        details.rsi = { value: indicators.rsi, score: 20, reason: 'RSI moderadamente baixo' };
-        console.log('🟡 RSI moderadamente baixo:', 20);
-      } else if (indicators.rsi > 60) {
+        total += 15;
+        details.rsi = { value: indicators.rsi, score: 15, reason: 'RSI moderadamente baixo' };
+        console.log('🟡 RSI moderadamente baixo:', 15);
+      } else if (indicators.rsi > 65) {
         // RSI moderadamente sobrecomprado
-        total -= 10;
-        details.rsi = { value: indicators.rsi, score: -10, reason: 'RSI moderadamente alto' };
-        console.log('🟡 RSI moderadamente alto:', -10);
+        total -= 5;
+        details.rsi = { value: indicators.rsi, score: -5, reason: 'RSI moderadamente alto' };
+        console.log('🟡 RSI moderadamente alto:', -5);
       } else {
         console.log('🟡 RSI neutro:', indicators.rsi);
       }
@@ -177,25 +177,25 @@ class SignalScoringService {
       if (indicators.ma21 > indicators.ma200) {
         // Verifica se a diferença é significativa (>2%)
         const maDiff = ((indicators.ma21 - indicators.ma200) / indicators.ma200) * 100;
-        if (maDiff > 1) {
+        if (maDiff > 0.5) {
           total += SCORING_WEIGHTS.MA_BULLISH;
           details.movingAverages = { score: SCORING_WEIGHTS.MA_BULLISH, reason: `MA21 > MA200 (+${maDiff.toFixed(1)}%)` };
           console.log('✅ MA bullish forte:', SCORING_WEIGHTS.MA_BULLISH);
-        } else if (maDiff > 0.5) {
+        } else if (maDiff > 0.1) {
           total += 10;
           details.movingAverages = { score: 10, reason: `MA21 > MA200 (+${maDiff.toFixed(1)}%)` };
           console.log('🟡 MA bullish fraco:', 10);
         }
       } else if (indicators.ma21 < indicators.ma200) {
         const maDiff = ((indicators.ma200 - indicators.ma21) / indicators.ma200) * 100;
-        if (maDiff > 5) {
-          total -= 10; // Penalidade reduzida
-          details.movingAverages = { score: -10, reason: `MA21 < MA200 (-${maDiff.toFixed(1)}%)` };
-          console.log('❌ MA bearish forte:', -10);
-        } else if (maDiff > 1) {
+        if (maDiff > 8) {
           total -= 5; // Penalidade menor
           details.movingAverages = { score: -5, reason: `MA21 < MA200 (-${maDiff.toFixed(1)}%)` };
-          console.log('🟡 MA bearish moderado:', -5);
+          console.log('❌ MA bearish forte:', -5);
+        } else if (maDiff > 3) {
+          total -= 2; // Penalidade muito pequena
+          details.movingAverages = { score: -2, reason: `MA21 < MA200 (-${maDiff.toFixed(1)}%)` };
+          console.log('🟡 MA bearish moderado:', -2);
         }
       }
     } else {
@@ -228,8 +228,8 @@ class SignalScoringService {
     // Se não há padrões detectados, adiciona score base mínimo
     if (!patterns || Object.keys(patterns).length === 0) {
       console.log('⚠️ Nenhum padrão detectado - adicionando score base');
-      total += 10; // Score base para manter sinais fluindo
-      details.base = { score: 10, reason: 'Score base sem padrões específicos' };
+      total += 15; // Score base aumentado
+      details.base = { score: 15, reason: 'Score base sem padrões específicos' };
       return { total, details };
     }
 
@@ -335,13 +335,13 @@ class SignalScoringService {
     const avgVolume = indicators.volumeMA;
 
     // Volume precisa ser significativamente alto para confirmar
-    if (currentVolume > avgVolume * 1.5) {
+    if (currentVolume > avgVolume * 1.2) {
       console.log('✅ Volume alto confirmado:', SCORING_WEIGHTS.VOLUME_CONFIRMATION);
       return SCORING_WEIGHTS.VOLUME_CONFIRMATION;
-    } else if (currentVolume > avgVolume * 1.2) {
+    } else if (currentVolume > avgVolume * 1.0) {
       console.log('🟡 Volume moderadamente alto:', 8);
       return 8;
-    } else if (currentVolume > avgVolume * 1.0) {
+    } else if (currentVolume > avgVolume * 0.8) {
       console.log('🟡 Volume normal:', 5);
       return 5;
     }
