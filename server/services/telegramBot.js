@@ -143,7 +143,7 @@ class TelegramBotService {
     message += `💰 *#${baseSymbol} Futures*\n`;
     message += `📊 *TEMPO GRÁFICO:* ${signal.timeframe}\n`;
     message += `📈 *Alavancagem sugerida:* 15x\n`;
-    message += `🎯 *Probabilidade:* ${Math.round(signal.probability)}/100\n`;
+    message += `🎯 *Probabilidade:* ${Math.round(signal.probability)}%\n`;
     message += `⚡️ *Entrada:* ${this.formatPrice(signal.entry)}\n\n`;
     
     message += `🎯 *Alvos:*\n`;
@@ -1033,15 +1033,15 @@ class TelegramBotService {
   formatPrice(price) {
     if (!price || isNaN(price)) return '0.00';
     
-    // Usa escape de markdown para evitar links automáticos
-    const formattedPrice = price.toLocaleString('pt-BR', {
+    // Formata preço sem símbolo $ para formatação limpa
+    const formattedPrice = price.toLocaleString('en-US', {
       minimumFractionDigits: 2,
-      maximumFractionDigits: 8,
-      useGrouping: true
+      maximumFractionDigits: price >= 1 ? 2 : 8,
+      useGrouping: false
     });
     
-    // Adiciona $ com escape para evitar links
-    return `\\$${formattedPrice}`;
+    // Retorna apenas o valor numérico
+    return formattedPrice;
   }
 
   /**
