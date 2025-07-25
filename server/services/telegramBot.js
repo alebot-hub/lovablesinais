@@ -480,7 +480,8 @@ class TelegramBotService {
       console.log(`   💰 Símbolo: ${symbol}`);
       console.log(`   🎯 Alvo: ${targetNumber}`);
       console.log(`   💰 Preço: ${this.formatPrice(targetPrice)}`);
-      console.log(`   📊 P&L: ${currentPnL.toFixed(2)}% (${leveragedPnL.toFixed(2)}% com 15x)`);
+      console.log(`   📊 P&L sem alavancagem: ${currentPnL.toFixed(2)}%`);
+      console.log(`   📊 P&L com 15x: ${leveragedPnL.toFixed(2)}%`);
       console.log(`   ⏱️ Tempo: ${timeText}`);
       console.log(`   💡 Recomendação: ${recommendation}`);
       
@@ -494,7 +495,7 @@ class TelegramBotService {
       
       const message = `✅ *ALVO ${targetNumber} ATINGIDO #${baseSymbol}*\n\n` +
                      `${targetEmoji} *Alvo ${targetNumber} atingido no par #${baseSymbol}*\n` +
-                     `💰 *Lucro:* +${currentPnL.toFixed(2)}% (Alv. 15×)\n` +
+                     `💰 *Lucro:* +${leveragedPnL.toFixed(2)}% (Alv. 15×)\n` +
                      `⚡️ *Posição parcial realizada*\n` +
                      `📊 *Entrada:* ${this.formatPrice(monitor.entry)}\n` +
                      `💵 *Preço do alvo:* ${this.formatPrice(targetPrice)}\n` +
