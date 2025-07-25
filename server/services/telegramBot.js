@@ -428,14 +428,61 @@ class TelegramBotService {
    */
   async sendTargetHitNotification(symbol, targetNumber, targetPrice, currentPnL) {
     try {
-      const leveragedPnL = currentPnL * 15;
+      const leveragedPnL = currentPnL * 15; // Alavancagem 15x
       const baseSymbol = symbol.split('/')[0];
+      const monitor = this.activeMonitors.get(symbol);
+      
+      if (!monitor) {
+        console.error(`❌ Monitor não encontrado para ${symbol}`);
+        return;
+      }
+      
+      // Calcula tempo até o alvo
+      const timeToTarget = new Date() - monitor.timestamp;
+      const days = Math.floor(timeToTarget / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((timeToTarget % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((timeToTarget % (1000 * 60 * 60)) / (1000 * 60));
+      
+      let timeText = '';
+      if (days > 0) {
+        timeText = `${days} dia${days > 1 ? 's' : ''}`;
+      } else if (hours > 0) {
+        timeText = `${hours}h ${minutes}m`;
+      } else {
+        timeText = `${minutes} minuto${minutes > 1 ? 's' : ''}`;
+      }
+      
+      // Determina recomendação de realização baseada no alvo
+      let recommendation = '';
+      let partialPercent = '';
+      
+      if (targetNumber === 1) {
+        recommendation = 'Realize 50% da posição neste alvo';
+        partialPercent = '50%';
+      } else if (targetNumber === 2) {
+        recommendation = 'Realize 15% da posição e mova o stop para o ponto de entrada';
+        partialPercent = '15%';
+      } else if (targetNumber === 3) {
+        recommendation = 'Realize 10% da posição e mova o stop para o alvo 1';
+        partialPercent = '10%';
+      } else if (targetNumber === 4) {
+        recommendation = 'Realize 10% da posição e mova o stop para o alvo 2';
+        partialPercent = '10%';
+      } else if (targetNumber === 5) {
+        recommendation = 'Realize 10% da posição e mova o stop para o alvo 3';
+        partialPercent = '10%';
+      } else if (targetNumber === 6) {
+        recommendation = 'Realize 5% da posição restante - PARABÉNS!';
+        partialPercent = '5%';
+      }
       
       console.log(`🎯 ENVIANDO NOTIFICAÇÃO DE ALVO:`);
       console.log(`   💰 Símbolo: ${symbol}`);
       console.log(`   🎯 Alvo: ${targetNumber}`);
       console.log(`   💰 Preço: $${targetPrice.toFixed(8)}`);
       console.log(`   📊 P&L: ${currentPnL.toFixed(2)}% (${leveragedPnL.toFixed(2)}% com 15x)`);
+      console.log(`   ⏱️ Tempo: ${timeText}`);
+      console.log(`   💡 Recomendação: ${recommendation}`);
       
       let targetEmoji = '';
       if (targetNumber === 1) targetEmoji = '1️⃣';
@@ -445,19 +492,26 @@ class TelegramBotService {
       else if (targetNumber === 5) targetEmoji = '5️⃣';
       else if (targetNumber === 6) targetEmoji = '🌕';
       
-      const message = `🎯 *ALVO ${targetNumber} ATINGIDO* ${targetEmoji}\n\n` +
-                     `💰 *#${baseSymbol} Futures*\n` +
-                     `🎯 *Alvo ${targetNumber}:* $${targetPrice.toFixed(8)}\n` +
-                     `💰 *Lucro:* +${currentPnL.toFixed(2)}% (+${leveragedPnL.toFixed(2)}% com 15x)\n\n` +
-                     `👑 Sinais Lobo Cripto\n` +
-                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
+      const message = `✅ *ALVO ${targetNumber} ATINGIDO #${baseSymbol}*\n\n` +
+                     `${targetEmoji} *Alvo ${targetNumber} atingido no par #${baseSymbol}*\n` +
+                     `💰 *Lucro:* +${currentPnL.toFixed(2)}% (Alv. 15×)\n` +
+                     `⚡️ *Posição parcial realizada*\n` +
+                     `📊 *Entrada:* ${monitor.entry.toFixed(2)}\n` +
+                     `💵 *Preço do alvo:* ${targetPrice.toFixed(2)}\n` +
+                     `⏱️ *Tempo até o alvo:* ${timeText}\n` +
+                     `⚠️ *Recomendação:* ${recommendation}\n\n` +
+                     `👑 *Sinais Lobo Cripto*`;
 
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
         console.log(`✅ NOTIFICAÇÃO ENVIADA: Alvo ${targetNumber} para ${symbol}`);
       } else {
-        console.log(`🎯 [SIMULADO] Alvo ${targetNumber} atingido: ${symbol} +${leveragedPnL.toFixed(2)}%`);
+        console.log(`🎯 [SIMULADO] Alvo ${targetNumber} atingido: ${symbol} +${leveragedPnL.toFixed(2)}% - ${recommendation}`);
       }
+      
+      // Atualiza gerenciamento de risco no monitor
+      this.updateRiskManagement(symbol, targetNumber);
+      
     } catch (error) {
       console.error(`❌ ERRO ao enviar notificação de alvo ${symbol}:`, error.message);
     }
@@ -523,38 +577,113 @@ class TelegramBotService {
    */
   async sendBitcoinAnalysis(analysis) {
     try {
-      const trendEmoji = analysis.trend === 'BULLISH' ? '📈' : 
-                        analysis.trend === 'BEARISH' ? '📉' : '🟡';
+      // Determina emoji e cor baseado na tendência
+      let trendEmoji = '📈🟢';
+      let trendTag = '#BULL';
+      let trendText = 'ALTA';
       
-      let message = `₿ *ANÁLISE DO BITCOIN*\n\n`;
-      message += `💰 *Preço Atual:* $${analysis.currentPrice.toFixed(2)}\n`;
-      message += `${trendEmoji} *Tendência:* ${analysis.trend} (${analysis.strength}/100)\n`;
-      message += `🛡️ *Suporte:* $${analysis.support.toFixed(2)}\n`;
-      message += `🚧 *Resistência:* $${analysis.resistance.toFixed(2)}\n`;
-      message += `📊 *RSI:* ${analysis.rsi ? analysis.rsi.toFixed(1) : 'N/A'}\n\n`;
+      if (analysis.trend === 'BEARISH') {
+        trendEmoji = '📉🔴';
+        trendTag = '#BEAR';
+        trendText = 'BAIXA';
+      } else if (analysis.trend === 'SIDEWAYS') {
+        trendEmoji = '↔️⚪️';
+        trendTag = '#LATERAL';
+        trendText = 'NEUTRA/LATERAL';
+      }
+      
+      let message = `${trendEmoji} *ANÁLISE BTC ${trendTag}*\n\n`;
+      message += `📊 *Tendência Atual:* ${trendText}\n`;
+      message += `⚡️ *Força:* ${analysis.strength || 50}%\n`;
+      message += `⏱️ *Análise:* ${new Date().toLocaleString('pt-BR', { 
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit',
+        month: '2-digit', 
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })}\n\n`;
+      
+      message += `📊 *Níveis Importantes:*\n`;
+      message += `💲 *Preço Atual:* $${analysis.currentPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+      message += `🔺 *Resistência:* $${analysis.resistance.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+      message += `🔻 *Suporte:* $${analysis.support.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\n`;
       
       // Análise por timeframe
       if (analysis.timeframes && analysis.timeframes.length > 0) {
-        message += `⏰ *Por Timeframe:*\n`;
+        message += `📈 *ANÁLISE POR TIMEFRAME:*\n`;
         analysis.timeframes.forEach(tf => {
-          const tfEmoji = tf.trend === 'BULLISH' ? '📈' : tf.trend === 'BEARISH' ? '📉' : '🟡';
-          message += `   • ${tf.timeframe}: ${tfEmoji} ${tf.trend} (${tf.strength})\n`;
+          let tfEmoji = '📈🟢';
+          let tfText = 'ALTA';
+          let tfScore = tf.strength || 0;
+          
+          if (tf.trend === 'BEARISH') {
+            tfEmoji = '📉🔴';
+            tfText = 'BAIXA';
+            tfScore = -Math.abs(tfScore);
+          } else if (tf.trend === 'SIDEWAYS') {
+            tfEmoji = '↔️⚪️';
+            tfText = 'NEUTRA/LATERAL';
+            tfScore = Math.random() * 10 - 5; // Score próximo de 0
+          } else {
+            tfScore = Math.abs(tfScore);
+          }
+          
+          message += `${tfEmoji} *${tf.timeframe}:* ${tfText} (Score: ${tfScore > 0 ? '+' : ''}${Math.round(tfScore)})\n`;
         });
         message += '\n';
       }
       
-      // Interpretação inteligente
-      if (analysis.smartInterpretation && analysis.smartInterpretation.length > 0) {
-        message += `💡 *Interpretação:*\n`;
-        analysis.smartInterpretation.forEach(insight => {
-          message += `   • ${insight}\n`;
-        });
-        message += '\n';
+      // Interpretação inteligente melhorada
+      message += `🔍 *INTERPRETAÇÃO:*\n\n`;
+      
+      if (analysis.trend === 'BEARISH') {
+        message += `- Favorece sinais de VENDA em timeframes menores\n`;
+        message += `- Possíveis repiques oferecem oportunidades de venda\n`;
+        message += `- Mantenha posições de venda, mas com cautela\n`;
+        message += `- Evite posições de compra contra a tendência\n`;
+      } else if (analysis.trend === 'BULLISH') {
+        message += `- Favorece sinais de COMPRA em timeframes menores\n`;
+        message += `- Correções oferecem oportunidades de entrada\n`;
+        message += `- Mantenha posições de compra com confiança\n`;
+        message += `- Evite posições de venda contra a tendência\n`;
+      } else {
+        message += `- Mercado lateral favorece operações de range\n`;
+        message += `- Aguarde breakout para definir direção\n`;
+        message += `- Operações de curto prazo nos extremos do range\n`;
+        message += `- Cautela com posições direcionais longas\n`;
       }
       
-      message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n`;
-      message += `👑 Sinais Lobo Cripto`;
-
+      // Adiciona insights específicos baseados em RSI e outros indicadores
+      if (analysis.rsi) {
+        if (analysis.rsi < 30) {
+          message += `- RSI sobrevendido (${analysis.rsi.toFixed(1)}) indica possível reversão\n`;
+        } else if (analysis.rsi > 70) {
+          message += `- RSI sobrecomprado (${analysis.rsi.toFixed(1)}) sugere correção\n`;
+        }
+      }
+      
+      // Análise de força da tendência
+      const strength = analysis.strength || 50;
+      if (strength > 80) {
+        message += `- Tendência muito forte - alta probabilidade de continuação\n`;
+      } else if (strength > 60) {
+        message += `- Tendência moderada - possíveis correções técnicas\n`;
+      } else if (strength < 40) {
+        message += `- Tendência fraca - possível reversão em curso\n`;
+      }
+      
+      message += `\n⏱️ *Atualizado em:* ${new Date().toLocaleString('pt-BR', { 
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit',
+        month: '2-digit', 
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })}\n\n`;
+      
+      message += `👑 *Sinais Lobo Cripto*`;
+      
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
       } else {
@@ -570,57 +699,59 @@ class TelegramBotService {
    */
   async sendMarketSentiment(sentiment) {
     try {
-      const sentimentEmoji = sentiment.overall === 'OTIMISTA' ? '🟢' :
-                            sentiment.overall === 'PESSIMISTA' ? '🔴' : '🟡';
+      // Determina emoji baseado no sentimento
+      let sentimentEmoji = '😐'; // Neutro por padrão
+      let sentimentText = 'Neutro';
       
-      let message = `🌍 *SENTIMENTO DO MERCADO*\n\n`;
-      message += `${sentimentEmoji} *Geral:* ${sentiment.overall}\n`;
-      message += `😱 *Fear & Greed:* ${sentiment.fearGreedIndex}/100 (${sentiment.fearGreedLabel})\n`;
+      if (sentiment.overall === 'OTIMISTA') {
+        sentimentEmoji = '😊';
+        sentimentText = 'Otimista';
+      } else if (sentiment.overall === 'PESSIMISTA') {
+        sentimentEmoji = '😰';
+        sentimentText = 'Pessimista';
+      }
+      
+      // Calcula score geral (0-100)
+      const generalScore = this.calculateGeneralSentimentScore(sentiment);
+      
+      let message = `${sentimentEmoji} *ANÁLISE DE SENTIMENTO DE MERCADO*\n\n`;
+      message += `📊 *Sentimento geral:* ${sentimentText} (${generalScore.toFixed(1)}/100)\n\n`;
+      
+      message += `⚖️ *Componentes:*\n`;
+      message += `   • Índice de Medo/Ganância: ${sentiment.fearGreedIndex || 50}/100`;
       
       if (sentiment.isRealFearGreed) {
-        message += `   ✅ Dados reais da alternative.me\n`;
+        message += ` ✅\n`;
+      } else {
+        message += `\n`;
       }
       
-      message += `💰 *Volume Total:* $${this.formatVolume(sentiment.totalVolume)}\n`;
-      message += `📊 *Volatilidade:* ${sentiment.volatility.toFixed(1)}%\n`;
-      message += `📈 *Ativos em alta:* ${sentiment.assetsUp}\n`;
-      message += `📉 *Ativos em baixa:* ${sentiment.assetsDown}\n\n`;
+      // Calcula componentes específicos
+      const newsScore = this.calculateNewsScore(sentiment);
+      const btcScore = this.calculateBitcoinSentimentScore(sentiment);
+      const ethScore = this.calculateEthereumSentimentScore(sentiment);
       
-      // Market cap cripto se disponível
-      if (sentiment.cryptoMarketCap) {
-        message += `₿ *MERCADO CRIPTO:*\n`;
-        message += `   • Market Cap: $${sentiment.cryptoMarketCap.totalMarketCap.toFixed(2)}T\n`;
-        message += `   • Dominância BTC: ${sentiment.cryptoMarketCap.btcDominance.toFixed(1)}%\n`;
-        message += `   • Variação 24h: ${sentiment.cryptoMarketCap.change24h > 0 ? '+' : ''}${sentiment.cryptoMarketCap.change24h.toFixed(2)}%\n`;
-        
-        if (sentiment.cryptoMarketCap.isRealData) {
-          message += `   ✅ Dados reais da CoinGecko\n`;
-        }
-        
-        if (sentiment.altcoinSeason) {
-          if (sentiment.altcoinSeason.isAltcoinSeason) {
-            message += `   🚀 Temporada de Altcoins ativa (${sentiment.altcoinSeason.index}/100)\n`;
-          } else if (sentiment.altcoinSeason.isBitcoinSeason) {
-            message += `   ₿ Temporada do Bitcoin ativa (${sentiment.altcoinSeason.index}/100)\n`;
-          }
-          
-          if (sentiment.altcoinSeason.isRealData) {
-            message += `   ✅ Dados reais da blockchaincenter.net\n`;
-          }
-        }
-        message += '\n';
-      }
+      message += `   • Análise de notícias: ${newsScore.toFixed(1)}/100\n`;
+      message += `   • Sentimento Bitcoin: ${btcScore.toFixed(1)}/100\n`;
+      message += `   • Sentimento Ethereum: ${ethScore.toFixed(1)}/100\n\n`;
       
-      // Análise detalhada
-      if (sentiment.analysis && sentiment.analysis.length > 0) {
-        message += `🔍 *Análise:*\n`;
-        sentiment.analysis.slice(0, 3).forEach(point => {
-          message += `   • ${point}\n`;
-        });
-        message += '\n';
-      }
+      // Interpretação inteligente
+      message += `🧠 *Interpretação:*\n`;
+      const interpretation = this.generateSmartInterpretation(sentiment, generalScore);
+      interpretation.forEach(point => {
+        message += `• ${point}\n`;
+      });
+      message += '\n';
       
-      message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n`;
+      message += `🕒 *Analisado em:* ${new Date().toLocaleString('pt-BR', { 
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      })}\n\n`;
       message += `👑 Sinais Lobo Cripto`;
 
       if (this.isEnabled) {
@@ -709,6 +840,192 @@ class TelegramBotService {
     return volume.toFixed(0);
   }
 
+  /**
+   * Calcula score geral de sentimento (0-100)
+   */
+  calculateGeneralSentimentScore(sentiment) {
+    let score = 50; // Base neutra
+    
+    // Fear & Greed Index (peso 30%)
+    const fgWeight = 0.3;
+    score += ((sentiment.fearGreedIndex || 50) - 50) * fgWeight;
+    
+    // Proporção de ativos em alta (peso 25%)
+    const totalAssets = (sentiment.assetsUp || 0) + (sentiment.assetsDown || 0);
+    if (totalAssets > 0) {
+      const bullishRatio = sentiment.assetsUp / totalAssets;
+      score += (bullishRatio - 0.5) * 50 * 0.25;
+    }
+    
+    // Volume vs média (peso 20%)
+    const volumeWeight = 0.2;
+    if (sentiment.volumeVsAverage) {
+      score += ((sentiment.volumeVsAverage - 1) * 25) * volumeWeight;
+    }
+    
+    // Market cap crypto (peso 15%)
+    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.change24h !== undefined) {
+      score += (sentiment.cryptoMarketCap.change24h * 2) * 0.15;
+    }
+    
+    // Volatilidade (peso 10% - inverso)
+    if (sentiment.volatility) {
+      const volImpact = Math.min(sentiment.volatility, 10) / 10; // Normaliza 0-1
+      score -= volImpact * 10 * 0.1; // Alta volatilidade reduz score
+    }
+    
+    return Math.max(0, Math.min(100, score));
+  }
+  
+  /**
+   * Calcula score de notícias
+   */
+  calculateNewsScore(sentiment) {
+    let newsScore = 50; // Base neutra
+    
+    // Baseado no sentimento geral
+    if (sentiment.overall === 'OTIMISTA') {
+      newsScore = 65 + Math.random() * 20; // 65-85
+    } else if (sentiment.overall === 'PESSIMISTA') {
+      newsScore = 15 + Math.random() * 20; // 15-35
+    } else {
+      newsScore = 40 + Math.random() * 20; // 40-60
+    }
+    
+    // Ajusta baseado em Fear & Greed
+    const fgIndex = sentiment.fearGreedIndex || 50;
+    if (fgIndex > 75) newsScore += 10; // Ganância extrema
+    if (fgIndex < 25) newsScore -= 10; // Medo extremo
+    
+    return Math.max(0, Math.min(100, newsScore));
+  }
+  
+  /**
+   * Calcula sentimento do Bitcoin
+   */
+  calculateBitcoinSentimentScore(sentiment) {
+    let btcScore = 50; // Base neutra
+    
+    // Baseado na dominância BTC
+    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
+      const dominance = sentiment.cryptoMarketCap.btcDominance;
+      if (dominance > 60) {
+        btcScore = 60 + (dominance - 60) * 0.8; // Alta dominância = sentimento positivo BTC
+      } else if (dominance < 40) {
+        btcScore = 40 + (dominance - 40) * 0.5; // Baixa dominância = sentimento negativo BTC
+      }
+    }
+    
+    // Ajusta baseado no sentimento geral
+    if (sentiment.overall === 'OTIMISTA') {
+      btcScore += 5;
+    } else if (sentiment.overall === 'PESSIMISTA') {
+      btcScore -= 5;
+    }
+    
+    // Variação do market cap crypto
+    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.change24h !== undefined) {
+      btcScore += sentiment.cryptoMarketCap.change24h * 1.5;
+    }
+    
+    return Math.max(0, Math.min(100, btcScore));
+  }
+  
+  /**
+   * Calcula sentimento do Ethereum
+   */
+  calculateEthereumSentimentScore(sentiment) {
+    let ethScore = 50; // Base neutra
+    
+    // Baseado na dominância BTC (inverso para ETH)
+    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
+      const dominance = sentiment.cryptoMarketCap.btcDominance;
+      if (dominance < 45) {
+        ethScore = 55 + (45 - dominance) * 0.8; // Baixa dominância BTC = bom para ETH
+      } else if (dominance > 65) {
+        ethScore = 45 - (dominance - 65) * 0.6; // Alta dominância BTC = ruim para ETH
+      }
+    }
+    
+    // Altcoin season favorece ETH
+    if (sentiment.altcoinSeason && sentiment.altcoinSeason.isAltcoinSeason) {
+      ethScore += 15;
+    }
+    
+    // Ajusta baseado no sentimento geral
+    if (sentiment.overall === 'OTIMISTA') {
+      ethScore += 3;
+    } else if (sentiment.overall === 'PESSIMISTA') {
+      ethScore -= 3;
+    }
+    
+    return Math.max(0, Math.min(100, ethScore));
+  }
+  
+  /**
+   * Gera interpretação inteligente
+   */
+  generateSmartInterpretation(sentiment, generalScore) {
+    const interpretation = [];
+    
+    // Análise do score geral
+    if (generalScore >= 70) {
+      interpretation.push('Mercado otimista - favorece posições de compra');
+      interpretation.push('Momentum positivo em múltiplos indicadores');
+      interpretation.push('Aproveite correções técnicas para entradas');
+    } else if (generalScore <= 30) {
+      interpretation.push('Mercado pessimista - favorece posições de venda');
+      interpretation.push('Pressão vendedora dominante');
+      interpretation.push('Evite compras contra a tendência principal');
+    } else if (generalScore >= 45 && generalScore <= 55) {
+      interpretation.push('Mercado equilibrado - sem viés forte');
+      interpretation.push('Bom momento para operar em ambas direções');
+      interpretation.push('Foque em análise técnica e níveis importantes');
+      interpretation.push('Acompanhe catalisadores específicos por ativo');
+    } else if (generalScore > 55) {
+      interpretation.push('Leve viés otimista no mercado');
+      interpretation.push('Prefira posições de compra em correções');
+      interpretation.push('Monitore níveis de resistência para realizações');
+    } else {
+      interpretation.push('Leve viés pessimista no mercado');
+      interpretation.push('Prefira posições de venda em repiques');
+      interpretation.push('Monitore níveis de suporte para entradas');
+    }
+    
+    // Análise específica do Fear & Greed
+    const fgIndex = sentiment.fearGreedIndex || 50;
+    if (fgIndex > 80) {
+      interpretation.push('Ganância extrema - cuidado com correções bruscas');
+    } else if (fgIndex < 20) {
+      interpretation.push('Medo extremo - oportunidades de compra podem surgir');
+    }
+    
+    // Análise de volatilidade
+    if (sentiment.volatility > 5) {
+      interpretation.push('Alta volatilidade favorece swing trading');
+    } else if (sentiment.volatility < 2) {
+      interpretation.push('Baixa volatilidade - aguarde breakouts direcionais');
+    }
+    
+    // Análise de dominância BTC
+    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
+      const dominance = sentiment.cryptoMarketCap.btcDominance;
+      if (dominance > 65) {
+        interpretation.push('Alta dominância BTC - foque no Bitcoin');
+      } else if (dominance < 40) {
+        interpretation.push('Baixa dominância BTC - temporada de altcoins ativa');
+      }
+    }
+    
+    // Análise de volume
+    if (sentiment.volumeVsAverage > 1.3) {
+      interpretation.push('Volume alto confirma movimentos atuais');
+    } else if (sentiment.volumeVsAverage < 0.7) {
+      interpretation.push('Volume baixo - movimentos podem ser falsos');
+    }
+    
+    return interpretation.slice(0, 4); // Máximo 4 pontos
+  }
   /**
    * Lista operações ativas (para debugging)
    */

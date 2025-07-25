@@ -324,7 +324,11 @@ async function analyzeBitcoin() {
   try {
     console.log('\n₿ ===== ANÁLISE DO BITCOIN =====');
     
-    const timeframes = ['1h', '4h', '1d'];
+    const timeframes = [
+      { tf: '1h', label: '1h' },
+      { tf: '4h', label: '4h' }, 
+      { tf: '1d', label: '1d' }
+    ];
     const analysis = {
       currentPrice: 0,
       trend: 'NEUTRAL',
@@ -333,56 +337,89 @@ async function analyzeBitcoin() {
       resistance: 0,
       rsi: null,
       timeframes: [],
-      smartInterpretation: []
+      smartInterpretation: [],
+      volume24h: 0,
+      change24h: 0
     };
 
     for (const timeframe of timeframes) {
       try {
-        const data = await binanceService.getOHLCVData('BTC/USDT', timeframe, 100);
+        const data = await binanceService.getOHLCVData('BTC/USDT', timeframe.tf, 100);
         
         if (data && data.close && data.close.length > 0) {
           const indicators = technicalAnalysis.calculateIndicators(data);
           const patterns = patternDetection.detectPatterns(data);
           const trend = technicalAnalysis.detectTrend(indicators);
+          const strength = bitcoinCorrelation.calculateTrendStrength(indicators, data);
           
           analysis.currentPrice = data.close[data.close.length - 1];
           analysis.support = patterns.support || 0;
           analysis.resistance = patterns.resistance || 0;
           
-          if (timeframe === '4h') {
+          // Calcula variação 24h
+          if (timeframe.tf === '1h' && data.close.length >= 24) {
+            const price24hAgo = data.close[data.close.length - 24];
+            analysis.change24h = ((analysis.currentPrice - price24hAgo) / price24hAgo) * 100;
+          }
+          
+          if (timeframe.tf === '4h') {
             analysis.trend = trend;
             analysis.rsi = indicators.rsi;
-            analysis.strength = bitcoinCorrelation.calculateTrendStrength(indicators, data);
+            analysis.strength = strength;
+            
+            // Volume 24h (aproximado)
+            if (data.volume && data.volume.length >= 6) {
+              analysis.volume24h = data.volume.slice(-6).reduce((sum, vol) => sum + vol, 0);
+            }
           }
           
           analysis.timeframes.push({
-            timeframe,
+            timeframe: timeframe.label,
             trend,
-            strength: bitcoinCorrelation.calculateTrendStrength(indicators, data)
+            strength: strength
           });
         }
       } catch (error) {
-        console.error(`Erro na análise BTC ${timeframe}:`, error.message);
+        console.error(`Erro na análise BTC ${timeframe.tf}:`, error.message);
       }
     }
 
-    // Interpretação inteligente
+    // Interpretação inteligente melhorada
+    analysis.smartInterpretation = [];
+    
     if (analysis.rsi) {
       if (analysis.rsi < 30) {
-        analysis.smartInterpretation.push('RSI indica possível fundo - oportunidade de compra');
+        analysis.smartInterpretation.push('RSI sobrevendido indica possível reversão de alta');
       } else if (analysis.rsi > 70) {
-        analysis.smartInterpretation.push('RSI elevado - possível correção à vista');
+        analysis.smartInterpretation.push('RSI sobrecomprado sugere correção técnica');
+      } else if (analysis.rsi > 50) {
+        analysis.smartInterpretation.push('RSI acima de 50 confirma força compradora');
+      } else {
+        analysis.smartInterpretation.push('RSI abaixo de 50 indica pressão vendedora');
       }
     }
 
     if (analysis.trend === 'BULLISH') {
-      analysis.smartInterpretation.push('Tendência de alta confirmada em múltiplos timeframes');
+      analysis.smartInterpretation.push('Tendência de alta dominante - momentum positivo');
     } else if (analysis.trend === 'BEARISH') {
-      analysis.smartInterpretation.push('Pressão vendedora dominando o mercado');
+      analysis.smartInterpretation.push('Pressão vendedora prevalece - cautela com compras');
+    } else {
+      analysis.smartInterpretation.push('Mercado lateral - aguardar definição de direção');
+    }
+    
+    // Análise de volume
+    if (analysis.volume24h > 0) {
+      analysis.smartInterpretation.push(`Volume 24h: $${(analysis.volume24h / 1e9).toFixed(1)}B`);
+    }
+    
+    // Análise de variação
+    if (Math.abs(analysis.change24h) > 3) {
+      const direction = analysis.change24h > 0 ? 'alta' : 'baixa';
+      analysis.smartInterpretation.push(`Movimento forte de ${direction} nas últimas 24h`);
     }
 
     await telegramBot.sendBitcoinAnalysis(analysis);
-    console.log(`✅ Análise do Bitcoin enviada: ${analysis.trend} $${analysis.currentPrice.toFixed(2)}`);
+    console.log(`✅ Análise do Bitcoin enviada: ${analysis.trend} $${analysis.currentPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
 
   } catch (error) {
     console.error('❌ Erro na análise do Bitcoin:', error.message);
