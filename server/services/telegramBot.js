@@ -134,9 +134,9 @@ class TelegramBotService {
     console.log(`📝 FORMATANDO SINAL:`);
     console.log(`   💰 Símbolo: ${signal.symbol}`);
     console.log(`   📈 Tendência: ${signal.trend} (${isShort ? 'SHORT' : 'LONG'})`);
-    console.log(`   💰 Entrada: $${signal.entry.toFixed(8)}`);
-    console.log(`   🎯 Alvos: ${signal.targets.map(t => '$' + t.toFixed(8)).join(', ')}`);
-    console.log(`   🛑 Stop: $${signal.stopLoss.toFixed(8)}`);
+    console.log(`   💰 Entrada: ${this.formatPrice(signal.entry)}`);
+    console.log(`   🎯 Alvos: ${signal.targets.map(t => this.formatPrice(t)).join(', ')}`);
+    console.log(`   🛑 Stop: ${this.formatPrice(signal.stopLoss)}`);
     
     let message = `🚨 *SINAL LOBO #${baseSymbol}* ${trendEmoji} (Futures)\n\n`;
     
@@ -144,26 +144,26 @@ class TelegramBotService {
     message += `📊 *TEMPO GRÁFICO:* ${signal.timeframe}\n`;
     message += `📈 *Alavancagem sugerida:* 15x\n`;
     message += `🎯 *Probabilidade:* ${Math.round(signal.probability)}/100\n`;
-    message += `⚡️ *Entrada:* $${signal.entry.toFixed(8)}\n\n`;
+    message += `⚡️ *Entrada:* ${this.formatPrice(signal.entry)}\n\n`;
     
     message += `🎯 *Alvos:*\n`;
     signal.targets.forEach((target, index) => {
       if (index === 0) {
-        message += `1️⃣ *Alvo 1:* $${target.toFixed(8)}\n`;
+        message += `1️⃣ *Alvo 1:* ${this.formatPrice(target)}\n`;
       } else if (index === 1) {
-        message += `2️⃣ *Alvo 2:* $${target.toFixed(8)}\n`;
+        message += `2️⃣ *Alvo 2:* ${this.formatPrice(target)}\n`;
       } else if (index === 2) {
-        message += `3️⃣ *Alvo 3:* $${target.toFixed(8)}\n`;
+        message += `3️⃣ *Alvo 3:* ${this.formatPrice(target)}\n`;
       } else if (index === 3) {
-        message += `4️⃣ *Alvo 4:* $${target.toFixed(8)}\n`;
+        message += `4️⃣ *Alvo 4:* ${this.formatPrice(target)}\n`;
       } else if (index === 4) {
-        message += `5️⃣ *Alvo 5:* $${target.toFixed(8)}\n`;
+        message += `5️⃣ *Alvo 5:* ${this.formatPrice(target)}\n`;
       } else if (index === 5) {
-        message += `🌕 *Alvo 6 - Lua!:* $${target.toFixed(8)}\n`;
+        message += `🌕 *Alvo 6 - Lua!:* ${this.formatPrice(target)}\n`;
       }
     });
     
-    message += `\n🛑 *Stop Loss:* $${signal.stopLoss.toFixed(8)}\n\n`;
+    message += `\n🛑 *Stop Loss:* ${this.formatPrice(signal.stopLoss)}\n\n`;
     
     // Validação final dos alvos antes do envio
     let hasErrors = false;
@@ -174,13 +174,13 @@ class TelegramBotService {
       if (invalidTargets.length > 0) {
         console.error(`❌ ERRO CRÍTICO: Alvos SHORT inválidos para ${signal.symbol}:`);
         invalidTargets.forEach((target, i) => {
-          console.error(`   🎯 Alvo inválido: $${target.toFixed(8)} >= $${signal.entry.toFixed(8)}`);
+          console.error(`   🎯 Alvo inválido: ${this.formatPrice(target)} >= ${this.formatPrice(signal.entry)}`);
         });
         hasErrors = true;
       }
       // Para SHORT: stop deve ser maior que entrada
       if (signal.stopLoss <= signal.entry) {
-        console.error(`❌ ERRO CRÍTICO: Stop SHORT inválido para ${signal.symbol}: $${signal.stopLoss.toFixed(8)} <= $${signal.entry.toFixed(8)}`);
+        console.error(`❌ ERRO CRÍTICO: Stop SHORT inválido para ${signal.symbol}: ${this.formatPrice(signal.stopLoss)} <= ${this.formatPrice(signal.entry)}`);
         hasErrors = true;
       }
     } else {
@@ -189,13 +189,13 @@ class TelegramBotService {
       if (invalidTargets.length > 0) {
         console.error(`❌ ERRO CRÍTICO: Alvos LONG inválidos para ${signal.symbol}:`);
         invalidTargets.forEach((target, i) => {
-          console.error(`   🎯 Alvo inválido: $${target.toFixed(8)} <= $${signal.entry.toFixed(8)}`);
+          console.error(`   🎯 Alvo inválido: ${this.formatPrice(target)} <= ${this.formatPrice(signal.entry)}`);
         });
         hasErrors = true;
       }
       // Para LONG: stop deve ser menor que entrada
       if (signal.stopLoss >= signal.entry) {
-        console.error(`❌ ERRO CRÍTICO: Stop LONG inválido para ${signal.symbol}: $${signal.stopLoss.toFixed(8)} >= $${signal.entry.toFixed(8)}`);
+        console.error(`❌ ERRO CRÍTICO: Stop LONG inválido para ${signal.symbol}: ${this.formatPrice(signal.stopLoss)} >= ${this.formatPrice(signal.entry)}`);
         hasErrors = true;
       }
     }
@@ -479,7 +479,7 @@ class TelegramBotService {
       console.log(`🎯 ENVIANDO NOTIFICAÇÃO DE ALVO:`);
       console.log(`   💰 Símbolo: ${symbol}`);
       console.log(`   🎯 Alvo: ${targetNumber}`);
-      console.log(`   💰 Preço: $${targetPrice.toFixed(8)}`);
+      console.log(`   💰 Preço: ${this.formatPrice(targetPrice)}`);
       console.log(`   📊 P&L: ${currentPnL.toFixed(2)}% (${leveragedPnL.toFixed(2)}% com 15x)`);
       console.log(`   ⏱️ Tempo: ${timeText}`);
       console.log(`   💡 Recomendação: ${recommendation}`);
@@ -496,8 +496,8 @@ class TelegramBotService {
                      `${targetEmoji} *Alvo ${targetNumber} atingido no par #${baseSymbol}*\n` +
                      `💰 *Lucro:* +${currentPnL.toFixed(2)}% (Alv. 15×)\n` +
                      `⚡️ *Posição parcial realizada*\n` +
-                     `📊 *Entrada:* ${monitor.entry.toFixed(2)}\n` +
-                     `💵 *Preço do alvo:* ${targetPrice.toFixed(2)}\n` +
+                     `📊 *Entrada:* ${this.formatPrice(monitor.entry)}\n` +
+                     `💵 *Preço do alvo:* ${this.formatPrice(targetPrice)}\n` +
                      `⏱️ *Tempo até o alvo:* ${timeText}\n` +
                      `⚠️ *Recomendação:* ${recommendation}\n\n` +
                      `👑 *Sinais Lobo Cripto*`;
@@ -605,9 +605,9 @@ class TelegramBotService {
       })}\n\n`;
       
       message += `📊 *Níveis Importantes:*\n`;
-      message += `💲 *Preço Atual:* $${analysis.currentPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
-      message += `🔺 *Resistência:* $${analysis.resistance.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
-      message += `🔻 *Suporte:* $${analysis.support.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\n`;
+      message += `💲 *Preço Atual:* ${this.formatPrice(analysis.currentPrice)}\n`;
+      message += `🔺 *Resistência:* ${this.formatPrice(analysis.resistance)}\n`;
+      message += `🔻 *Suporte:* ${this.formatPrice(analysis.support)}\n\n`;
       
       // Análise por timeframe
       if (analysis.timeframes && analysis.timeframes.length > 0) {
@@ -1026,6 +1026,24 @@ class TelegramBotService {
     
     return interpretation.slice(0, 4); // Máximo 4 pontos
   }
+
+  /**
+   * Formata preço sem gerar links automáticos
+   */
+  formatPrice(price) {
+    if (!price || isNaN(price)) return '0.00';
+    
+    // Usa escape de markdown para evitar links automáticos
+    const formattedPrice = price.toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 8,
+      useGrouping: true
+    });
+    
+    // Adiciona $ com escape para evitar links
+    return `\\$${formattedPrice}`;
+  }
+
   /**
    * Lista operações ativas (para debugging)
    */

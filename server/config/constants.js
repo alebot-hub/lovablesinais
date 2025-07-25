@@ -22,7 +22,7 @@ export const CRYPTO_SYMBOLS = [
 ]
 
 // Timeframes para análise
-export const TIMEFRAMES = ['15m', '1h', '4h', '1d'];
+export const TIMEFRAMES = ['5m', '15m', '1h', '4h', '1d'];
 
 // Configurações de indicadores técnicos
 export const INDICATORS_CONFIG = {
@@ -53,21 +53,42 @@ export const SCORING_WEIGHTS = {
 
 // Configurações de trading
 export const TRADING_CONFIG = {
-  MIN_SIGNAL_PROBABILITY: 45, // Threshold ainda mais baixo para permitir mais sinais
+  MIN_SIGNAL_PROBABILITY: 70, // Threshold mais alto para garantir qualidade
   TARGET_PERCENTAGES: [1.5, 3.0, 4.5, 6.0, 7.5, 9.0],
   STOP_LOSS_PERCENTAGE: 4.5, // Sempre positivo - direção aplicada no cálculo
   VOLATILITY_THRESHOLD: 5.0, // Threshold para alertas de volatilidade
   
   // Configurações específicas para sinais contra-tendência
   COUNTER_TREND: {
-    MIN_REVERSAL_STRENGTH: 95, // Força MUITO alta para aceitar contra-tendência
-    EXTREME_REVERSAL_THRESHOLD: 98, // Threshold para reversão EXTREMA
+    MIN_REVERSAL_STRENGTH: 85, // Força alta para aceitar contra-tendência
+    EXTREME_REVERSAL_THRESHOLD: 95, // Threshold para reversão EXTREMA
     PENALTY_WEAK_REVERSAL: 0.3, // Penalidade severa para reversões fracas (70% redução)
     BONUS_STRONG_REVERSAL: 1.05, // Bônus pequeno para reversões fortes (5% aumento)
-    BONUS_EXTREME_REVERSAL: 1.10, // Bônus moderado para reversões extremas (10% aumento)
+    BONUS_EXTREME_REVERSAL: 1.15, // Bônus moderado para reversões extremas (15% aumento)
     SIDEWAYS_BREAKOUT_BONUS: 1.25, // Bônus para breakouts em mercado lateral
-    MAX_COUNTER_TREND_PER_DAY: 1, // Máximo 1 sinal contra-tendência por dia
-    COUNTER_TREND_COOLDOWN: 6 * 60 * 60 * 1000 // 6 horas entre sinais contra-tendência
+    MAX_COUNTER_TREND_PER_DAY: 3, // Máximo 3 sinais contra-tendência por dia
+    COUNTER_TREND_COOLDOWN: 4 * 60 * 60 * 1000, // 4 horas entre sinais contra-tendência
+    SHORT_TERM_TIMEFRAMES: ['5m', '15m'], // Timeframes para correções de curto prazo
+    SHORT_TERM_BONUS: 1.20, // Bônus para sinais de curto prazo (20% aumento)
+    MIN_SHORT_TERM_RSI_EXTREME: 15, // RSI deve ser muito extremo para 5m/15m
+    MAX_SHORT_TERM_RSI_EXTREME: 85, // RSI máximo para sinais de curto prazo
+    REQUIRE_VOLUME_SPIKE: true, // Exige pico de volume para contra-tendência
+    MIN_VOLUME_SPIKE: 2.0, // Volume deve ser 2x acima da média
+    DIVERGENCE_BONUS: 25, // Bônus extra para divergências em contra-tendência
+    PATTERN_REVERSAL_BONUS: 20 // Bônus para padrões de reversão clássicos
+  },
+  
+  // Configurações de qualidade de sinal
+  QUALITY_FILTERS: {
+    MIN_VOLUME_RATIO: 1.2, // Volume deve ser 20% acima da média
+    MIN_RSI_EXTREME: 25, // RSI deve ser mais extremo para sinais
+    MAX_RSI_EXTREME: 75, // RSI máximo para sinais
+    MIN_MACD_STRENGTH: 0.001, // MACD deve ter força mínima
+    MIN_PATTERN_CONFIDENCE: 80, // Padrões devem ter alta confiança
+    REQUIRE_MULTIPLE_CONFIRMATIONS: true, // Exige múltiplas confirmações
+    MIN_CONFIRMATIONS: 3, // Mínimo 3 indicadores confirmando
+    BLACKLIST_LOW_PERFORMERS: true, // Remove ativos com baixa performance
+    MIN_HISTORICAL_PERFORMANCE: 60 // Performance histórica mínima (%)
   }
 };
 

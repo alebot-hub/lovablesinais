@@ -158,6 +158,9 @@ async function analyzeSignals() {
           const scoring = adaptiveScoring.calculateAdaptiveScore(
             data, indicators, patterns, mlProbability, signalTrend, symbol, btcCorrelation
           );
+          
+          // Define timeframe atual no scoring para análise contra-tendência
+          signalScoring.setCurrentTimeframe(timeframe);
 
           console.log(`📊 ${symbol} ${timeframe}: Score ${scoring.totalScore.toFixed(1)}% (${scoring.isValid ? 'VÁLIDO' : 'INVÁLIDO'})`);
 
@@ -172,6 +175,11 @@ async function analyzeSignals() {
             const riskCheck = riskManagement.canOpenTrade(symbol, telegramBot.activeMonitors);
             
             if (riskCheck.allowed) {
+              console.log(`🔍 QUALIDADE DO SINAL ${symbol}:`);
+              console.log(`   📊 Score: ${scoring.totalScore.toFixed(1)}%`);
+              console.log(`   ✅ Confirmações: ${scoring.confirmations || 0}`);
+              console.log(`   🎯 Filtros: ${scoring.details.qualityCheck?.reason || 'Aprovado'}`);
+              
               bestSignal = {
                 symbol,
                 timeframe,
