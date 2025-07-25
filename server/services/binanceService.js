@@ -190,6 +190,12 @@ class BinanceService {
         if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
           isValidPrice = false;
         }
+      } else if (symbol.includes('MEME') || symbol.includes('PEPE') || symbol.includes('BONK')) {
+        // Meme tokens: $0.000001 - $10
+        expectedRange = { min: 0.000001, max: 10 };
+        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
+          isValidPrice = false;
+        }
       } else {
         // Outros ativos: validação mais ampla
         expectedRange = { min: 0.000001, max: 100000 };

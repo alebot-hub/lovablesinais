@@ -79,8 +79,7 @@ class TelegramBotService {
       const monitor = this.activeMonitors.get(symbol);
       this.activeMonitors.delete(symbol);
       
-      // Para WebSocket usando método dedicado
-      this.stopWebSocketForSymbol(symbol);
+      // WebSocket já foi parado em completeMonitor
       
       console.log(`🗑️ Monitor removido: ${symbol} (${reason}). Total: ${this.activeMonitors.size}`);
       return monitor;
