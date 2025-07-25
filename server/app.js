@@ -576,6 +576,11 @@ class TradingBotApp {
   /**
    * Configura tarefas agendadas
    */
+    // Limpeza periódica de WebSockets órfãos (a cada 5 minutos)
+    setInterval(() => {
+      this.binanceService.cleanupOrphanedWebSockets();
+    }, 5 * 60 * 1000);
+    
   setupScheduledTasks() {
     // Análise principal a cada hora
     schedule.scheduleJob(SCHEDULE_CONFIG.SIGNAL_ANALYSIS, () => {

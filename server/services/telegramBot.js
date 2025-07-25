@@ -78,17 +78,8 @@ class TelegramBotService {
       const monitor = this.activeMonitors.get(symbol);
       this.activeMonitors.delete(symbol);
       
-      // Para WebSocket se existir
-      if (this.wsConnections.has(symbol)) {
-        try {
-          const ws = this.wsConnections.get(symbol);
-          ws.close();
-          this.wsConnections.delete(symbol);
-          console.log(`🔌 WebSocket fechado para ${symbol}`);
-        } catch (error) {
-          console.error(`Erro ao fechar WebSocket ${symbol}:`, error.message);
-        }
-      }
+      // Para WebSocket usando método dedicado
+      this.stopWebSocketForSymbol(symbol);
       
       console.log(`🗑️ Monitor removido: ${symbol} (${reason}). Total: ${this.activeMonitors.size}`);
       return monitor;
@@ -210,8 +201,18 @@ class TelegramBotService {
     try {
       const monitor = this.activeMonitors.get(symbol);
       if (!monitor) {
-        console.log(`⚠️ Monitor não encontrado para ${symbol} - parando WebSocket`);
-        this.stopWebSocketForSymbol(symbol);
+        console.log(`⚠️ Monitor não encontrado para ${symbol} - fechando WebSocket`);
+        // Para o WebSocket imediatamente e remove da lista
+        if (this.wsConnections.has(symbol)) {
+          try {
+            const ws = this.wsConnections.get(symbol);
+            ws.close();
+            this.wsConnections.delete(symbol);
+            console.log(`🔌 WebSocket fechado para ${symbol} (monitor inexistente)`);
+          } catch (error) {
+            console.error(`Erro ao fechar WebSocket ${symbol}:`, error.message);
+          }
+        }
         return;
       }
 
@@ -539,15 +540,37 @@ class TelegramBotService {
    * Para WebSocket para um símbolo
    */
   stopWebSocketForSymbol(symbol) {
+    const connectionKey = `${symbol}_1m`;
     if (this.wsConnections.has(symbol)) {
       try {
         const ws = this.wsConnections.get(symbol);
-        ws.close();
+        // Marca como fechamento intencional
+        ws._intentionalClose = true;
+        ws.close(1000, 'Monitor removed');
         this.wsConnections.delete(symbol);
+        console.log(`🔌 WebSocket intencionalmente fechado para ${symbol}`);
+        return true;
+      } catch (error) {
+        console.error(`Erro ao parar WebSocket ${symbol}:`, error.message);
+        // Force remove da lista mesmo com erro
+        this.wsConnections.delete(symbol);
+        return false;
+      }
+    }
+    
+    // Verifica também por connectionKey
+    if (this.wsConnections.has(connectionKey)) {
+      try {
+        const ws = this.wsConnections.get(connectionKey);
+        ws._intentionalClose = true;
+        ws.close(1000, 'Monitor removed');
+        this.wsConnections.delete(connectionKey);
         console.log(`🔌 WebSocket parado para ${symbol}`);
         return true;
       } catch (error) {
         console.error(`Erro ao parar WebSocket ${symbol}:`, error.message);
+        // Force remove da lista mesmo com erro
+        this.wsConnections.delete(connectionKey);
         return false;
       }
     }

@@ -319,15 +319,18 @@ class BinanceService {
       ws.on('error', (error) => {
         console.error(`Erro WebSocket ${symbol}:`, error.message);
         
-        // Reconectar apenas se não excedeu tentativas
+        // Remove conexão da lista para evitar loops
+        this.wsConnections.delete(connectionKey);
+        
+        // Reconectar apenas se não excedeu tentativas e não foi erro crítico
         const attempts = this.reconnectAttempts.get(connectionKey) || 0;
-        if (attempts < this.maxReconnectAttempts) {
+        if (attempts < this.maxReconnectAttempts && !error.message.includes('close')) {
           this.reconnectAttempts.set(connectionKey, attempts + 1);
           console.log(`🔄 Tentativa de reconexão ${attempts + 1}/${this.maxReconnectAttempts} para ${symbol}`);
           setTimeout(() => this.connectWebSocket(symbol, timeframe, callback), 5000 * (attempts + 1));
         } else {
           console.log(`❌ Máximo de tentativas de reconexão atingido para ${symbol}`);
-          this.wsConnections.delete(connectionKey);
+          this.reconnectAttempts.delete(connectionKey);
         }
       });
       
@@ -335,11 +338,22 @@ class BinanceService {
         console.log(`WebSocket fechado para ${symbol}`);
         this.wsConnections.delete(connectionKey);
         
-        // Reconectar apenas se não foi fechado intencionalmente
+        // Não reconectar se foi fechamento intencional
+        if (ws._intentionalClose) {
+          console.log(`🛑 WebSocket ${symbol} fechado intencionalmente - não reconectando`);
+          this.reconnectAttempts.delete(connectionKey);
+          return;
+        }
+        
+        // Reconectar apenas se não excedeu tentativas
         const attempts = this.reconnectAttempts.get(connectionKey) || 0;
         if (attempts < this.maxReconnectAttempts) {
           this.reconnectAttempts.set(connectionKey, attempts + 1);
-          setTimeout(() => this.connectWebSocket(symbol, timeframe, callback), 5000);
+          console.log(`🔄 Reconectando WebSocket ${symbol} (tentativa ${attempts + 1})`);
+          setTimeout(() => this.connectWebSocket(symbol, timeframe, callback), 5000 * (attempts + 1));
+        } else {
+          console.log(`🛑 WebSocket ${symbol} não será reconectado`);
+          this.reconnectAttempts.delete(connectionKey);
         }
       });
       
@@ -427,11 +441,40 @@ class BinanceService {
   }
 
   /**
+   * Limpa todas as conexões WebSocket órfãs
+   */
+  cleanupOrphanedWebSockets() {
+    console.log(`🧹 Limpando WebSockets órfãos...`);
+    let cleaned = 0;
+    
+    for (const [connectionKey, ws] of this.wsConnections) {
+      try {
+        if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+          this.wsConnections.delete(connectionKey);
+          this.reconnectAttempts.delete(connectionKey);
+          cleaned++;
+          console.log(`🗑️ WebSocket órfão removido: ${connectionKey}`);
+        }
+      } catch (error) {
+        console.error(`Erro ao limpar WebSocket ${connectionKey}:`, error.message);
+        this.wsConnections.delete(connectionKey);
+        cleaned++;
+      }
+    }
+    
+    if (cleaned > 0) {
+      console.log(`✅ ${cleaned} WebSockets órfãos removidos`);
+    }
+  }
+
+  /**
    * Fecha todas as conexões WebSocket
    */
   closeAllWebSockets() {
+    console.log(`🔌 Fechando todas as conexões WebSocket...`);
     for (const [key, ws] of this.wsConnections) {
       try {
+        ws._intentionalClose = true;
         ws.close();
         console.log(`WebSocket fechado: ${key}`);
       } catch (error) {
@@ -440,6 +483,7 @@ class BinanceService {
     }
     this.wsConnections.clear();
     this.reconnectAttempts.clear();
+    console.log(`✅ Todas as conexões WebSocket fechadas`);
   }
 
   /**
