@@ -359,6 +359,10 @@ class TelegramBotService {
           emoji = '❌';
           reasonText = 'STOP LOSS ATIVADO';
           break;
+        case 'PROFIT_STOP':
+          emoji = '🛡️';
+          reasonText = 'STOP DE LUCRO ATIVADO';
+          break;
         case 'MANUAL':
           emoji = '✋';
           reasonText = 'FECHAMENTO MANUAL';
