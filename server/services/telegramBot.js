@@ -278,10 +278,10 @@ class TelegramBotService {
       monitor.lastPrice = currentPrice;
       
       // Log detalhado do preço
-      const priceChange = monitor.lastPrice ? 
+      const entryPriceChange = monitor.lastPrice ? 
         ((currentPrice - monitor.entry) / monitor.entry) * 100 : 0;
       
-      console.log(`📊 UPDATE ${symbol}: $${currentPrice.toFixed(8)} (${priceChange > 0 ? '+' : ''}${priceChange.toFixed(2)}%)`);
+      console.log(`📊 UPDATE ${symbol}: $${currentPrice.toFixed(8)} (${entryPriceChange > 0 ? '+' : ''}${entryPriceChange.toFixed(2)}%)`);
 
       // Calcula P&L atual
       // Calcula P&L baseado no tipo de operação (LONG ou SHORT)
@@ -375,8 +375,8 @@ class TelegramBotService {
       }
 
       // Log periódico (a cada 1% de mudança)
-      const priceChange = Math.abs(currentPnL);
-      if (priceChange > 0 && priceChange % 1 < 0.1) {
+      const pnlChange = Math.abs(currentPnL);
+      if (pnlChange > 0 && pnlChange % 1 < 0.1) {
         console.log(`📊 PROGRESSO ${symbol}: $${currentPrice.toFixed(8)} (${currentPnL > 0 ? '+' : ''}${currentPnL.toFixed(2)}%) - ${monitor.targetsHit}/${monitor.targets.length} alvos`);
       }
 
