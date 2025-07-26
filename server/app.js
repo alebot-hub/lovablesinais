@@ -350,6 +350,11 @@ async function analyzeBitcoin() {
       change24h: 0
     };
 
+    let bullishTimeframes = 0;
+    let bearishTimeframes = 0;
+    let neutralTimeframes = 0;
+    let totalStrength = 0;
+    let validTimeframes = 0;
     for (const timeframe of timeframes) {
       try {
         const data = await binanceService.getOHLCVData('BTC/USDT', timeframe.tf, 100);
@@ -370,10 +375,9 @@ async function analyzeBitcoin() {
             analysis.change24h = ((analysis.currentPrice - price24hAgo) / price24hAgo) * 100;
           }
           
+          // Coleta dados do timeframe principal (4h) para análise geral
           if (timeframe.tf === '4h') {
-            analysis.trend = trend;
             analysis.rsi = indicators.rsi;
-            analysis.strength = strength;
             
             // Volume 24h (aproximado)
             if (data.volume && data.volume.length >= 6) {
@@ -381,17 +385,50 @@ async function analyzeBitcoin() {
             }
           }
           
+          // Conta tendências por timeframe
+          if (trend === 'BULLISH') {
+            bullishTimeframes++;
+          } else if (trend === 'BEARISH') {
+            bearishTimeframes++;
+          } else {
+            neutralTimeframes++;
+          }
+          
+          totalStrength += strength;
+          validTimeframes++;
+          
           analysis.timeframes.push({
             timeframe: timeframe.label,
             trend,
             strength: strength
           });
+          
+          console.log(`₿ ${timeframe.tf}: ${trend} (força: ${strength})`);
         }
       } catch (error) {
         console.error(`Erro na análise BTC ${timeframe.tf}:`, error.message);
       }
     }
 
+    // Determina tendência geral baseada no consenso dos timeframes
+    console.log(`₿ CONSENSO: Bullish=${bullishTimeframes}, Bearish=${bearishTimeframes}, Neutral=${neutralTimeframes}`);
+    
+    if (bullishTimeframes > bearishTimeframes && bullishTimeframes > neutralTimeframes) {
+      analysis.trend = 'BULLISH';
+    } else if (bearishTimeframes > bullishTimeframes && bearishTimeframes > neutralTimeframes) {
+      analysis.trend = 'BEARISH';
+    } else if (bullishTimeframes === bearishTimeframes && bullishTimeframes > 0) {
+      // Empate entre bull/bear - usa força média para decidir
+      const avgStrength = validTimeframes > 0 ? totalStrength / validTimeframes : 50;
+      analysis.trend = avgStrength > 55 ? 'BULLISH' : avgStrength < 45 ? 'BEARISH' : 'SIDEWAYS';
+    } else {
+      analysis.trend = 'SIDEWAYS';
+    }
+    
+    // Calcula força média
+    analysis.strength = validTimeframes > 0 ? Math.round(totalStrength / validTimeframes) : 50;
+    
+    console.log(`₿ RESULTADO: ${analysis.trend} (força média: ${analysis.strength})`);
     // Interpretação inteligente melhorada
     analysis.smartInterpretation = [];
     
@@ -407,12 +444,30 @@ async function analyzeBitcoin() {
       }
     }
 
+    // Interpretação baseada no consenso dos timeframes
     if (analysis.trend === 'BULLISH') {
-      analysis.smartInterpretation.push('Tendência de alta dominante - momentum positivo');
+      if (bullishTimeframes === 3) {
+        analysis.smartInterpretation.push('Consenso bullish em todos os timeframes - tendência forte');
+      } else {
+        analysis.smartInterpretation.push(`Maioria bullish (${bullishTimeframes}/3 timeframes) - momentum positivo`);
+      }
     } else if (analysis.trend === 'BEARISH') {
-      analysis.smartInterpretation.push('Pressão vendedora prevalece - cautela com compras');
+      if (bearishTimeframes === 3) {
+        analysis.smartInterpretation.push('Consenso bearish em todos os timeframes - pressão forte');
+      } else {
+        analysis.smartInterpretation.push(`Maioria bearish (${bearishTimeframes}/3 timeframes) - cautela com compras`);
+      }
     } else {
-      analysis.smartInterpretation.push('Mercado lateral - aguardar definição de direção');
+      analysis.smartInterpretation.push(`Mercado misto: ${bullishTimeframes}B/${bearishTimeframes}B/${neutralTimeframes}N - aguardar definição`);
+    }
+    
+    // Análise de força
+    if (analysis.strength > 75) {
+      analysis.smartInterpretation.push('Força alta - tendência bem estabelecida');
+    } else if (analysis.strength > 60) {
+      analysis.smartInterpretation.push('Força moderada - tendência em desenvolvimento');
+    } else if (analysis.strength < 40) {
+      analysis.smartInterpretation.push('Força fraca - possível mudança de direção');
     }
     
     // Análise de volume

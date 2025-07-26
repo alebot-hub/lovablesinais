@@ -616,21 +616,16 @@ class TelegramBotService {
         analysis.timeframes.forEach(tf => {
           let tfEmoji = '📈🟢';
           let tfText = 'ALTA';
-          let tfScore = tf.strength || 0;
           
           if (tf.trend === 'BEARISH') {
             tfEmoji = '📉🔴';
             tfText = 'BAIXA';
-            tfScore = -Math.abs(tfScore);
           } else if (tf.trend === 'SIDEWAYS') {
             tfEmoji = '↔️⚪️';
             tfText = 'NEUTRA/LATERAL';
-            tfScore = Math.random() * 10 - 5; // Score próximo de 0
-          } else {
-            tfScore = Math.abs(tfScore);
           }
           
-          message += `${tfEmoji} *${tf.timeframe}:* ${tfText} (Score: ${tfScore > 0 ? '+' : ''}${Math.round(tfScore)})\n`;
+          message += `${tfEmoji} *${tf.timeframe}:* ${tfText} (Força: ${tf.strength}%)\n`;
         });
         message += '\n';
       }
@@ -638,40 +633,22 @@ class TelegramBotService {
       // Interpretação inteligente melhorada
       message += `🔍 *INTERPRETAÇÃO:*\n\n`;
       
-      if (analysis.trend === 'BEARISH') {
-        message += `- Favorece sinais de VENDA em timeframes menores\n`;
-        message += `- Possíveis repiques oferecem oportunidades de venda\n`;
-        message += `- Mantenha posições de venda, mas com cautela\n`;
-        message += `- Evite posições de compra contra a tendência\n`;
-      } else if (analysis.trend === 'BULLISH') {
-        message += `- Favorece sinais de COMPRA em timeframes menores\n`;
-        message += `- Correções oferecem oportunidades de entrada\n`;
-        message += `- Mantenha posições de compra com confiança\n`;
-        message += `- Evite posições de venda contra a tendência\n`;
+      // Usa interpretação inteligente gerada na análise
+      if (analysis.smartInterpretation && analysis.smartInterpretation.length > 0) {
+        analysis.smartInterpretation.forEach(insight => {
+          message += `• ${insight}\n`;
+        });
       } else {
-        message += `- Mercado lateral favorece operações de range\n`;
-        message += `- Aguarde breakout para definir direção\n`;
-        message += `- Operações de curto prazo nos extremos do range\n`;
-        message += `- Cautela com posições direcionais longas\n`;
-      }
-      
-      // Adiciona insights específicos baseados em RSI e outros indicadores
-      if (analysis.rsi) {
-        if (analysis.rsi < 30) {
-          message += `- RSI sobrevendido (${analysis.rsi.toFixed(1)}) indica possível reversão\n`;
-        } else if (analysis.rsi > 70) {
-          message += `- RSI sobrecomprado (${analysis.rsi.toFixed(1)}) sugere correção\n`;
+        // Fallback se não houver interpretação
+        if (analysis.trend === 'BEARISH') {
+          message += `• Favorece sinais de VENDA em timeframes menores\n`;
+          message += `• Possíveis repiques oferecem oportunidades de venda\n`;
+        } else if (analysis.trend === 'BULLISH') {
+          message += `• Favorece sinais de COMPRA em timeframes menores\n`;
+          message += `• Correções oferecem oportunidades de entrada\n`;
+        } else {
+          message += `• Mercado lateral - aguarde definição de direção\n`;
         }
-      }
-      
-      // Análise de força da tendência
-      const strength = analysis.strength || 50;
-      if (strength > 80) {
-        message += `- Tendência muito forte - alta probabilidade de continuação\n`;
-      } else if (strength > 60) {
-        message += `- Tendência moderada - possíveis correções técnicas\n`;
-      } else if (strength < 40) {
-        message += `- Tendência fraca - possível reversão em curso\n`;
       }
       
       message += `\n⏱️ *Atualizado em:* ${new Date().toLocaleString('pt-BR', { 
@@ -905,28 +882,21 @@ class TelegramBotService {
    * Calcula sentimento do Bitcoin
    */
   calculateBitcoinSentimentScore(sentiment) {
-    let btcScore = 50; // Base neutra
+    // Usa o sentimento calculado com dados reais se disponível
+    if (sentiment.bitcoinSentiment && sentiment.bitcoinSentiment.score) {
+      return sentiment.bitcoinSentiment.score;
+    }
     
-    // Baseado na dominância BTC
+    // Fallback para cálculo básico
+    let btcScore = 50;
+    
     if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
       const dominance = sentiment.cryptoMarketCap.btcDominance;
       if (dominance > 60) {
-        btcScore = 60 + (dominance - 60) * 0.8; // Alta dominância = sentimento positivo BTC
+        btcScore = 60 + (dominance - 60) * 0.8;
       } else if (dominance < 40) {
-        btcScore = 40 + (dominance - 40) * 0.5; // Baixa dominância = sentimento negativo BTC
+        btcScore = 40 + (dominance - 40) * 0.5;
       }
-    }
-    
-    // Ajusta baseado no sentimento geral
-    if (sentiment.overall === 'OTIMISTA') {
-      btcScore += 5;
-    } else if (sentiment.overall === 'PESSIMISTA') {
-      btcScore -= 5;
-    }
-    
-    // Variação do market cap crypto
-    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.change24h !== undefined) {
-      btcScore += sentiment.cryptoMarketCap.change24h * 1.5;
     }
     
     return Math.max(0, Math.min(100, btcScore));
@@ -936,28 +906,21 @@ class TelegramBotService {
    * Calcula sentimento do Ethereum
    */
   calculateEthereumSentimentScore(sentiment) {
-    let ethScore = 50; // Base neutra
+    // Usa o sentimento calculado com dados reais se disponível
+    if (sentiment.ethereumSentiment && sentiment.ethereumSentiment.score) {
+      return sentiment.ethereumSentiment.score;
+    }
     
-    // Baseado na dominância BTC (inverso para ETH)
+    // Fallback para cálculo básico
+    let ethScore = 50;
+    
     if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
       const dominance = sentiment.cryptoMarketCap.btcDominance;
       if (dominance < 45) {
-        ethScore = 55 + (45 - dominance) * 0.8; // Baixa dominância BTC = bom para ETH
+        ethScore = 55 + (45 - dominance) * 0.8;
       } else if (dominance > 65) {
-        ethScore = 45 - (dominance - 65) * 0.6; // Alta dominância BTC = ruim para ETH
+        ethScore = 45 - (dominance - 65) * 0.6;
       }
-    }
-    
-    // Altcoin season favorece ETH
-    if (sentiment.altcoinSeason && sentiment.altcoinSeason.isAltcoinSeason) {
-      ethScore += 15;
-    }
-    
-    // Ajusta baseado no sentimento geral
-    if (sentiment.overall === 'OTIMISTA') {
-      ethScore += 3;
-    } else if (sentiment.overall === 'PESSIMISTA') {
-      ethScore -= 3;
     }
     
     return Math.max(0, Math.min(100, ethScore));
@@ -1034,15 +997,15 @@ class TelegramBotService {
   formatPrice(price) {
     if (!price || isNaN(price)) return '0.00';
     
-    // Formata preço sem símbolo $ para formatação limpa
+    // Formata preço evitando links automáticos do Telegram
     const formattedPrice = price.toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: price >= 1 ? 2 : 8,
       useGrouping: false
     });
     
-    // Retorna apenas o valor numérico
-    return formattedPrice;
+    // Adiciona espaços invisíveis para quebrar detecção de links
+    return formattedPrice.replace(/\./g, '․'); // Usa ponto médio Unicode U+2024
   }
 
   /**
