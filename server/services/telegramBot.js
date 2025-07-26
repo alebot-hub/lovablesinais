@@ -932,63 +932,93 @@ class TelegramBotService {
   generateSmartInterpretation(sentiment, generalScore) {
     const interpretation = [];
     
-    // Análise do score geral
-    if (generalScore >= 70) {
-      interpretation.push('Mercado otimista - favorece posições de compra');
-      interpretation.push('Momentum positivo em múltiplos indicadores');
-      interpretation.push('Aproveite correções técnicas para entradas');
-    } else if (generalScore <= 30) {
-      interpretation.push('Mercado pessimista - favorece posições de venda');
-      interpretation.push('Pressão vendedora dominante');
-      interpretation.push('Evite compras contra a tendência principal');
-    } else if (generalScore >= 45 && generalScore <= 55) {
-      interpretation.push('Mercado equilibrado - sem viés forte');
-      interpretation.push('Bom momento para operar em ambas direções');
-      interpretation.push('Foque em análise técnica e níveis importantes');
-      interpretation.push('Acompanhe catalisadores específicos por ativo');
-    } else if (generalScore > 55) {
-      interpretation.push('Leve viés otimista no mercado');
-      interpretation.push('Prefira posições de compra em correções');
-      interpretation.push('Monitore níveis de resistência para realizações');
-    } else {
-      interpretation.push('Leve viés pessimista no mercado');
-      interpretation.push('Prefira posições de venda em repiques');
-      interpretation.push('Monitore níveis de suporte para entradas');
-    }
-    
-    // Análise específica do Fear & Greed
+    // Análise específica baseada em dados reais
+    const btcScore = sentiment.bitcoinSentiment?.score || 50;
+    const ethScore = sentiment.ethereumSentiment?.score || 50;
+    const newsScore = sentiment.newsAnalysis?.score || 50;
     const fgIndex = sentiment.fearGreedIndex || 50;
-    if (fgIndex > 80) {
-      interpretation.push('Ganância extrema - cuidado com correções bruscas');
-    } else if (fgIndex < 20) {
-      interpretation.push('Medo extremo - oportunidades de compra podem surgir');
+    
+    // Interpretação baseada em Bitcoin (maior peso)
+    if (btcScore >= 70) {
+      interpretation.push(`Bitcoin muito otimista (${btcScore}/100) - lidera o mercado`);
+      if (sentiment.bitcoinSentiment?.factors?.length > 0) {
+        interpretation.push(`Fatores BTC: ${sentiment.bitcoinSentiment.factors.slice(0, 2).join(', ')}`);
+      }
+    } else if (btcScore <= 35) {
+      interpretation.push(`Bitcoin pessimista (${btcScore}/100) - pressiona altcoins`);
+      if (sentiment.bitcoinSentiment?.factors?.length > 0) {
+        interpretation.push(`Fatores BTC: ${sentiment.bitcoinSentiment.factors.slice(0, 2).join(', ')}`);
+      }
+    } else if (btcScore >= 55) {
+      interpretation.push(`Bitcoin levemente otimista (${btcScore}/100) - ambiente favorável`);
+    } else if (btcScore <= 45) {
+      interpretation.push(`Bitcoin levemente pessimista (${btcScore}/100) - cautela`);
+    } else {
+      interpretation.push(`Bitcoin neutro (${btcScore}/100) - sem direção clara`);
     }
     
-    // Análise de volatilidade
-    if (sentiment.volatility > 5) {
-      interpretation.push('Alta volatilidade favorece swing trading');
-    } else if (sentiment.volatility < 2) {
-      interpretation.push('Baixa volatilidade - aguarde breakouts direcionais');
-    }
-    
-    // Análise de dominância BTC
-    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
-      const dominance = sentiment.cryptoMarketCap.btcDominance;
-      if (dominance > 65) {
-        interpretation.push('Alta dominância BTC - foque no Bitcoin');
-      } else if (dominance < 40) {
-        interpretation.push('Baixa dominância BTC - temporada de altcoins ativa');
+    // Interpretação baseada em Ethereum
+    if (ethScore >= 70) {
+      interpretation.push(`Ethereum muito forte (${ethScore}/100) - altcoin season`);
+      if (sentiment.ethereumSentiment?.factors?.length > 0) {
+        interpretation.push(`Fatores ETH: ${sentiment.ethereumSentiment.factors.slice(0, 2).join(', ')}`);
+      }
+    } else if (ethScore <= 35) {
+      interpretation.push(`Ethereum fraco (${ethScore}/100) - evite altcoins`);
+    } else if (Math.abs(ethScore - btcScore) > 15) {
+      if (ethScore > btcScore) {
+        interpretation.push(`Ethereum superando Bitcoin (+${(ethScore - btcScore).toFixed(0)} pontos)`);
+      } else {
+        interpretation.push(`Bitcoin dominando Ethereum (+${(btcScore - ethScore).toFixed(0)} pontos)`);
       }
     }
     
-    // Análise de volume
-    if (sentiment.volumeVsAverage > 1.3) {
-      interpretation.push('Volume alto confirma movimentos atuais');
-    } else if (sentiment.volumeVsAverage < 0.7) {
-      interpretation.push('Volume baixo - movimentos podem ser falsos');
+    // Análise de Fear & Greed com contexto
+    if (fgIndex > 80) {
+      interpretation.push(`Ganância extrema (${fgIndex}/100) - risco de correção iminente`);
+    } else if (fgIndex < 20) {
+      interpretation.push(`Medo extremo (${fgIndex}/100) - oportunidades históricas de compra`);
+    } else if (fgIndex > 70) {
+      interpretation.push(`Alta ganância (${fgIndex}/100) - realize lucros gradualmente`);
+    } else if (fgIndex < 30) {
+      interpretation.push(`Alto medo (${fgIndex}/100) - considere acumulação`);
     }
     
-    return interpretation.slice(0, 4); // Máximo 4 pontos
+    // Análise de notícias com contexto específico
+    if (newsScore >= 70) {
+      interpretation.push(`Notícias muito positivas (${newsScore}/100) - momentum midiático`);
+    } else if (newsScore <= 35) {
+      interpretation.push(`Notícias negativas (${newsScore}/100) - sentimento pessimista`);
+    }
+    
+    // Análise de dominância BTC com recomendações específicas
+    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
+      const dominance = sentiment.cryptoMarketCap.btcDominance;
+      if (dominance > 70) {
+        interpretation.push(`Dominância BTC extrema (${dominance.toFixed(1)}%) - apenas Bitcoin`);
+      } else if (dominance > 60) {
+        interpretation.push(`Alta dominância BTC (${dominance.toFixed(1)}%) - foque em BTC e top 5`);
+      } else if (dominance < 35) {
+        interpretation.push(`Baixa dominância BTC (${dominance.toFixed(1)}%) - altcoin season ativa`);
+      } else if (dominance < 45) {
+        interpretation.push(`Dominância BTC moderada (${dominance.toFixed(1)}%) - altcoins favorecidas`);
+      }
+    }
+    
+    // Recomendação final baseada no contexto geral
+    if (generalScore >= 70 && btcScore >= 65) {
+      interpretation.push('🟢 Ambiente muito favorável para posições de compra');
+    } else if (generalScore <= 30 && btcScore <= 35) {
+      interpretation.push('🔴 Ambiente desfavorável - evite compras, considere vendas');
+    } else if (Math.abs(generalScore - 50) <= 10) {
+      interpretation.push('🟡 Mercado neutro - opere com base em análise técnica');
+    } else if (generalScore > 50) {
+      interpretation.push('🟢 Leve viés de alta - prefira compras em correções');
+    } else {
+      interpretation.push('🟡 Leve viés de baixa - cautela com compras');
+    }
+    
+    return interpretation.slice(0, 5); // Máximo 5 pontos mais específicos
   }
 
   /**
