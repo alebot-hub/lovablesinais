@@ -138,7 +138,6 @@ class TelegramBotService {
     console.log(`   🎯 Alvos: ${signal.targets.map(t => this.formatPrice(t)).join(', ')}`);
     console.log(`   🛑 Stop: ${this.formatPrice(signal.stopLoss)}`);
     
-    let message = `🚨 *SINAL LOBO #${baseSymbol}* ${trendEmoji} (Futures)\n\n`;
     let message = `🚨 *LOBO PREMIUM #${baseSymbol}* ${trendEmoji} (Futures)\n\n`;
     
     message += `💰 *#${baseSymbol} Futures*\n`;
