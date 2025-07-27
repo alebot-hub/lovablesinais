@@ -382,7 +382,7 @@ async function checkWeeklyReport() {
         
         message += `⚡️ *Nota:* Resultados calculados com alavancagem 15x\n`;
         message += `📊 *Frequência:* Relatório enviado semanalmente aos domingos\n\n`;
-        message += `\n👑 Sinais Lobo Cripto`;
+        message += `👑 Sinais Lobo Cripto`;
         
         if (telegramBot.isEnabled) {
           await telegramBot.bot.sendMessage(telegramBot.chatId, message, { parse_mode: 'Markdown' });
@@ -397,7 +397,7 @@ async function checkWeeklyReport() {
   }
 }
 
-/**
+// ===== ROTAS DA API =====
 
 // Status do bot
 app.get('/api/status', (req, res) => {
@@ -543,10 +543,10 @@ schedule.scheduleJob(SCHEDULE_CONFIG.SIGNAL_ANALYSIS, () => {
   analyzeSignals();
 });
 
-// Análise do Bitcoin a cada 4 horas
-schedule.scheduleJob(SCHEDULE_CONFIG.BITCOIN_ANALYSIS, () => {
-  console.log('\n⏰ Agendamento: Iniciando análise do Bitcoin...');
-  analyzeBitcoin();
+// Análise de sentimento a cada 12 horas
+schedule.scheduleJob(SCHEDULE_CONFIG.MARKET_SENTIMENT, () => {
+  console.log('\n⏰ Agendamento: Iniciando análise de sentimento...');
+  analyzeMarketSentiment();
 });
 
 // Relatório semanal (verifica todo domingo às 20h)
