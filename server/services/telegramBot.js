@@ -139,6 +139,7 @@ class TelegramBotService {
     console.log(`   🛑 Stop: ${this.formatPrice(signal.stopLoss)}`);
     
     let message = `🚨 *SINAL LOBO #${baseSymbol}* ${trendEmoji} (Futures)\n\n`;
+    let message = `🚨 *LOBO PREMIUM #${baseSymbol}* ${trendEmoji} (Futures)\n\n`;
     
     message += `💰 *#${baseSymbol} Futures*\n`;
     message += `📊 *TEMPO GRÁFICO:* ${signal.timeframe}\n`;
@@ -207,7 +208,8 @@ class TelegramBotService {
       console.log(`✅ SINAL VALIDADO: Todos os níveis estão corretos`);
     }
     
-    message += `👑 *Sinais Lobo Cripto*\n`;
+    message += `👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*\n`;
+    message += `*Por ser outro sistema pode gerar sinais iguais aos existentes ou no sentido contrário.*\n`;
     message += `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
     
     return message;
@@ -574,105 +576,6 @@ class TelegramBotService {
   }
 
   /**
-   * Envia análise do Bitcoin
-   */
-  async sendBitcoinAnalysis(analysis) {
-    try {
-      // Determina emoji e cor baseado na tendência
-      let trendEmoji = '📈🟢';
-      let trendTag = '#BULL';
-      let trendText = 'ALTA';
-      
-      if (analysis.trend === 'BEARISH') {
-        trendEmoji = '📉🔴';
-        trendTag = '#BEAR';
-        trendText = 'BAIXA';
-      } else if (analysis.trend === 'SIDEWAYS') {
-        trendEmoji = '↔️⚪️';
-        trendTag = '#LATERAL';
-        trendText = 'NEUTRA/LATERAL';
-      }
-      
-      let message = `${trendEmoji} *ANÁLISE BTC ${trendTag}*\n\n`;
-      message += `📊 *Tendência Atual:* ${trendText}\n`;
-      message += `⚡️ *Força:* ${analysis.strength || 50}%\n`;
-      message += `⏱️ *Análise:* ${new Date().toLocaleString('pt-BR', { 
-        timeZone: 'America/Sao_Paulo',
-        day: '2-digit',
-        month: '2-digit', 
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}\n\n`;
-      
-      message += `📊 *Níveis Importantes:*\n`;
-      message += `💲 *Preço Atual:* ${this.formatPrice(analysis.currentPrice)}\n`;
-      message += `🔺 *Resistência:* ${this.formatPrice(analysis.resistance)}\n`;
-      message += `🔻 *Suporte:* ${this.formatPrice(analysis.support)}\n\n`;
-      
-      // Análise por timeframe
-      if (analysis.timeframes && analysis.timeframes.length > 0) {
-        message += `📈 *ANÁLISE POR TIMEFRAME:*\n`;
-        analysis.timeframes.forEach(tf => {
-          let tfEmoji = '📈🟢';
-          let tfText = 'ALTA';
-          
-          if (tf.trend === 'BEARISH') {
-            tfEmoji = '📉🔴';
-            tfText = 'BAIXA';
-          } else if (tf.trend === 'SIDEWAYS') {
-            tfEmoji = '↔️⚪️';
-            tfText = 'NEUTRA/LATERAL';
-          }
-          
-          message += `${tfEmoji} *${tf.timeframe}:* ${tfText} (Força: ${tf.strength}%)\n`;
-        });
-        message += '\n';
-      }
-      
-      // Interpretação inteligente melhorada
-      message += `🔍 *INTERPRETAÇÃO:*\n\n`;
-      
-      // Usa interpretação inteligente gerada na análise
-      if (analysis.smartInterpretation && analysis.smartInterpretation.length > 0) {
-        analysis.smartInterpretation.forEach(insight => {
-          message += `• ${insight}\n`;
-        });
-      } else {
-        // Fallback se não houver interpretação
-        if (analysis.trend === 'BEARISH') {
-          message += `• Favorece sinais de VENDA em timeframes menores\n`;
-          message += `• Possíveis repiques oferecem oportunidades de venda\n`;
-        } else if (analysis.trend === 'BULLISH') {
-          message += `• Favorece sinais de COMPRA em timeframes menores\n`;
-          message += `• Correções oferecem oportunidades de entrada\n`;
-        } else {
-          message += `• Mercado lateral - aguarde definição de direção\n`;
-        }
-      }
-      
-      message += `\n⏱️ *Atualizado em:* ${new Date().toLocaleString('pt-BR', { 
-        timeZone: 'America/Sao_Paulo',
-        day: '2-digit',
-        month: '2-digit', 
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}\n\n`;
-      
-      message += `👑 *Sinais Lobo Cripto*`;
-      
-      if (this.isEnabled) {
-        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
-      } else {
-        console.log(`₿ [SIMULADO] Análise Bitcoin: ${analysis.trend} $${analysis.currentPrice.toFixed(2)}`);
-      }
-    } catch (error) {
-      console.error('Erro ao enviar análise do Bitcoin:', error.message);
-    }
-  }
-
-  /**
    * Envia análise de sentimento do mercado
    */
   async sendMarketSentiment(sentiment) {
@@ -742,29 +645,6 @@ class TelegramBotService {
     }
   }
 
-  /**
-   * Envia alerta de volatilidade
-   */
-  async sendVolatilityAlert(symbol, change, timeframe) {
-    try {
-      const emoji = change > 0 ? '🚀' : '📉';
-      const message = `🔥 *ALTA VOLATILIDADE*\n\n` +
-                     `📊 *Par:* ${symbol}\n` +
-                     `${emoji} *Variação:* ${change > 0 ? '+' : ''}${change.toFixed(2)}%\n` +
-                     `⏰ *Timeframe:* ${timeframe}\n\n` +
-                     `💡 *Oportunidade de swing trading detectada*\n\n` +
-                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\n` +
-                     `👑 Sinais Lobo Cripto`;
-
-      if (this.isEnabled) {
-        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
-      } else {
-        console.log(`🔥 [SIMULADO] Volatilidade ${symbol}: ${change > 0 ? '+' : ''}${change.toFixed(2)}%`);
-      }
-    } catch (error) {
-      console.error(`Erro ao enviar alerta de volatilidade para ${symbol}:`, error.message);
-    }
-  }
 
   /**
    * Para WebSocket para um símbolo

@@ -326,170 +326,6 @@ async function processBestSignal(signal) {
 }
 
 /**
- * Análise específica do Bitcoin
- */
-async function analyzeBitcoin() {
-  try {
-    console.log('\n₿ ===== ANÁLISE DO BITCOIN =====');
-    
-    const timeframes = [
-      { tf: '1h', label: '1h' },
-      { tf: '4h', label: '4h' }, 
-      { tf: '1d', label: '1d' }
-    ];
-    const analysis = {
-      currentPrice: 0,
-      trend: 'NEUTRAL',
-      strength: 0,
-      support: 0,
-      resistance: 0,
-      rsi: null,
-      timeframes: [],
-      smartInterpretation: [],
-      volume24h: 0,
-      change24h: 0
-    };
-
-    let bullishTimeframes = 0;
-    let bearishTimeframes = 0;
-    let neutralTimeframes = 0;
-    let totalStrength = 0;
-    let validTimeframes = 0;
-    for (const timeframe of timeframes) {
-      try {
-        const data = await binanceService.getOHLCVData('BTC/USDT', timeframe.tf, 100);
-        
-        if (data && data.close && data.close.length > 0) {
-          const indicators = technicalAnalysis.calculateIndicators(data);
-          const patterns = patternDetection.detectPatterns(data);
-          const trend = technicalAnalysis.detectTrend(indicators);
-          const strength = bitcoinCorrelation.calculateTrendStrength(indicators, data);
-          
-          analysis.currentPrice = data.close[data.close.length - 1];
-          analysis.support = patterns.support || 0;
-          analysis.resistance = patterns.resistance || 0;
-          
-          // Calcula variação 24h
-          if (timeframe.tf === '1h' && data.close.length >= 24) {
-            const price24hAgo = data.close[data.close.length - 24];
-            analysis.change24h = ((analysis.currentPrice - price24hAgo) / price24hAgo) * 100;
-          }
-          
-          // Coleta dados do timeframe principal (4h) para análise geral
-          if (timeframe.tf === '4h') {
-            analysis.rsi = indicators.rsi;
-            
-            // Volume 24h (aproximado)
-            if (data.volume && data.volume.length >= 6) {
-              analysis.volume24h = data.volume.slice(-6).reduce((sum, vol) => sum + vol, 0);
-            }
-          }
-          
-          // Conta tendências por timeframe
-          if (trend === 'BULLISH') {
-            bullishTimeframes++;
-          } else if (trend === 'BEARISH') {
-            bearishTimeframes++;
-          } else {
-            neutralTimeframes++;
-          }
-          
-          totalStrength += strength;
-          validTimeframes++;
-          
-          analysis.timeframes.push({
-            timeframe: timeframe.label,
-            trend,
-            strength: strength
-          });
-          
-          console.log(`₿ ${timeframe.tf}: ${trend} (força: ${strength})`);
-        }
-      } catch (error) {
-        console.error(`Erro na análise BTC ${timeframe.tf}:`, error.message);
-      }
-    }
-
-    // Determina tendência geral baseada no consenso dos timeframes
-    console.log(`₿ CONSENSO: Bullish=${bullishTimeframes}, Bearish=${bearishTimeframes}, Neutral=${neutralTimeframes}`);
-    
-    if (bullishTimeframes > bearishTimeframes && bullishTimeframes > neutralTimeframes) {
-      analysis.trend = 'BULLISH';
-    } else if (bearishTimeframes > bullishTimeframes && bearishTimeframes > neutralTimeframes) {
-      analysis.trend = 'BEARISH';
-    } else if (bullishTimeframes === bearishTimeframes && bullishTimeframes > 0) {
-      // Empate entre bull/bear - usa força média para decidir
-      const avgStrength = validTimeframes > 0 ? totalStrength / validTimeframes : 50;
-      analysis.trend = avgStrength > 55 ? 'BULLISH' : avgStrength < 45 ? 'BEARISH' : 'SIDEWAYS';
-    } else {
-      analysis.trend = 'SIDEWAYS';
-    }
-    
-    // Calcula força média
-    analysis.strength = validTimeframes > 0 ? Math.round(totalStrength / validTimeframes) : 50;
-    
-    console.log(`₿ RESULTADO: ${analysis.trend} (força média: ${analysis.strength})`);
-    // Interpretação inteligente melhorada
-    analysis.smartInterpretation = [];
-    
-    if (analysis.rsi) {
-      if (analysis.rsi < 30) {
-        analysis.smartInterpretation.push('RSI sobrevendido indica possível reversão de alta');
-      } else if (analysis.rsi > 70) {
-        analysis.smartInterpretation.push('RSI sobrecomprado sugere correção técnica');
-      } else if (analysis.rsi > 50) {
-        analysis.smartInterpretation.push('RSI acima de 50 confirma força compradora');
-      } else {
-        analysis.smartInterpretation.push('RSI abaixo de 50 indica pressão vendedora');
-      }
-    }
-
-    // Interpretação baseada no consenso dos timeframes
-    if (analysis.trend === 'BULLISH') {
-      if (bullishTimeframes === 3) {
-        analysis.smartInterpretation.push('Consenso bullish em todos os timeframes - tendência forte');
-      } else {
-        analysis.smartInterpretation.push(`Maioria bullish (${bullishTimeframes}/3 timeframes) - momentum positivo`);
-      }
-    } else if (analysis.trend === 'BEARISH') {
-      if (bearishTimeframes === 3) {
-        analysis.smartInterpretation.push('Consenso bearish em todos os timeframes - pressão forte');
-      } else {
-        analysis.smartInterpretation.push(`Maioria bearish (${bearishTimeframes}/3 timeframes) - cautela com compras`);
-      }
-    } else {
-      analysis.smartInterpretation.push(`Mercado misto: ${bullishTimeframes}B/${bearishTimeframes}B/${neutralTimeframes}N - aguardar definição`);
-    }
-    
-    // Análise de força
-    if (analysis.strength > 75) {
-      analysis.smartInterpretation.push('Força alta - tendência bem estabelecida');
-    } else if (analysis.strength > 60) {
-      analysis.smartInterpretation.push('Força moderada - tendência em desenvolvimento');
-    } else if (analysis.strength < 40) {
-      analysis.smartInterpretation.push('Força fraca - possível mudança de direção');
-    }
-    
-    // Análise de volume
-    if (analysis.volume24h > 0) {
-      analysis.smartInterpretation.push(`Volume 24h: $${(analysis.volume24h / 1e9).toFixed(1)}B`);
-    }
-    
-    // Análise de variação
-    if (Math.abs(analysis.change24h) > 3) {
-      const direction = analysis.change24h > 0 ? 'alta' : 'baixa';
-      analysis.smartInterpretation.push(`Movimento forte de ${direction} nas últimas 24h`);
-    }
-
-    await telegramBot.sendBitcoinAnalysis(analysis);
-    console.log(`✅ Análise do Bitcoin enviada: ${analysis.trend} $${analysis.currentPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
-
-  } catch (error) {
-    console.error('❌ Erro na análise do Bitcoin:', error.message);
-  }
-}
-
-/**
  * Análise de sentimento do mercado
  */
 async function analyzeMarketSentiment() {
@@ -512,31 +348,6 @@ async function analyzeMarketSentiment() {
 }
 
 /**
- * Verifica alta volatilidade
- */
-async function checkVolatility() {
-  try {
-    console.log('\n🔥 ===== VERIFICAÇÃO DE VOLATILIDADE =====');
-    
-    const alerts = await marketAnalysis.detectHighVolatility();
-    
-    if (alerts && alerts.length > 0) {
-      console.log(`🔥 ${alerts.length} alertas de volatilidade detectados`);
-      
-      for (const alert of alerts.slice(0, 3)) { // Máximo 3 alertas por vez
-        await telegramBot.sendVolatilityAlert(alert.symbol, alert.change, alert.timeframe);
-        console.log(`🔥 Alerta enviado: ${alert.symbol} ${alert.change > 0 ? '+' : ''}${alert.change.toFixed(2)}%`);
-      }
-    } else {
-      console.log('📊 Volatilidade normal - nenhum alerta');
-    }
-
-  } catch (error) {
-    console.error('❌ Erro na verificação de volatilidade:', error.message);
-  }
-}
-
-/**
  * Envia relatório semanal se necessário
  */
 async function checkWeeklyReport() {
@@ -547,13 +358,13 @@ async function checkWeeklyReport() {
       const report = performanceTracker.generateWeeklyReport();
       
       if (report.hasData) {
-        let message = `📊 *RELATÓRIO SEMANAL*\n\n`;
+        let message = `📊 *RELATÓRIO SEMANAL DE SINAIS LOBO PREMIUM*\n\n`;
         message += `📅 *Período:* ${report.period.start.toLocaleDateString('pt-BR')} - ${report.period.end.toLocaleDateString('pt-BR')}\n\n`;
         message += `🎯 *Resumo:*\n`;
         message += `   • Sinais: ${report.summary.totalSignals}\n`;
         message += `   • Taxa de acerto: ${report.summary.winRate}%\n`;
-        message += `   • Lucro total: ${report.summary.totalPnL}%\n`;
-        message += `   • Média por trade: ${report.summary.avgPnL}%\n\n`;
+        message += `   • Lucro total: ${report.summary.totalPnL}% (Alav. 15x)\n`;
+        message += `   • Média por trade: ${report.summary.avgPnL}% (Alav. 15x)\n\n`;
         
         if (report.mlPerformance.signals > 0) {
           message += `🤖 *Machine Learning:*\n`;
@@ -566,8 +377,11 @@ async function checkWeeklyReport() {
           report.insights.forEach(insight => {
             message += `   • ${insight}\n`;
           });
+          message += `\n`;
         }
         
+        message += `⚡️ *Nota:* Resultados calculados com alavancagem 15x\n`;
+        message += `📊 *Frequência:* Relatório enviado semanalmente aos domingos\n\n`;
         message += `\n👑 Sinais Lobo Cripto`;
         
         if (telegramBot.isEnabled) {
@@ -584,31 +398,6 @@ async function checkWeeklyReport() {
 }
 
 /**
- * Envia relatório macro diário se necessário
- */
-async function checkDailyMacroReport() {
-  try {
-    if (macroEconomic.shouldSendDailyReport()) {
-      console.log('\n🏛️ ===== RELATÓRIO MACRO DIÁRIO =====');
-      
-      const macroData = await macroEconomic.getMacroEconomicData();
-      const report = macroEconomic.generateDailyMacroReport(macroData);
-      
-      if (telegramBot.isEnabled) {
-        await telegramBot.bot.sendMessage(telegramBot.chatId, report, { parse_mode: 'Markdown' });
-      } else {
-        console.log('📊 [SIMULADO] Relatório macro diário gerado');
-      }
-      
-      macroEconomic.markDailyReportSent();
-      console.log('✅ Relatório macro enviado');
-    }
-  } catch (error) {
-    console.error('❌ Erro no relatório macro:', error.message);
-  }
-}
-
-// ===== ROTAS DA API =====
 
 // Status do bot
 app.get('/api/status', (req, res) => {
@@ -760,28 +549,10 @@ schedule.scheduleJob(SCHEDULE_CONFIG.BITCOIN_ANALYSIS, () => {
   analyzeBitcoin();
 });
 
-// Sentimento do mercado a cada 6 horas
-schedule.scheduleJob(SCHEDULE_CONFIG.MARKET_SENTIMENT, () => {
-  console.log('\n⏰ Agendamento: Iniciando análise de sentimento...');
-  analyzeMarketSentiment();
-});
-
-// Verificação de volatilidade a cada 30 minutos
-schedule.scheduleJob(SCHEDULE_CONFIG.VOLATILITY_CHECK, () => {
-  console.log('\n⏰ Agendamento: Verificando volatilidade...');
-  checkVolatility();
-});
-
 // Relatório semanal (verifica todo domingo às 20h)
 schedule.scheduleJob('0 20 * * 0', () => {
   console.log('\n⏰ Agendamento: Verificando relatório semanal...');
   checkWeeklyReport();
-});
-
-// Relatório macro diário (verifica todo dia às 10h UTC)
-schedule.scheduleJob('0 10 * * *', () => {
-  console.log('\n⏰ Agendamento: Verificando relatório macro...');
-  checkDailyMacroReport();
 });
 
 // Cleanup de WebSockets órfãos a cada 5 minutos

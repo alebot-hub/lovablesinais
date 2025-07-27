@@ -95,7 +95,5 @@ export const TRADING_CONFIG = {
 // Configurações de agendamento
 export const SCHEDULE_CONFIG = {
   SIGNAL_ANALYSIS: '0 */2 * * *', // A cada 2 horas (reduzido para evitar rate limit)
-  BITCOIN_ANALYSIS: '0 */4 * * *', // A cada 4 horas
-  MARKET_SENTIMENT: '0 0,6,12,18 * * *', // A cada 6 horas (0h, 6h, 12h, 18h UTC)
-  VOLATILITY_CHECK: '*/30 * * * *' // A cada 30 minutos (reduzido)
+  MARKET_SENTIMENT: '0 11,23 * * *' // A cada 12 horas (11h e 23h UTC = 8h e 20h Brasília)
 };
