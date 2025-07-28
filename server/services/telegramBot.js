@@ -537,6 +537,10 @@ class TelegramBotService {
           emoji = '❌';
           reasonText = 'STOP LOSS ATIVADO';
           break;
+        case 'PROFIT_PROTECTION':
+          emoji = '🛡️';
+          reasonText = 'STOP DE PROTEÇÃO ATIVADO';
+          break;
         case 'PROFIT_STOP':
           emoji = '🛡️';
           reasonText = 'STOP DE LUCRO ATIVADO';
@@ -553,6 +557,19 @@ class TelegramBotService {
       const hours = Math.floor(duration / (1000 * 60 * 60));
       const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
       
+      // Adiciona informação sobre o tipo de stop se foi proteção
+      let stopInfo = '';
+      if (reason === 'PROFIT_PROTECTION' && monitor.stopType !== 'INITIAL') {
+        const stopDescriptions = {
+          'BREAKEVEN': 'no ponto de entrada',
+          'TARGET_1': 'no Alvo 1',
+          'TARGET_2': 'no Alvo 2', 
+          'TARGET_3': 'no Alvo 3',
+          'TARGET_4': 'no Alvo 4'
+        };
+        stopInfo = `\n🛡️ *Stop ativado:* ${stopDescriptions[monitor.stopType] || 'proteção de lucro'}`;
+      }
+      
       const message = `${emoji} *OPERAÇÃO #${baseSymbol} FINALIZADA*\n\n` +
                      `💰 *#${baseSymbol} Futures*\n` +
                      `📝 *Status:* ${reasonText}\n` +
@@ -560,7 +577,7 @@ class TelegramBotService {
                      `💰 *Resultado final:* ${finalPnL > 0 ? '+' : ''}${finalPnL.toFixed(2)}%\n` +
                      `🚀 *Com alavancagem 15x:* ${leveragedPnL > 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n` +
                      `⏱️ *Duração:* ${hours}h ${minutes}m\n` +
-                     `📈 *Pico máximo:* +${monitor.peakProfit.toFixed(2)}%\n\n` +
+                     `📈 *Pico máximo:* +${monitor.peakProfit.toFixed(2)}%${stopInfo}\n\n` +
                      `👑 Sinais Lobo Cripto\n` +
                      `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
 
