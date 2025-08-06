@@ -37,23 +37,23 @@ export const INDICATORS_CONFIG = {
 
 // Configurações de pontuação
 export const SCORING_WEIGHTS = {
-  RSI_OVERSOLD: 25,
-  RSI_OVERBOUGHT: -25,
-  MACD_BULLISH: 30,
-  MACD_BEARISH: -30,
-  ICHIMOKU_BULLISH: 20,
-  RSI_DIVERGENCE: 15,
-  MA_BULLISH: 15,
+  RSI_OVERSOLD: 20,
+  RSI_OVERBOUGHT: -20,
+  MACD_BULLISH: 25,
+  MACD_BEARISH: -25,
+  ICHIMOKU_BULLISH: 15,
+  RSI_DIVERGENCE: 10,
+  MA_BULLISH: 10,
   BOLLINGER_BREAKOUT: 15,
-  PATTERN_BREAKOUT: 25,
-  PATTERN_REVERSAL: 20,
-  VOLUME_CONFIRMATION: 20,
-  ML_WEIGHT: 0.25
+  PATTERN_BREAKOUT: 20,
+  PATTERN_REVERSAL: 15,
+  VOLUME_CONFIRMATION: 15,
+  ML_WEIGHT: 0.20
 };
 
 // Configurações de trading
 export const TRADING_CONFIG = {
-  MIN_SIGNAL_PROBABILITY: 70, // Threshold mais alto para garantir qualidade
+  MIN_SIGNAL_PROBABILITY: 60, // Threshold mais alto para garantir qualidade
   TARGET_PERCENTAGES: [1.5, 3.0, 4.5, 6.0, 7.5, 9.0],
   STOP_LOSS_PERCENTAGE: 4.5, // Sempre positivo - direção aplicada no cálculo
   VOLATILITY_THRESHOLD: 5.0, // Threshold para alertas de volatilidade
