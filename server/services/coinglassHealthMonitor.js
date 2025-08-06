@@ -2,8 +2,8 @@
  * Serviço de monitoramento de saúde para a API Coinglass
  */
 import { Logger } from '../services/logger.js';
-import { CoinglassPerformanceAnalyzer } from './coinglassPerformanceAnalyzer';
-import { CoinglassMonitor } from './coinglassMonitor';
+import { CoinglassPerformanceAnalyzer } from '../services/coinglassPerformanceAnalyzer.js';
+import { CoinglassMonitor } from '../services/coinglassMonitor.js';
 
 const logger = new Logger('CoinglassHealthMonitor');
 
