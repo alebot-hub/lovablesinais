@@ -1,10 +1,10 @@
 /**
  * Serviço de otimização automática para a API Coinglass
  */
-import { Logger } from './logger';
-import { CoinglassPerformanceAnalyzer } from './coinglassPerformanceAnalyzer';
-import { CoinglassMonitor } from './coinglassMonitor';
-import { CoinglassLogger } from './coinglassLogger';
+import { Logger } from '../services/logger.js';
+import { CoinglassPerformanceAnalyzer } from '../services/coinglassPerformanceAnalyzer.js';
+import { CoinglassMonitor } from '../services/coinglassMonitor.js';
+import { CoinglassLogger } from '../services/coinglassLogger.js';
 
 const logger = new Logger('CoinglassAutoOptimizer');
 

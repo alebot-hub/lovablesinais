@@ -1,8 +1,8 @@
 /**
  * Serviço de limpeza de cache para a API Coinglass
  */
-import { Logger } from './logger';
-import { CoinglassCache } from './coinglassCache';
+import { Logger } from '../services/logger.js';
+import { CoinglassCache } from '../services/coinglassCache.js';
 
 const logger = new Logger('CoinglassCacheCleaner');
 

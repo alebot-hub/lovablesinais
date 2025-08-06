@@ -1,10 +1,10 @@
 /**
  * Serviço de dashboard para a API Coinglass
  */
-import { Logger } from './logger';
-import { CoinglassPerformanceAnalyzer } from './coinglassPerformanceAnalyzer';
-import { CoinglassDataAnalyzer } from './coinglassDataAnalyzer';
-import { CoinglassMonitor } from './coinglassMonitor';
+import { Logger } from '../services/logger.js';
+import { CoinglassPerformanceAnalyzer } from '../services/coinglassPerformanceAnalyzer.js';
+import { CoinglassDataAnalyzer } from '../services/coinglassDataAnalyzer.js';
+import { CoinglassMonitor } from '../services/coinglassMonitor.js';
 
 const logger = new Logger('CoinglassDashboard');
 

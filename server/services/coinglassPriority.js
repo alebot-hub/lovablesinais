@@ -1,7 +1,7 @@
 /**
  * Serviço de priorização de endpoints para a API Coinglass
  */
-import { Logger } from './logger';
+import { Logger } from '../services/logger.js';
 
 const logger = new Logger('CoinglassPriority');
 

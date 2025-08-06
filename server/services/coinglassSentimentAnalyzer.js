@@ -1,9 +1,9 @@
 /**
  * Serviço de análise de sentimento integrado com métricas do Coinglass
  */
-import { Logger } from './logger';
-import CoinglassAnalytics from './coinglassAnalytics';
-import SocialSentimentService from './socialSentimentService';
+import { Logger } from '../services/logger.js';
+import CoinglassAnalytics from '../services/coinglassAnalytics.js';
+import SocialSentimentService from '../services/socialSentimentService.js';
 
 const logger = new Logger('CoinglassSentimentAnalyzer');
 
