@@ -141,35 +141,35 @@ class SignalScoringService {
     console.log(`   🎯 Fatores: ${strengthFactors.join(', ')}`);
     console.log(`   ✅ Confirmações: ${confirmations}`);
     
-    // Aplica ajuste baseado na força
+    // Aplica ajuste baseado na força, com intervalos mais realistas
     if (strengthLevel.level === 'EXTREME') {
-      // Sinais extremamente fortes: 85-95%
-      adjustedScore = 85 + (strengthLevel.score / 100) * 10;
+      // Sinais extremamente fortes: 80-90% (antes: 85-95%)
+      adjustedScore = 80 + (strengthLevel.score / 100) * 10;
       console.log(`🚀 SINAL EXTREMO: ${adjustedScore.toFixed(1)}%`);
     } else if (strengthLevel.level === 'VERY_STRONG') {
-      // Sinais muito fortes: 78-87%
-      adjustedScore = 78 + (strengthLevel.score / 100) * 9;
+      // Sinais muito fortes: 70-80% (antes: 78-87%)
+      adjustedScore = 70 + (strengthLevel.score / 100) * 10;
       console.log(`💪 SINAL MUITO FORTE: ${adjustedScore.toFixed(1)}%`);
     } else if (strengthLevel.level === 'STRONG') {
-      // Sinais fortes: 72-80%
-      adjustedScore = 72 + (strengthLevel.score / 100) * 8;
+      // Sinais fortes: 60-70% (antes: 72-80%)
+      adjustedScore = 60 + (strengthLevel.score / 100) * 10;
       console.log(`🔥 SINAL FORTE: ${adjustedScore.toFixed(1)}%`);
     } else if (strengthLevel.level === 'MODERATE') {
-      // Sinais moderados: 70-75%
-      adjustedScore = 70 + (strengthLevel.score / 100) * 5;
+      // Sinais moderados: 50-60% (antes: 70-75%)
+      adjustedScore = 50 + (strengthLevel.score / 100) * 10;
       console.log(`⚖️ SINAL MODERADO: ${adjustedScore.toFixed(1)}%`);
     } else {
       // Sinais fracos: abaixo do threshold
-      adjustedScore = Math.min(baseScore, 69);
+      adjustedScore = Math.min(baseScore, 49);
       console.log(`⚠️ SINAL FRACO: ${adjustedScore.toFixed(1)}% (abaixo do threshold)`);
     }
     
-    // Adiciona pequena variação aleatória para evitar valores repetidos
-    const randomVariation = (Math.random() - 0.5) * 2; // ±1%
+    // Adiciona variação aleatória mais realista
+    const randomVariation = (Math.random() - 0.5) * 3; // ±1.5% (antes: ±1%)
     adjustedScore += randomVariation;
     
-    // Garante que não ultrapasse limites
-    adjustedScore = Math.max(65, Math.min(95, adjustedScore));
+    // Limites ajustados para evitar valores extremos
+    adjustedScore = Math.max(30, Math.min(90, adjustedScore)); // Antes: 65-95%
     
     console.log(`🎲 Score final com variação: ${adjustedScore.toFixed(1)}%`);
     
