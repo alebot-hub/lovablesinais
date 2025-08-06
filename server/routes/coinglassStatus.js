@@ -7,9 +7,6 @@ import CoinglassHealthMonitor from '../services/coinglassHealthMonitor.js';
 const router = express.Router();
 const healthMonitor = new CoinglassHealthMonitor();
 
-// Inicia monitoramento ao carregar o módulo
-healthMonitor.start();
-
 /**
  * Endpoint para verificar status da API do Coinglass
  */
