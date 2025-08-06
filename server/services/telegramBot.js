@@ -514,6 +514,9 @@ class TelegramBotService {
       // Atualiza gerenciamento de risco no monitor
       this.updateRiskManagement(symbol, targetNumber);
       
+      // Atualiza stop loss
+      this.updateStopLoss(symbol, targetNumber);
+      
     } catch (error) {
       console.error(`❌ ERRO ao enviar notificação de alvo ${symbol}:`, error.message);
     }
@@ -955,6 +958,72 @@ class TelegramBotService {
       console.log(`   • Status: ${monitor.status || 'ACTIVE'}`);
       console.log(`   • Timestamp: ${monitor.timestamp}`);
     });
+  }
+
+  /**
+   * Atualiza o stop loss baseado no alvo atingido
+   */
+  updateStopLoss(symbol, targetNumber) {
+    try {
+      const monitor = this.activeMonitors.get(symbol);
+      if (!monitor) {
+        console.error(`❌ Monitor não encontrado para ${symbol}`);
+        return;
+      }
+
+      let newStopLoss = null;
+      let stopType = null;
+
+      // Determina novo stop loss baseado no alvo
+      switch (targetNumber) {
+        case 2:
+          // Alvo 2: Mover stop para entrada
+          newStopLoss = monitor.entry;
+          stopType = 'BREAKEVEN';
+          break;
+        case 3:
+          // Alvo 3: Mover stop para alvo 1
+          newStopLoss = monitor.targets[0];
+          stopType = 'TARGET_1';
+          break;
+        case 4:
+          // Alvo 4: Mover stop para alvo 2
+          newStopLoss = monitor.targets[1];
+          stopType = 'TARGET_2';
+          break;
+        case 5:
+          // Alvo 5: Mover stop para alvo 3
+          newStopLoss = monitor.targets[2];
+          stopType = 'TARGET_3';
+          break;
+        case 6:
+          // Alvo 6: Mover stop para alvo 4
+          newStopLoss = monitor.targets[3];
+          stopType = 'TARGET_4';
+          break;
+      }
+
+      if (newStopLoss !== null) {
+        // Atualiza stop loss apenas se for mais favorável
+        if (monitor.isShort) {
+          // Para SHORT: novo stop deve ser maior que o atual
+          if (newStopLoss > monitor.currentStopLoss) {
+            monitor.currentStopLoss = newStopLoss;
+            monitor.stopType = stopType;
+            console.log(`🛡️ STOP MOVIDO: ${symbol} - Novo stop: $${newStopLoss.toFixed(8)} (${stopType})`);
+          }
+        } else {
+          // Para LONG: novo stop deve ser menor que o atual
+          if (newStopLoss < monitor.currentStopLoss) {
+            monitor.currentStopLoss = newStopLoss;
+            monitor.stopType = stopType;
+            console.log(`🛡️ STOP MOVIDO: ${symbol} - Novo stop: $${newStopLoss.toFixed(8)} (${stopType})`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Erro ao atualizar stop loss para ${symbol}:`, error.message);
+    }
   }
 }
 
