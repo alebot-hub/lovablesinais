@@ -2,7 +2,7 @@
  * Serviço de dashboard para a API Coinglass
  */
 import { Logger } from '../services/logger.js';
-import { CoinglassPerformanceAnalyzer } from '../services/coinglassPerformanceAnalyzer.js';
+import CoinglassPerformanceAnalyzer from '../services/coinglassPerformanceAnalyzer.js';
 import { CoinglassDataAnalyzer } from '../services/coinglassDataAnalyzer.js';
 import { CoinglassMonitor } from '../services/coinglassMonitor.js';
 

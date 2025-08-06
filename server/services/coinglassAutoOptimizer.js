@@ -2,7 +2,7 @@
  * Serviço de otimização automática para a API Coinglass
  */
 import { Logger } from '../services/logger.js';
-import { CoinglassPerformanceAnalyzer } from '../services/coinglassPerformanceAnalyzer.js';
+import CoinglassPerformanceAnalyzer from '../services/coinglassPerformanceAnalyzer.js';
 import { CoinglassMonitor } from '../services/coinglassMonitor.js';
 import { CoinglassLogger } from '../services/coinglassLogger.js';
 
