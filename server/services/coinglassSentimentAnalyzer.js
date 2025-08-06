@@ -4,6 +4,7 @@
 import { Logger } from '../services/logger.js';
 import CoinglassAnalytics from '../services/coinglassAnalytics.js';
 import SocialSentimentService from '../services/socialSentimentService.js';
+import { OpenAIService } from '../services/openaiService.js';
 
 const logger = new Logger('CoinglassSentimentAnalyzer');
 
@@ -11,6 +12,7 @@ export default class CoinglassSentimentAnalyzer {
   constructor() {
     this.coinglassAnalytics = new CoinglassAnalytics();
     this.socialSentiment = new SocialSentimentService();
+    this.openai = new OpenAIService();
     this.cache = new Map();
     this.cacheTimeout = 30 * 60 * 1000; // 30 minutos
 
@@ -38,52 +40,64 @@ export default class CoinglassSentimentAnalyzer {
    */
   async analyzeIntegratedSentiment(symbol, interval = 'medium') {
     try {
-      // Obtém análise do Coinglass
-      const coinglassAnalysis = await this.coinglassAnalytics.analyzeSymbol(symbol);
+      const report = await this._generateBaseReport(symbol, interval);
       
-      // Obtém análise do sentimento social
-      const socialAnalysis = await this.socialSentiment.analyzeSocialSentiment();
-
-      // Calcula peso das métricas
-      const metricsWeight = this.metricsWeight;
-
-      // Normaliza as métricas (0 a 1)
-      const normalizedMetrics = {
-        fundingRate: this.normalize(coinglassAnalysis.fundingRate.magnitude),
-        longShortRatio: this.normalize(coinglassAnalysis.longShortRatio.magnitude),
-        openInterest: this.normalize(coinglassAnalysis.openInterest.change),
-        volume: this.normalize(coinglassAnalysis.volume.change),
-        social: this.normalize(socialAnalysis.overallSentiment),
-        volatility: this.normalize(coinglassAnalysis.volatility),
-        overallTrend: this.normalize(coinglassAnalysis.overallTrend)
+      // Gera análise detalhada usando OpenAI
+      const detailedAnalysis = await this.generateDetailedAnalysis(report);
+      
+      return {
+        ...report,
+        detailedAnalysis
       };
-
-      // Calcula sentimento integrado
-      const integratedSentiment = this.calculateIntegratedSentiment(normalizedMetrics, metricsWeight);
-
-      // Gera relatório
-      const report = {
-        timestamp: new Date().toISOString(),
-        symbol,
-        interval,
-        coinglassMetrics: coinglassAnalysis,
-        socialSentiment: socialAnalysis,
-        integratedSentiment,
-        insights: this.generateInsights(integratedSentiment, normalizedMetrics),
-        timeframeAnalysis: this.analyzeTimeframe(coinglassAnalysis, interval)
-      };
-
-      // Armazena no cache
-      this.cache.set(symbol, { 
-        data: report, 
-        timestamp: Date.now() 
-      });
-
-      return report;
     } catch (error) {
       logger.error(`Erro ao analisar sentimento integrado para ${symbol}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Gera o relatório básico
+   */
+  async _generateBaseReport(symbol, interval) {
+    const coinglassAnalysis = await this.coinglassAnalytics.analyzeSymbol(symbol);
+    const socialAnalysis = await this.socialSentiment.analyzeSocialSentiment();
+    
+    // Calcula peso das métricas
+    const metricsWeight = this.metricsWeight;
+
+    // Normaliza as métricas (0 a 1)
+    const normalizedMetrics = {
+      fundingRate: this.normalize(coinglassAnalysis.fundingRate.magnitude),
+      longShortRatio: this.normalize(coinglassAnalysis.longShortRatio.magnitude),
+      openInterest: this.normalize(coinglassAnalysis.openInterest.change),
+      volume: this.normalize(coinglassAnalysis.volume.change),
+      social: this.normalize(socialAnalysis.overallSentiment),
+      volatility: this.normalize(coinglassAnalysis.volatility),
+      overallTrend: this.normalize(coinglassAnalysis.overallTrend)
+    };
+
+    // Calcula sentimento integrado
+    const integratedSentiment = this.calculateIntegratedSentiment(normalizedMetrics, metricsWeight);
+
+    // Gera relatório
+    const report = {
+      timestamp: new Date().toISOString(),
+      symbol,
+      interval,
+      coinglassMetrics: coinglassAnalysis,
+      socialSentiment: socialAnalysis,
+      integratedSentiment,
+      insights: this.generateInsights(integratedSentiment, normalizedMetrics),
+      timeframeAnalysis: this.analyzeTimeframe(coinglassAnalysis, interval)
+    };
+
+    // Armazena no cache
+    this.cache.set(symbol, { 
+      data: report, 
+      timestamp: Date.now() 
+    });
+
+    return report;
   }
 
   /**
@@ -250,5 +264,65 @@ export default class CoinglassSentimentAnalyzer {
    */
   determineTrendDirection(metric) {
     // Implementar lógica para determinar direção da tendência
+  }
+
+  /**
+   * Gera uma interpretação mais detalhada usando OpenAI
+   */
+  async generateDetailedAnalysis(report) {
+    try {
+      const prompt = this.generateAnalysisPrompt(report);
+      
+      const response = await this.openai.generateAnalysis(prompt);
+      
+      return {
+        summary: response.summary,
+        recommendations: response.recommendations,
+        marketContext: response.marketContext,
+        riskAssessment: response.riskAssessment
+      };
+    } catch (error) {
+      logger.error('Erro ao gerar análise detalhada:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Gera o prompt para a análise da OpenAI
+   */
+  generateAnalysisPrompt(report) {
+    const { symbol, coinglassMetrics, socialSentiment, integratedSentiment, insights, timeframeAnalysis } = report;
+    
+    return `
+    Analise o seguinte relatório de sentimento do mercado para o símbolo ${symbol}:
+    
+    Métricas do Coinglass:
+    - Taxa de Financiamento: ${coinglassMetrics.fundingRate.magnitude} (${coinglassMetrics.fundingRate.trend})
+    - Long/Short Ratio: ${coinglassMetrics.longShortRatio.magnitude} (${coinglassMetrics.longShortRatio.trend})
+    - Interesse Aberto: ${coinglassMetrics.openInterest.change} (${coinglassMetrics.openInterest.trend})
+    - Volume: ${coinglassMetrics.volume.change} (${coinglassMetrics.volume.trend})
+    - Volatilidade: ${coinglassMetrics.volatility}
+    - Tendência Geral: ${coinglassMetrics.overallTrend}
+    
+    Sentimento Social:
+    - Twitter: ${socialSentiment.twitter}
+    - Reddit: ${socialSentiment.reddit}
+    - Google Trends: ${socialSentiment.googleTrends}
+    - Notícias: ${socialSentiment.news}
+    
+    Sentimento Integrado: ${integratedSentiment}
+    Insights: ${insights.join(', ')}
+    
+    Análise de Tendência:
+    ${JSON.stringify(timeframeAnalysis, null, 2)}
+    
+    Por favor, gere uma análise detalhada que inclua:
+    1. Um resumo conciso da situação atual do mercado
+    2. Recomendações específicas de trading
+    3. Contexto do mercado atual
+    4. Avaliação de risco
+    
+    Mantenha o tom profissional e inclua justificativas baseadas nas métricas fornecidas.
+    `;
   }
 }
