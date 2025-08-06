@@ -98,7 +98,7 @@ let analysisCount = 0;
 /**
  * Função principal de análise de sinais
  */
-async function analyzeSignals() {
+export async function analyzeSignals() {
   if (isAnalyzing) {
     console.log('⏭️ Análise já em andamento - pulando...');
     return;
