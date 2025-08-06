@@ -5,6 +5,7 @@ import { Logger } from './logger';
 import { CoinglassPerformanceAnalyzer } from './coinglassPerformanceAnalyzer';
 import { CoinglassMonitor } from './coinglassMonitor';
 import { CoinglassLogger } from './coinglassLogger';
+import CoinglassHealthMonitor from './coinglassHealthMonitor.js';
 
 const logger = new Logger('CoinglassHealthMonitor');
 
@@ -17,6 +18,7 @@ export default class CoinglassHealthMonitor {
     this.healthCheckInterval = 60 * 1000; // 1 minuto
     this.lastCheck = Date.now();
     this.healthStatus = {};
+    this.coinglassHealthMonitor = new CoinglassHealthMonitor();
   }
 
   /**
@@ -25,6 +27,7 @@ export default class CoinglassHealthMonitor {
   start() {
     this.checkHealth();
     setInterval(() => this.checkHealth(), this.healthCheckInterval);
+    this.coinglassHealthMonitor.start();
   }
 
   /**
@@ -44,12 +47,16 @@ export default class CoinglassHealthMonitor {
       // Verifica logs
       const logStats = this.logger.getLogStats();
 
+      // Verifica integração da API do Coinglass
+      const coinglassStatus = await this.coinglassHealthMonitor.checkHealth();
+
       // Gera status de saúde
       this.healthStatus = {
         timestamp: new Date().toLocaleString('pt-BR'),
         performance: this.checkPerformanceHealth(performance),
         monitoring: this.checkMonitoringHealth(monitoring),
-        logs: this.checkLogHealth(logStats)
+        logs: this.checkLogHealth(logStats),
+        coinglass: coinglassStatus
       };
 
       // Gera relatório
@@ -173,6 +180,10 @@ export default class CoinglassHealthMonitor {
       insights.push('⚠️ Problemas nos logs detectados');
     }
 
+    if (this.healthStatus.coinglass === 'error') {
+      insights.push('⚠️ Problemas na integração da API do Coinglass');
+    }
+
     return insights;
   }
 
@@ -194,6 +205,10 @@ export default class CoinglassHealthMonitor {
       recommendations.push('Ajustar configuração dos endpoints com erro');
     }
 
+    if (this.healthStatus.coinglass === 'error') {
+      recommendations.push('Verificar integração da API do Coinglass');
+    }
+
     return recommendations;
   }
 
@@ -203,7 +218,8 @@ export default class CoinglassHealthMonitor {
   async sendHealthAlerts(report) {
     if (report.status.performance.overall === 'warning' || 
         report.status.monitoring.overall === 'warning' || 
-        report.status.logs.overall === 'warning') {
+        report.status.logs.overall === 'warning' || 
+        report.status.coinglass === 'error') {
       
       const message = `
 ⚠️ Alerta de Saúde - ${report.status.timestamp}

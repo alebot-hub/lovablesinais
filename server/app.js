@@ -33,6 +33,11 @@ import BitcoinCorrelationService from './services/bitcoinCorrelationService.js';
 // Importa configurações
 import { CRYPTO_SYMBOLS, TIMEFRAMES, TRADING_CONFIG, SCHEDULE_CONFIG } from './config/constants.js';
 
+// Importa rotas
+import binanceRoutes from './routes/binance.js';
+import signalRoutes from './routes/signals.js';
+import coinglassStatus from './routes/coinglassStatus.js';
+
 // Configuração ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -534,6 +539,11 @@ app.post('/api/telegram/test', async (req, res) => {
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
+
+// Rotas
+app.use('/api/binance', binanceRoutes);
+app.use('/api/signals', signalRoutes);
+app.use('/api/coinglass', coinglassStatus);
 
 // ===== AGENDAMENTO =====
 
