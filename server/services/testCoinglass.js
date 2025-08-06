@@ -3,7 +3,7 @@
  */
 import dotenv from 'dotenv';
 import CoinglassConfigManager from './coinglassConfigManager.js';
-import { CoinglassValidator } from './coinglassValidator.js';
+import CoinglassValidator from './coinglassValidator.js';
 import { CoinglassAnalytics } from './coinglassAnalytics.js';
 import { CoinglassHealthMonitor } from './coinglassHealthMonitor.js';
 

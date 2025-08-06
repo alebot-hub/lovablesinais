@@ -3,7 +3,7 @@
  */
 import { Logger } from '../services/logger.js';
 import CoinglassPerformanceAnalyzer from '../services/coinglassPerformanceAnalyzer.js';
-import { CoinglassValidator } from '../services/coinglassValidator.js';
+import CoinglassValidator from '../services/coinglassValidator.js';
 
 const logger = new Logger('CoinglassMonitor');
 
