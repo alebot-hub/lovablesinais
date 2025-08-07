@@ -444,71 +444,34 @@ class TelegramBotService {
       const hours = Math.floor((timeToTarget % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
       const minutes = Math.floor((timeToTarget % (1000 * 60 * 60)) / (1000 * 60));
       
-      let timeText = '';
-      if (days > 0) {
-        timeText = `${days} dia${days > 1 ? 's' : ''}`;
-      } else if (hours > 0) {
-        timeText = `${hours}h ${minutes}m`;
-      } else {
-        timeText = `${minutes} minuto${minutes > 1 ? 's' : ''}`;
+      // Adiciona informação sobre o tipo de stop se foi proteção
+      let stopInfo = '';
+      if (monitor.stopType !== 'INITIAL') {
+        const stopDescriptions = {
+          'BREAKEVEN': 'no ponto de entrada',
+          'TARGET_1': 'no Alvo 1',
+          'TARGET_2': 'no Alvo 2', 
+          'TARGET_3': 'no Alvo 3',
+          'TARGET_4': 'no Alvo 4'
+        };
+        stopInfo = `\n🛡️ *Stop ativado:* ${stopDescriptions[monitor.stopType] || 'proteção de lucro'}`;
       }
-      
-      // Determina recomendação de realização baseada no alvo
-      let recommendation = '';
-      let partialPercent = '';
-      
-      if (targetNumber === 1) {
-        recommendation = 'Realize 50% da posição neste alvo';
-        partialPercent = '50%';
-      } else if (targetNumber === 2) {
-        recommendation = 'Realize 15% da posição e mova o stop para o ponto de entrada';
-        partialPercent = '15%';
-      } else if (targetNumber === 3) {
-        recommendation = 'Realize 10% da posição e mova o stop para o alvo 1';
-        partialPercent = '10%';
-      } else if (targetNumber === 4) {
-        recommendation = 'Realize 10% da posição e mova o stop para o alvo 2';
-        partialPercent = '10%';
-      } else if (targetNumber === 5) {
-        recommendation = 'Realize 10% da posição e mova o stop para o alvo 3';
-        partialPercent = '10%';
-      } else if (targetNumber === 6) {
-        recommendation = 'Realize 5% da posição restante - PARABÉNS!';
-        partialPercent = '5%';
-      }
-      
-      console.log(`🎯 ENVIANDO NOTIFICAÇÃO DE ALVO:`);
-      console.log(`   💰 Símbolo: ${symbol}`);
-      console.log(`   🎯 Alvo: ${targetNumber}`);
-      console.log(`   💰 Preço: ${this.formatPrice(targetPrice)}`);
-      console.log(`   📊 P&L sem alavancagem: ${currentPnL.toFixed(2)}%`);
-      console.log(`   📊 P&L com 15x: ${leveragedPnL.toFixed(2)}%`);
-      console.log(`   ⏱️ Tempo: ${timeText}`);
-      console.log(`   💡 Recomendação: ${recommendation}`);
-      
-      let targetEmoji = '';
-      if (targetNumber === 1) targetEmoji = '1️⃣';
-      else if (targetNumber === 2) targetEmoji = '2️⃣';
-      else if (targetNumber === 3) targetEmoji = '3️⃣';
-      else if (targetNumber === 4) targetEmoji = '4️⃣';
-      else if (targetNumber === 5) targetEmoji = '5️⃣';
-      else if (targetNumber === 6) targetEmoji = '🌕';
       
       const message = `✅ *ALVO ${targetNumber} ATINGIDO #${baseSymbol}*\n\n` +
-                     `${targetEmoji} *Alvo ${targetNumber} atingido no par #${baseSymbol}*\n` +
+                     `🔍 *Alvo ${targetNumber} atingido no par #${baseSymbol}*\n` +
                      `💰 *Lucro:* +${leveragedPnL.toFixed(2)}% (Alv. 15×)\n` +
                      `⚡️ *Posição parcial realizada*\n` +
                      `📊 *Entrada:* ${this.formatPrice(monitor.entry)}\n` +
                      `💵 *Preço do alvo:* ${this.formatPrice(targetPrice)}\n` +
-                     `⏱️ *Tempo até o alvo:* ${timeText}\n` +
-                     `⚠️ *Recomendação:* ${recommendation}\n\n` +
+                     `⏱️ *Tempo até o alvo:* ${days} dia${days > 1 ? 's' : ''} ${hours}h ${minutes}m\n` +
+                     `⚠️ *Recomendação:* ${targetNumber === 1 ? 'Realize 50% da posição neste alvo' : 'Realize 15% da posição e mova o stop para o ponto de entrada'}\n\n` +
                      `👑 *Sinais Lobo Cripto*`;
 
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
         console.log(`✅ NOTIFICAÇÃO ENVIADA: Alvo ${targetNumber} para ${symbol}`);
       } else {
-        console.log(`🎯 [SIMULADO] Alvo ${targetNumber} atingido: ${symbol} +${leveragedPnL.toFixed(2)}% - ${recommendation}`);
+        console.log(`🎯 [SIMULADO] Alvo ${targetNumber} atingido: ${symbol} +${leveragedPnL.toFixed(2)}%`);
       }
       
       // Atualiza gerenciamento de risco no monitor
@@ -600,7 +563,7 @@ class TelegramBotService {
   async sendMarketSentiment(sentiment) {
     try {
       // Determina emoji baseado no sentimento
-      let sentimentEmoji = '😐'; // Neutro por padrão
+      let sentimentEmoji = '😐';
       let sentimentText = 'Neutro';
       
       if (sentiment.overall === 'OTIMISTA') {
@@ -614,45 +577,45 @@ class TelegramBotService {
       // Calcula score geral (0-100)
       const generalScore = this.calculateGeneralSentimentScore(sentiment);
       
-      let message = `${sentimentEmoji} *ANÁLISE DE SENTIMENTO DE MERCADO*\n\n`;
-      message += `📊 *Sentimento geral:* ${sentimentText} (${generalScore.toFixed(1)}/100)\n\n`;
+      // Coleta dados do Coinglass
+      const coinglassData = sentiment.coinglassData?.metrics || {};
+      const btcFunding = coinglassData.btc?.fundingRate?.toFixed(2) || '0.00';
+      const ethFunding = coinglassData.eth?.fundingRate?.toFixed(2) || '0.00';
+      const btcLongShort = (coinglassData.btc?.longShortRatio * 100)?.toFixed(1) || '50.0';
+      const ethLongShort = (coinglassData.eth?.longShortRatio * 100)?.toFixed(1) || '50.0';
       
-      message += `⚖️ *Componentes:*\n`;
-      message += `   • Índice de Medo/Ganância: ${sentiment.fearGreedIndex || 50}/100`;
-      
-      if (sentiment.isRealFearGreed) {
-        message += ` ✅\n`;
-      } else {
-        message += `\n`;
-      }
-      
-      // Calcula componentes específicos
-      const newsScore = this.calculateNewsScore(sentiment);
-      const btcScore = this.calculateBitcoinSentimentScore(sentiment);
-      const ethScore = this.calculateEthereumSentimentScore(sentiment);
-      
-      message += `   • Análise de notícias: ${newsScore.toFixed(1)}/100\n`;
-      message += `   • Sentimento Bitcoin: ${btcScore.toFixed(1)}/100\n`;
-      message += `   • Sentimento Ethereum: ${ethScore.toFixed(1)}/100\n\n`;
-      
-      // Interpretação inteligente
-      message += `🧠 *Interpretação:*\n`;
-      const interpretation = this.generateSmartInterpretation(sentiment, generalScore);
-      interpretation.forEach(point => {
-        message += `• ${point}\n`;
-      });
-      message += '\n';
-      
-      message += `🕒 *Analisado em:* ${new Date().toLocaleString('pt-BR', { 
-        timeZone: 'America/Sao_Paulo',
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      })}\n\n`;
-      message += `👑 Sinais Lobo Cripto`;
+      // Formata a mensagem
+      let message = `📊 ANÁLISE DE SENTIMENTO DE MERCADO
+
+📊 Sentimento geral: ${sentimentEmoji} ${sentimentText} (${generalScore.toFixed(1)}/100)
+
+⚖️ Componentes:
+• Índice de Medo/Ganância: ${sentiment.fearGreedIndex || 50}/100 ${sentiment.isRealFearGreed ? '✅' : ''}
+• Análise de notícias: ${(sentiment.newsAnalysis?.score || 50).toFixed(1)}/100
+• Sentimento Bitcoin: ${(sentiment.bitcoinSentiment?.score || 50).toFixed(1)}/100
+• Sentimento Ethereum: ${(sentiment.ethereumSentiment?.score || 50).toFixed(1)}/100
+• Métricas Coinglass:
+  - BTC: FR ${btcFunding}% | LS ${btcLongShort}%
+  - ETH: FR ${ethFunding}% | LS ${ethLongShort}%
+
+🧠 Interpretação:
+• Bitcoin: ${(sentiment.bitcoinSentiment?.score || 50).toFixed(0)}/100 - ${sentiment.bitcoinSentiment?.factors?.join(', ') || 'Sem dados'}
+• Ethereum: ${(sentiment.ethereumSentiment?.score || 50).toFixed(0)}/100 - ${sentiment.ethereumSentiment?.factors?.join(', ') || 'Sem dados'}
+• Coinglass: ${sentiment.coinglassData?.insights?.join(', ') || 'Sem dados'}
+• Fatores ETH: ${sentiment.ethereumSentiment?.factors?.join(', ') || 'Sem dados'}
+• ${sentiment.altcoinSeason ? `Altcoin Season: ${sentiment.altcoinSeason.status}` : ''}
+
+🕒 Analisado em: ${new Date().toLocaleString('pt-BR', {
+  timeZone: 'America/Sao_Paulo',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit'
+})}
+
+👑 Sinais Lobo Cripto`;
 
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });

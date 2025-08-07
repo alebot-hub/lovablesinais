@@ -3,11 +3,13 @@
  */
 
 import { CRYPTO_SYMBOLS } from '../config/constants.js';
+import CoinglassSentimentAnalyzer from './coinglassSentimentAnalyzer.js';
 
 class MarketAnalysisService {
   constructor(binanceService, technicalAnalysis) {
     this.binanceService = binanceService;
     this.technicalAnalysis = technicalAnalysis;
+    this.coinglassAnalyzer = new CoinglassSentimentAnalyzer();
     this.cache = new Map();
     this.cacheTimeout = 10 * 60 * 1000; // 10 minutos
   }
@@ -19,14 +21,15 @@ class MarketAnalysisService {
     try {
       console.log('🌍 Iniciando análise de sentimento do mercado...');
 
-      const [marketData, realFearGreed, altcoinSeasonData, newsData, socialData, btcSpecificData, ethSpecificData] = await Promise.allSettled([
+      const [marketData, realFearGreed, altcoinSeasonData, newsData, socialData, btcSpecificData, ethSpecificData, coinglassData] = await Promise.allSettled([
         this.getMarketOverview(),
         this.getRealFearGreedIndex(),
         this.getAltcoinSeasonData(),
         this.getNewsAnalysis(),
         this.getSocialSentimentData(),
         this.getBitcoinSpecificSentiment(),
-        this.getEthereumSpecificSentiment()
+        this.getEthereumSpecificSentiment(),
+        this.getCoinglassSentiment()
       ]);
 
       const marketOverview = marketData.status === 'fulfilled' ? marketData.value : null;
@@ -36,13 +39,15 @@ class MarketAnalysisService {
       const socialSentiment = socialData.status === 'fulfilled' ? socialData.value : null;
       const btcSentiment = btcSpecificData.status === 'fulfilled' ? btcSpecificData.value : null;
       const ethSentiment = ethSpecificData.status === 'fulfilled' ? ethSpecificData.value : null;
+      const coinglassSentiment = coinglassData.status === 'fulfilled' ? coinglassData.value : null;
 
-      const sentiment = this.calculateSentiment(marketOverview, fearGreedData, newsAnalysis, socialSentiment, btcSentiment, ethSentiment);
+      const sentiment = this.calculateSentiment(marketOverview, fearGreedData, newsAnalysis, socialSentiment, btcSentiment, ethSentiment, coinglassSentiment);
 
       // Adiciona dados específicos ao resultado
       sentiment.bitcoinSentiment = btcSentiment || sentiment.bitcoinSentiment;
       sentiment.ethereumSentiment = ethSentiment || sentiment.ethereumSentiment;
       sentiment.altcoinSeason = altcoinSeason;
+      sentiment.coinglassData = coinglassSentiment;
 
       console.log('✅ Análise de sentimento concluída');
       return sentiment;
@@ -597,9 +602,84 @@ class MarketAnalysisService {
   }
 
   /**
+   * Obtém análise de sentimento do Coinglass
+   */
+  async getCoinglassSentiment() {
+    try {
+      console.log('📊 Obtendo análise de sentimento do Coinglass...');
+      
+      // Analisa Bitcoin e Ethereum para métricas importantes
+      const [btcSentiment, ethSentiment] = await Promise.all([
+        this.coinglassAnalyzer.analyzeIntegratedSentiment('BTC/USDT', 'medium'),
+        this.coinglassAnalyzer.analyzeIntegratedSentiment('ETH/USDT', 'medium')
+      ]);
+
+      // Extrai métricas importantes
+      const coinglassMetrics = {
+        btc: {
+          fundingRate: btcSentiment.coinglassMetrics.fundingRate.magnitude,
+          longShortRatio: btcSentiment.coinglassMetrics.longShortRatio.magnitude,
+          openInterest: btcSentiment.coinglassMetrics.openInterest.change,
+          volume: btcSentiment.coinglassMetrics.volume.change,
+          socialSentiment: btcSentiment.socialSentiment.overallSentiment,
+          volatility: btcSentiment.coinglassMetrics.volatility
+        },
+        eth: {
+          fundingRate: ethSentiment.coinglassMetrics.fundingRate.magnitude,
+          longShortRatio: ethSentiment.coinglassMetrics.longShortRatio.magnitude,
+          openInterest: ethSentiment.coinglassMetrics.openInterest.change,
+          volume: ethSentiment.coinglassMetrics.volume.change,
+          socialSentiment: ethSentiment.socialSentiment.overallSentiment,
+          volatility: ethSentiment.coinglassMetrics.volatility
+        }
+      };
+
+      console.log(`✅ Análise Coinglass: BTC ${coinglassMetrics.btc.fundingRate.toFixed(2)}, ETH ${coinglassMetrics.eth.fundingRate.toFixed(2)}`);
+      
+      return {
+        metrics: coinglassMetrics,
+        insights: this.generateCoinglassInsights(coinglassMetrics),
+        isRealData: true,
+        timestamp: Date.now()
+      };
+    } catch (error) {
+      console.error('❌ Erro na análise Coinglass:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Gera insights baseados nas métricas do Coinglass
+   */
+  generateCoinglassInsights(metrics) {
+    const insights = [];
+
+    // Análise de taxa de financiamento
+    if (metrics.btc.fundingRate > 0.01 || metrics.eth.fundingRate > 0.01) {
+      insights.push('📈 Taxa de financiamento positiva indicando pressão compradora');
+    } else if (metrics.btc.fundingRate < -0.01 || metrics.eth.fundingRate < -0.01) {
+      insights.push('📉 Taxa de financiamento negativa indicando pressão vendedora');
+    }
+
+    // Análise de posição do mercado
+    if (metrics.btc.longShortRatio > 0.7 || metrics.eth.longShortRatio > 0.7) {
+      insights.push('📈 Posição longa dominante no mercado');
+    } else if (metrics.btc.longShortRatio < 0.3 || metrics.eth.longShortRatio < 0.3) {
+      insights.push('📉 Posição short dominante no mercado');
+    }
+
+    // Análise de volume e interesse aberto
+    if (metrics.btc.volume > 1.5 || metrics.eth.volume > 1.5) {
+      insights.push('⚡️ Alto volume de negociação indicando força no mercado');
+    }
+
+    return insights;
+  }
+
+  /**
    * Calcula sentimento final
    */
-  calculateSentiment(marketOverview, fearGreedData, newsAnalysis, socialSentiment, btcSentiment, ethSentiment) {
+  calculateSentiment(marketOverview, fearGreedData, newsAnalysis, socialSentiment, btcSentiment, ethSentiment, coinglassData) {
     // Usa dados reais quando disponíveis
     const fearGreedIndex = fearGreedData?.index || 50;
     const isRealFearGreed = fearGreedData?.isReal || false;
@@ -611,33 +691,45 @@ class MarketAnalysisService {
     let volatility = marketOverview?.volatility || 2;
     let volumeVsAverage = marketOverview?.volumeVsAverage || 1;
 
-    // Determina sentimento geral baseado em múltiplos fatores
+    // Inicializa score com base em 50
     let sentimentScore = 50;
+
+    // Peso das métricas
+    const weights = {
+      fearGreed: 0.25,
+      marketOverview: 0.20,
+      news: 0.15,
+      social: 0.10,
+      coinglass: 0.30  // Aumentando peso do Coinglass
+    };
+
+    // Calcula contribuição do Fear & Greed
+    sentimentScore += (fearGreedIndex - 50) * weights.fearGreed;
     
-    // Fear & Greed (peso 30%)
-    sentimentScore += (fearGreedIndex - 50) * 0.3;
+    // Calcula contribuição do overview do mercado
+    const bullishRatio = assetsUp / (assetsUp + assetsDown);
+    sentimentScore += (bullishRatio - 0.5) * 20 * weights.marketOverview;
     
-    // Bitcoin específico (peso 25%)
-    if (btcSentiment?.score) {
-      sentimentScore += (btcSentiment.score - 50) * 0.25;
+    // Calcula contribuição das notícias
+    sentimentScore += (newsAnalysis?.score - 50) * weights.news;
+    
+    // Calcula contribuição do sentimento social
+    sentimentScore += (socialSentiment?.overallSentiment - 50) * weights.social;
+    
+    // Calcula contribuição do Coinglass
+    if (coinglassData?.metrics) {
+      // Considera taxa de financiamento
+      sentimentScore += (coinglassData.metrics.btc.fundingRate + coinglassData.metrics.eth.fundingRate) * 50 * weights.coinglass;
+      
+      // Considera posição do mercado
+      sentimentScore += (coinglassData.metrics.btc.longShortRatio + coinglassData.metrics.eth.longShortRatio - 1) * 50 * weights.coinglass;
+      
+      // Considera volume
+      sentimentScore += (coinglassData.metrics.btc.volume + coinglassData.metrics.eth.volume - 2) * 25 * weights.coinglass;
     }
     
-    // Ethereum específico (peso 20%)
-    if (ethSentiment?.score) {
-      sentimentScore += (ethSentiment.score - 50) * 0.2;
-    }
-    
-    // Notícias (peso 15%)
-    if (newsAnalysis?.score) {
-      sentimentScore += (newsAnalysis.score - 50) * 0.15;
-    }
-    
-    // Proporção de ativos (peso 10%)
-    const totalAssets = assetsUp + assetsDown;
-    if (totalAssets > 0) {
-      const bullishRatio = assetsUp / totalAssets;
-      sentimentScore += (bullishRatio - 0.5) * 20;
-    }
+    // Normaliza entre 0 e 100
+    sentimentScore = Math.max(0, Math.min(100, sentimentScore));
     
     // Determina classificação
     if (sentimentScore > 60) {
@@ -659,7 +751,8 @@ class MarketAnalysisService {
       bitcoinSentiment: btcSentiment,
       ethereumSentiment: ethSentiment,
       newsAnalysis: newsAnalysis,
-      socialSentiment: socialSentiment
+      socialSentiment: socialSentiment,
+      coinglassData: coinglassData
     };
   }
 
@@ -738,7 +831,8 @@ class MarketAnalysisService {
       volumeVsAverage: 1,
       bitcoinSentiment: { score: 50, factors: [], isRealData: false },
       ethereumSentiment: { score: 50, factors: [], isRealData: false },
-      newsAnalysis: { score: 50, isRealData: false }
+      newsAnalysis: { score: 50, isRealData: false },
+      coinglassData: null
     };
   }
 }
