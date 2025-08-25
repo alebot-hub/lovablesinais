@@ -4,7 +4,9 @@
 
 import technicalindicators from 'technicalindicators';
 import { INDICATORS_CONFIG } from '../config/constants.js';
-import logger from './logger.js';
+import { Logger } from './logger.js';
+
+const logger = new Logger('IndicatorOptimizer');
 
 class IndicatorOptimizer {
   constructor() {
@@ -40,6 +42,7 @@ class IndicatorOptimizer {
       };
 
       this.optimizedParams.set(cacheKey, optimized);
+      logger.info(`Parâmetros otimizados para ${cacheKey}`);
       return optimized;
     } catch (error) {
       logger.error('Erro na otimização:', error);
