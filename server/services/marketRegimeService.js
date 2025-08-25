@@ -2,10 +2,12 @@
  * Serviço para identificação do regime de mercado
  */
 
+import technicalAnalysis from './technicalAnalysis.js';
+
 class MarketRegimeService {
-  constructor(binanceService, technicalAnalysis) {
+  constructor(binanceService) {
     this.binanceService = binanceService;
-    this.technicalAnalysis = technicalAnalysis;
+    this.technicalAnalysis = technicalAnalysis; // Usando a instância importada diretamente
     this.regime = 'NORMAL'; // BULL, BEAR, VOLATILE, NORMAL
     this.lastUpdate = null;
   }
@@ -66,19 +68,29 @@ class MarketRegimeService {
       // Usando getOHLCVData em vez de getCandles
       const ohlcvData = await this.binanceService.getOHLCVData('BTC/USDT', timeframe, 200);
       
-      // Extrai os preços de fechamento do OHLCV
-      const closes = ohlcvData.close || [];
+      if (!ohlcvData || !ohlcvData.close || ohlcvData.close.length === 0) {
+        throw new Error('Dados de OHLCV vazios ou inválidos');
+      }
+      
+      // Prepara os dados no formato esperado
+      const formattedData = {
+        open: ohlcvData.open,
+        high: ohlcvData.high,
+        low: ohlcvData.low,
+        close: ohlcvData.close,
+        volume: ohlcvData.volume || Array(ohlcvData.close.length).fill(0)
+      };
       
       // Calcula indicadores - usando calculateMA em vez de calculateSMA
-      const rsi = this.technicalAnalysis.calculateRSI({ close: closes }, 14);
-      const ma200 = this.technicalAnalysis.calculateMA(closes, 200);
+      const rsi = this.technicalAnalysis.calculateRSI(formattedData, 14);
+      const ma200 = this.technicalAnalysis.calculateMA(ohlcvData.close, 200);
       
       // Cálculo simplificado de volatilidade
-      const returns = closes.slice(1).map((c, i) => (c - closes[i]) / closes[i]);
+      const returns = ohlcvData.close.slice(1).map((c, i) => (c - ohlcvData.close[i]) / ohlcvData.close[i]);
       const volatility = returns.length > 0 ? 
         Math.sqrt(returns.reduce((a, b) => a + b * b, 0) / returns.length) : 0;
       
-      const lastClose = closes[closes.length-1] || 0;
+      const lastClose = ohlcvData.close[ohlcvData.close.length-1] || 0;
       
       // Se ma200 for um array, pega o último valor, senão usa o valor direto
       const lastMA200 = Array.isArray(ma200) ? ma200[ma200.length-1] : ma200;

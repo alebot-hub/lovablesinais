@@ -2,10 +2,12 @@
  * Serviço de análise de correlação com Bitcoin
  */
 
+import technicalAnalysis from './technicalAnalysis.js';
+
 class BitcoinCorrelationService {
-  constructor(binanceService, technicalAnalysis) {
+  constructor(binanceService) {
     this.binanceService = binanceService;
-    this.technicalAnalysis = technicalAnalysis;
+    this.technicalAnalysis = technicalAnalysis; // Usando a instância importada diretamente
     this.btcCache = {
       data: null,
       trend: null,
@@ -45,10 +47,19 @@ class BitcoinCorrelationService {
         return { trend: 'NEUTRAL', strength: 0, price: 0, cached: false };
       }
 
-      // Análise técnica do Bitcoin
-      const btcIndicators = await this.technicalAnalysis.calculateIndicators(btcData);
+      // Prepara dados no formato esperado
+      const formattedData = {
+        open: btcData.open,
+        high: btcData.high,
+        low: btcData.low,
+        close: btcData.close,
+        volume: btcData.volume || Array(btcData.close.length).fill(0)
+      };
+
+      // Calcula indicadores técnicos
+      const btcIndicators = await this.technicalAnalysis.calculateIndicators(formattedData, 'BTC/USDT', '1h');
       
-      // Garante que detectTrend existe antes de chamar
+      // Verifica se o método detectTrend existe
       if (typeof this.technicalAnalysis.detectTrend === 'function') {
         const btcTrend = this.technicalAnalysis.detectTrend(btcIndicators);
         const btcStrength = this.calculateTrendStrength(btcIndicators, btcData);
@@ -71,10 +82,10 @@ class BitcoinCorrelationService {
           cached: false
         };
       } else {
-        console.error('❌ Método detectTrend não encontrado no serviço de análise técnica');
+        console.error('❌ Erro: Método detectTrend não encontrado no serviço de análise técnica');
         return { trend: 'NEUTRAL', strength: 0, price: btcData.close[btcData.close.length - 1], cached: false };
       }
-
+      
     } catch (error) {
       console.error('❌ Erro ao obter tendência do Bitcoin:', error.message);
       return { trend: 'NEUTRAL', strength: 0, price: 0, cached: false };
