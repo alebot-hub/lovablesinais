@@ -4,7 +4,7 @@
 import { Logger } from '../services/logger.js';
 import CoinglassAnalytics from '../services/coinglassAnalytics.js';
 import SocialSentimentService from '../services/socialSentimentService.js';
-import { OpenAIService } from '../services/openaiService.js';
+import OpenAIService from '../services/openaiService.js';
 
 const logger = new Logger('CoinglassSentimentAnalyzer');
 
