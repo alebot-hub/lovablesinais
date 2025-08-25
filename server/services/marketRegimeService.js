@@ -28,42 +28,44 @@ class MarketRegimeService {
       // Análise de tendência e volatilidade
       let regimeScores = { BULL: 0, BEAR: 0, VOLATILE: 0, NORMAL: 0 };
       
-      // Se o BTC está claramente em tendência, aumenta o peso
-      const isStrongUptrend = btcDaily.trend === 'UP' && btcDaily.rsi > 60 && btcDaily.price > btcDaily.ma200 * 1.05;
-      const isStrongDowntrend = btcDaily.trend === 'DOWN' && btcDaily.rsi < 40 && btcDaily.price < btcDaily.ma200 * 0.95;
+      // Ajuste nos limiares para refletir melhor o mercado em alta
+      const isStrongUptrend = btcDaily.trend === 'UP' && btcDaily.rsi > 55; // Reduzido de 60 para 55
+      const isPriceAboveMA = btcDaily.price > btcDaily.ma200 * 1.03; // Reduzido de 5% para 3% acima da MA200
+      const isStrongDowntrend = btcDaily.trend === 'DOWN' && btcDaily.rsi < 45;
       
-      // Tendência de alta
+      // Tendência de alta - mais sensível
       if (isStrongUptrend) {
-        regimeScores.BULL += 3; // Peso maior para tendências fortes
-      } else if (btcDaily.trend === 'UP' && btcDaily.rsi > 55) {
-        regimeScores.BULL += 2;
+        regimeScores.BULL += 2; // Peso maior para tendências fortes
+        if (isPriceAboveMA) regimeScores.BULL += 1; // Adiciona ponto extra se estiver acima da MA200
+      } else if (btcDaily.trend === 'UP' && btcDaily.rsi > 50) { // Reduzido de 55 para 50
+        regimeScores.BULL += 1;
       }
       
-      // Tendência de baixa
+      // Tendência de baixa - mantido mais conservador
       if (isStrongDowntrend) {
-        regimeScores.BEAR += 3; // Peso maior para tendências fortes
-      } else if (btcDaily.trend === 'DOWN' && btcDaily.rsi < 45) {
         regimeScores.BEAR += 2;
+      } else if (btcDaily.trend === 'DOWN' && btcDaily.rsi < 45) {
+        regimeScores.BEAR += 1;
       }
       
       // Mercado volátil - apenas se não houver tendência clara
       const hasClearTrend = isStrongUptrend || isStrongDowntrend;
       if (!hasClearTrend) {
-        if (btcDaily.volatility > 0.03) regimeScores.VOLATILE += 2;
-        if (fearGreed >= 80 || fearGreed <= 20) regimeScores.VOLATILE += 1;
+        if (btcDaily.volatility > 0.02) regimeScores.VOLATILE += 1; // Reduzido o limiar de volatilidade
+        if (fearGreed >= 70 || fearGreed <= 30) regimeScores.VOLATILE += 1; // Ajustado os limiares de medo/ganância
       }
 
       // Se houver uma tendência clara, reduz a chance de ser classificado como NORMAL
-      if (hasClearTrend) {
-        regimeScores.NORMAL = -1; // Torna menos provável
+      if (hasClearTrend || btcDaily.price > btcDaily.ma200 * 1.03) {
+        regimeScores.NORMAL = -1;
       }
 
       // Determina o regime com maior pontuação
       let newRegime = 'NORMAL';
       let maxScore = Math.max(...Object.values(regimeScores));
       
-      // Só muda para um novo regime se a pontuação for pelo menos 2
-      if (maxScore >= 2) {
+      // Só muda para um novo regime se a pontuação for pelo menos 1
+      if (maxScore >= 1) {
         newRegime = Object.entries(regimeScores).find(([_, v]) => v === maxScore)[0];
       }
 
@@ -73,9 +75,11 @@ class MarketRegimeService {
         selected: newRegime,
         btcTrend: btcDaily.trend,
         rsi: btcDaily.rsi,
-        priceVsMA: (btcDaily.price / btcDaily.ma200 - 1) * 100 + '%',
+        priceVsMA: ((btcDaily.price / btcDaily.ma200 - 1) * 100).toFixed(2) + '%',
         volatility: btcDaily.volatility,
-        fearGreed
+        fearGreed,
+        ma200: btcDaily.ma200,
+        currentPrice: btcDaily.price
       });
 
       this.regime = newRegime;
@@ -87,7 +91,8 @@ class MarketRegimeService {
         rsi: btcDaily.rsi,
         volatility: btcDaily.volatility,
         fearGreedIndex: fearGreed,
-        btcDominance
+        btcDominance,
+        scores: regimeScores // Incluindo scores no retorno para análise
       };
       
     } catch (error) {

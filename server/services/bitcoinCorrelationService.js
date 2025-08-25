@@ -13,7 +13,7 @@ class BitcoinCorrelationService {
       trend: null,
       strength: 0,
       timestamp: null,
-      cacheTimeout: 15 * 60 * 1000 // 15 minutos
+      cacheTimeout: 5 * 60 * 1000 // 5 minutos
     };
   }
 
@@ -24,10 +24,10 @@ class BitcoinCorrelationService {
     try {
       const now = Date.now();
       
-      // Usa cache se ainda válido
+      // Usa cache se ainda válido (reduzido para 5 minutos para atualizações mais frequentes)
       if (this.btcCache.data && 
           this.btcCache.timestamp && 
-          (now - this.btcCache.timestamp) < this.btcCache.cacheTimeout) {
+          (now - this.btcCache.timestamp) < (5 * 60 * 1000)) {
         return {
           trend: this.btcCache.trend,
           strength: this.btcCache.strength,
@@ -38,8 +38,8 @@ class BitcoinCorrelationService {
 
       console.log('₿ Atualizando análise do Bitcoin...');
       
-      // Obtém mais dados para análise
-      const btcData = await this.binanceService.getOHLCVData('BTC/USDT', '1h', 500);
+      // Obtém mais dados para análise (aumentado para 300 velas)
+      const btcData = await this.binanceService.getOHLCVData('BTC/USDT', '1h', 300);
       
       if (!btcData?.close?.length) {
         console.log('⚠️ Dados insuficientes do Bitcoin');
@@ -54,6 +54,7 @@ class BitcoinCorrelationService {
         volume: btcData.volume || Array(btcData.close.length).fill(1)
       };
       
+      // Calcula indicadores com parâmetros otimizados
       const btcIndicators = await this.technicalAnalysis.calculateIndicators(formattedData, 'BTC/USDT', '1h');
       
       if (typeof this.technicalAnalysis.detectTrend === 'function') {
@@ -61,17 +62,33 @@ class BitcoinCorrelationService {
         let btcStrength = this.calculateTrendStrength(btcIndicators, btcData);
         
         // Ajuste para evitar neutralidade excessiva
-        if (btcStrength > 40) {
-          // Se a tendência for clara, força um mínimo de 60% de confiança
-          btcStrength = Math.max(btcStrength, 60);
+        if (btcTrend === 'NEUTRAL' && btcStrength > 40) {
+          // Se está perto de uma tendência, força uma direção baseada no preço
+          const lastPrice = btcData.close[btcData.close.length - 1];
+          const ma200 = btcIndicators.ma200;
+          
+          if (lastPrice > ma200 * 1.02) { // 2% acima da MA200
+            btcTrend = 'BULLISH';
+            btcStrength = Math.max(btcStrength, 65); // Força mínima de 65
+          } else if (lastPrice < ma200 * 0.98) { // 2% abaixo da MA200
+            btcTrend = 'BEARISH';
+            btcStrength = Math.max(btcStrength, 65);
+          }
         }
         
+        // Se a força for muito baixa, considera como neutro
+        if (btcStrength < 40) {
+          btcTrend = 'NEUTRAL';
+          btcStrength = 0;
+        }
+        
+        // Atualiza cache
         this.btcCache = {
           data: btcData,
           trend: btcTrend,
           strength: btcStrength,
           timestamp: now,
-          cacheTimeout: this.btcCache.cacheTimeout
+          cacheTimeout: 5 * 60 * 1000 // 5 minutos
         };
 
         console.log(`₿ Bitcoin: ${btcTrend} (força: ${btcStrength}) - $${btcData.close[btcData.close.length - 1].toFixed(2)}`);
@@ -80,14 +97,19 @@ class BitcoinCorrelationService {
           trend: btcTrend,
           strength: btcStrength,
           price: btcData.close[btcData.close.length - 1],
-          cached: false
+          cached: false,
+          indicators: { // Para debug
+            rsi: btcIndicators.rsi,
+            ma200: btcIndicators.ma200,
+            lastPrice: btcData.close[btcData.close.length - 1]
+          }
         };
       }
       
       return { trend: 'NEUTRAL', strength: 0, price: btcData.close[btcData.close.length - 1], cached: false };
       
     } catch (error) {
-      console.error('❌ Erro ao obter tendência do Bitcoin:', error.message);
+      console.error('❌ Erro ao obter tendência do Bitcoin:', error);
       return { trend: 'NEUTRAL', strength: 0, price: 0, cached: false };
     }
   }
@@ -375,7 +397,7 @@ class BitcoinCorrelationService {
       trend: null,
       strength: 0,
       timestamp: null,
-      cacheTimeout: 15 * 60 * 1000
+      cacheTimeout: 5 * 60 * 1000 // 5 minutos
     };
     console.log('🗑️ Cache do Bitcoin limpo');
   }
