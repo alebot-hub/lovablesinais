@@ -69,9 +69,9 @@ class MarketRegimeService {
       // Extrai os preços de fechamento do OHLCV
       const closes = ohlcvData.close || [];
       
-      // Calcula indicadores
+      // Calcula indicadores - usando calculateMA em vez de calculateSMA
       const rsi = this.technicalAnalysis.calculateRSI({ close: closes }, 14);
-      const ma200 = this.technicalAnalysis.calculateSMA(closes, 200);
+      const ma200 = this.technicalAnalysis.calculateMA(closes, 200);
       
       // Cálculo simplificado de volatilidade
       const returns = closes.slice(1).map((c, i) => (c - closes[i]) / closes[i]);
@@ -79,14 +79,16 @@ class MarketRegimeService {
         Math.sqrt(returns.reduce((a, b) => a + b * b, 0) / returns.length) : 0;
       
       const lastClose = closes[closes.length-1] || 0;
-      const lastMA200 = ma200[ma200.length-1] || 0;
+      
+      // Se ma200 for um array, pega o último valor, senão usa o valor direto
+      const lastMA200 = Array.isArray(ma200) ? ma200[ma200.length-1] : ma200;
       
       return {
         price: lastClose,
         rsi: rsi || 50, // Valor padrão se RSI não puder ser calculado
-        ma200: lastMA200,
+        ma200: lastMA200 || 0,
         volatility: volatility || 0,
-        trend: lastMA200 === 0 ? 'NEUTRAL' : 
+        trend: !lastMA200 ? 'NEUTRAL' : 
                lastClose > lastMA200 * 1.02 ? 'UP' : 
                lastClose < lastMA200 * 0.98 ? 'DOWN' : 'NEUTRAL'
       };
