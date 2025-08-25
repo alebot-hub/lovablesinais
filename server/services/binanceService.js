@@ -147,14 +147,21 @@ class BinanceService {
         throw new Error(`Nenhum dado recebido para ${symbol}`);
       }
       
+      // Função auxiliar para converter valores numéricos de forma segura
+      const safeParseFloat = (value) => {
+        if (value === null || value === undefined) return 0;
+        const num = parseFloat(value);
+        return isNaN(num) ? 0 : num;
+      };
+      
       // Converte formato da resposta para o formato esperado e garante a ordem correta
       const formattedCandles = candles.map(candle => ({
         timestamp: parseInt(candle[0]),
-        open: parseFloat(candle[1]),
-        high: parseFloat(candle[2]),
-        low: parseFloat(candle[3]),
-        close: parseFloat(candle[4]),
-        volume: parseFloat(candle[5])
+        open: safeParseFloat(candle[1]),
+        high: safeParseFloat(candle[2]),
+        low: safeParseFloat(candle[3]),
+        close: safeParseFloat(candle[4]),
+        volume: safeParseFloat(candle[5])
       }));
       
       // Ordena por timestamp (mais antigo primeiro)
@@ -182,12 +189,12 @@ class BinanceService {
       // Validação dos dados
       const firstPrice = result.close[0];
       const lastPrice = result.close[result.close.length - 1];
-      const priceChange = ((lastPrice - firstPrice) / firstPrice) * 100;
+      const priceChange = firstPrice > 0 ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0;
       
       console.log(`📊 ${symbol} ${timeframe}:`);
       console.log(`   📅 Período: ${new Date(result.timestamp[0]).toISOString()} até ${new Date(result.timestamp[result.timestamp.length - 1]).toISOString()}`);
-      console.log(`   💰 Primeiro preço: $${firstPrice.toFixed(2)}`);
-      console.log(`   💰 Último preço: $${lastPrice.toFixed(2)}`);
+      console.log(`   💰 Primeiro preço: $${firstPrice.toFixed(8)}`);
+      console.log(`   💰 Último preço: $${lastPrice.toFixed(8)}`);
       console.log(`   📈 Variação: ${priceChange > 0 ? '+' : ''}${priceChange.toFixed(2)}%`);
       console.log(`   📊 Total candles: ${result.close.length}`);
       
@@ -198,31 +205,36 @@ class BinanceService {
       if (symbol.includes('BTC')) {
         // Bitcoin: $1k - $1M
         expectedRange = { min: 1000, max: 1000000 };
-        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
-          isValidPrice = false;
-        }
       } else if (symbol.includes('ETH')) {
         // Ethereum: $100 - $100k
         expectedRange = { min: 100, max: 100000 };
-        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
-          isValidPrice = false;
-        }
+      } else if (symbol.includes('MEME') || symbol.includes('PEPE') || symbol.includes('BONK') || symbol.includes('NOT')) {
+        // Meme tokens e NOT: $0.000001 - $10
+        expectedRange = { min: 0.000001, max: 10 };
       } else {
         // Outros ativos: $0.0001 - $100k
         expectedRange = { min: 0.0001, max: 100000 };
-        if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
-          isValidPrice = false;
-        }
       }
       
-      if (!isValidPrice) {
-        console.warn(`⚠️ Preço fora do intervalo esperado para ${symbol}: $${lastPrice.toFixed(2)} (esperado: $${expectedRange.min} - $${expectedRange.max})`);
+      if (lastPrice < expectedRange.min || lastPrice > expectedRange.max) {
+        console.warn(`⚠️ Preço fora do intervalo esperado para ${symbol}: $${lastPrice.toFixed(8)} (esperado: $${expectedRange.min} - $${expectedRange.max})`);
+        console.warn(`   Primeiros 5 preços:`, result.close.slice(0, 5).map(p => p.toFixed(8)));
+        
+        // Tenta uma abordagem alternativa para obter os preços
+        const ticker = await this.getCurrentTicker(symbol);
+        if (ticker && ticker.last > 0) {
+          console.log(`   💡 Preço atual do ticker: $${ticker.last}`);
+          // Atualiza o último preço com o valor do ticker
+          result.close[result.close.length - 1] = ticker.last;
+          lastPrice = ticker.last;
+        }
       }
       
       return result;
       
     } catch (error) {
       console.error(`❌ Erro ao executar request OHLCV para ${symbol} ${timeframe}:`, error.message);
+      console.error('Stack:', error.stack);
       throw error;
     }
   }
