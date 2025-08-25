@@ -29,6 +29,7 @@ import AlertSystemService from './services/alertSystem.js';
 import MacroEconomicService from './services/macroEconomicService.js';
 import SocialSentimentService from './services/socialSentimentService.js';
 import BitcoinCorrelationService from './services/bitcoinCorrelationService.js';
+import MarketRegimeService from './services/marketRegimeService.js';
 
 // Importa configurações
 import { CRYPTO_SYMBOLS, TIMEFRAMES, TRADING_CONFIG, SCHEDULE_CONFIG } from './config/constants.js';
@@ -59,6 +60,7 @@ const alertSystem = new AlertSystemService(telegramBot);
 const macroEconomic = new MacroEconomicService();
 const socialSentiment = new SocialSentimentService();
 const bitcoinCorrelation = new BitcoinCorrelationService(binanceService, technicalAnalysis);
+const marketRegimeService = new MarketRegimeService(binanceService, technicalAnalysis);
 
 // Conecta adaptive scoring ao signal scoring
 signalScoring.adaptiveScoring = adaptiveScoring;
@@ -89,6 +91,7 @@ app.alertSystem = alertSystem;
 app.macroEconomic = macroEconomic;
 app.socialSentiment = socialSentiment;
 app.bitcoinCorrelation = bitcoinCorrelation;
+app.marketRegimeService = marketRegimeService;
 
 // Estado global
 let isAnalyzing = false;
@@ -295,7 +298,7 @@ async function processBestSignal(signal) {
     }
 
     // Envia sinal
-    const sendResult = await telegramBot.sendTradingSignal(signalData, chartData);
+    const sendResult = await sendSignalWithRegime(signalData, marketRegimeService.getCurrentRegime());
     console.log(`📤 Resultado do envio para ${signal.symbol}: ${sendResult ? 'SUCESSO' : 'FALHA'}`);
 
     if (sendResult) {
@@ -327,6 +330,18 @@ async function processBestSignal(signal) {
     
     // Remove monitor em caso de erro
     telegramBot.removeMonitor(signal.symbol, 'ERROR');
+  }
+}
+
+/**
+ * Envia sinal com o regime de mercado atual
+ */
+async function sendSignalWithRegime(signal, regime) {
+  try {
+    return await telegramBot.sendTradingSignal(signal, regime);
+  } catch (error) {
+    console.error('Erro ao enviar sinal com regime:', error);
+    return false;
   }
 }
 
@@ -417,7 +432,7 @@ app.get('/api/status', (req, res) => {
       analysisCount: analysisCount,
       machineLearning: machineLearning.getTrainingStats(),
       adaptiveStats: {
-        marketRegime: adaptiveScoring.marketRegime,
+        marketRegime: marketRegimeService.getCurrentRegime(),
         blacklistedSymbols: adaptiveScoring.getBlacklistedSymbols().length,
         indicatorPerformance: Object.keys(adaptiveScoring.getIndicatorPerformanceReport()).length
       }
@@ -576,6 +591,24 @@ setInterval(() => {
 
 // ===== INICIALIZAÇÃO =====
 
+async function initializeMarketRegime() {
+  try {
+    console.log('🌐 Inicializando serviço de regime de mercado...');
+    const regime = await marketRegimeService.identifyMarketRegime();
+    console.log(`✅ Regime de mercado inicial: ${regime}`);
+    
+    // Atualiza o regime a cada hora
+    setInterval(async () => {
+      await marketRegimeService.identifyMarketRegime();
+    }, 60 * 60 * 1000); // A cada hora
+    
+    return regime;
+  } catch (error) {
+    console.error('❌ Erro ao inicializar regime de mercado:', error);
+    return 'NORMAL';
+  }
+}
+
 async function startBot() {
   try {
     console.log('\n🚀 ===== INICIANDO BOT LOBO CRIPTO =====');
@@ -598,6 +631,8 @@ async function startBot() {
     console.log(`📊 Monitorando ${CRYPTO_SYMBOLS.length} símbolos`);
     console.log(`⏰ Análise automática a cada 2 horas`);
     console.log(`🎯 Threshold mínimo: ${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY}%`);
+    
+    await initializeMarketRegime();
     
     // Executa primeira análise após 30 segundos
     setTimeout(() => {

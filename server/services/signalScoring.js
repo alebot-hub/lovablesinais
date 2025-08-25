@@ -12,8 +12,8 @@ class SignalScoringService {
     let score = 0;
     const details = {};
     let isMLDriven = false;
-    let confirmations = 0; // Contador de confirmações
-    let strengthFactors = []; // Array para rastrear força dos fatores
+    let confirmations = 0;
+    let strengthFactors = [];
 
     try {
       console.log('🔍 Calculando score com dados:', {
@@ -29,6 +29,7 @@ class SignalScoringService {
         console.error('❌ Dados ou indicadores ausentes');
         return { totalScore: 0, details: {}, isValid: false, isMLDriven: false };
       }
+
       // Pontuação dos indicadores técnicos
       const indicatorScore = this.scoreIndicators(indicators);
       score += indicatorScore.total;
@@ -54,7 +55,7 @@ class SignalScoringService {
       if (volumeScore > 25) strengthFactors.push('VOLUME_EXTREME');
       console.log('🔊 Score volume:', volumeScore);
 
-      // Aplicar filtros de qualidade
+      // Aplica filtros de qualidade
       const qualityCheck = this.applyQualityFilters(data, indicators, patterns, confirmations);
       if (!qualityCheck.passed) {
         console.log(`❌ Falhou nos filtros de qualidade: ${qualityCheck.reason}`);
@@ -63,7 +64,7 @@ class SignalScoringService {
       
       // Bônus por múltiplas confirmações
       if (confirmations >= TRADING_CONFIG.QUALITY_FILTERS.MIN_CONFIRMATIONS) {
-        const confirmationBonus = (confirmations - 2) * 5; // +5% por confirmação extra
+        const confirmationBonus = (confirmations - 2) * 5;
         score += confirmationBonus;
         details.confirmationBonus = confirmationBonus;
         console.log(`✅ Bônus por ${confirmations} confirmações: +${confirmationBonus}`);
@@ -77,7 +78,6 @@ class SignalScoringService {
       console.log('🤖 Score ML:', mlScore);
       
       // Verifica se o sinal é principalmente baseado em ML
-      // Se ML contribui com mais de 40% da pontuação total, considera ML-driven
       if (mlScore > score * 0.4 && mlProbability > 0.7) {
         isMLDriven = true;
       }
@@ -96,33 +96,56 @@ class SignalScoringService {
         };
         console.log(`₿ Score Bitcoin: ${btcScore} (${bitcoinCorrelation.alignment})`);
       }
+
       // Aplica lógica de priorização de tendência
       const trendAdjustment = this.applyTrendPriority(score, indicators, patterns, marketTrend, bitcoinCorrelation);
       score = trendAdjustment.adjustedScore;
-      details.trendAdjustment = trendAdjustment.details;
-      console.log('📈 Score após ajuste de tendência:', score);
+      details.trendAdjustment = trendAdjustment;
+      
+      if (trendAdjustment.strengthFactor) {
+        strengthFactors.push(trendAdjustment.strengthFactor);
+      }
 
-      // Limita pontuação máxima
-      score = Math.min(Math.max(score, 0), 100);
-      console.log('🎯 Score final:', score);
-
-      // Aplica variação realística baseada na força dos fatores
-      const realisticScore = this.applyRealisticVariation(score, strengthFactors, confirmations, indicators, patterns);
-      console.log('🎲 Score realístico:', realisticScore);
-
-      return {
-        totalScore: realisticScore,
-        details,
+      // Calcula a probabilidade final
+      const probabilityResult = this.calculateFinalProbability(
+        score,
+        strengthFactors,
         confirmations,
-        isValid: realisticScore >= TRADING_CONFIG.MIN_SIGNAL_PROBABILITY,
+        mlProbability
+      );
+
+      // Prepara o resultado final
+      const finalScore = probabilityResult.probability;
+      const isValid = finalScore >= TRADING_CONFIG.MIN_SIGNAL_PROBABILITY;
+      
+      console.log(`📊 Pontuação final: ${finalScore.toFixed(1)}% ` +
+                 `(Confiança: ${probabilityResult.confidence}%)`);
+      
+      return {
+        totalScore: finalScore,
+        rawScore: score,
+        probability: finalScore,
+        confidence: probabilityResult.confidence,
+        details: {
+          ...details,
+          strengthFactors,
+          confirmations,
+          probabilityDetails: probabilityResult
+        },
+        isValid,
         isMLDriven,
-        mlContribution: mlScore,
-        strengthFactors: strengthFactors
+        confirmations,
+        strengthFactors
       };
+
     } catch (error) {
-      console.error('Erro ao calcular pontuação:', error.message);
-      console.error('Stack trace:', error.stack);
-      return { totalScore: 0, details: {}, isValid: false, isMLDriven: false };
+      console.error('❌ Erro ao calcular score do sinal:', error);
+      return { 
+        totalScore: 0, 
+        details: { error: error.message }, 
+        isValid: false, 
+        isMLDriven: false 
+      };
     }
   }
 
@@ -1228,6 +1251,94 @@ class SignalScoringService {
    */
   setCurrentTimeframe(timeframe) {
     this.currentTimeframe = timeframe;
+  }
+
+  /**
+   * Calcula a probabilidade final do sinal com base nos fatores de confirmação
+   * @param {number} rawScore - Pontuação bruta do sinal
+   * @param {Array} strengthFactors - Fatores de força do sinal
+   * @param {number} confirmations - Número de confirmações
+   * @param {number} mlProbability - Probabilidade do modelo de ML (0-1)
+   * @returns {Object} - Objeto com probability e confidence
+   */
+  calculateFinalProbability(rawScore, strengthFactors, confirmations, mlProbability = 0.5) {
+    // Fatores que indicam força excepcional
+    const strongBullishFactors = [
+      'STRONG_BULLISH', 'EXTREME_BULLISH', 'BREAKOUT_STRONG', 'VOLUME_EXTREME',
+      'MULTI_TIMEFRAME_CONFIRMATION', 'TREND_ALIGNED', 'MACD_STRONG_BULL'
+    ];
+    
+    const strongBearishFactors = [
+      'STRONG_BEARISH', 'EXTREME_BEARISH', 'BREAKDOWN_STRONG', 'VOLUME_EXTREME',
+      'MULTI_TIMEFRAME_CONFIRMATION', 'TREND_ALIGNED', 'MACD_STRONG_BEAR'
+    ];
+
+    // Conta fatores fortes
+    const strongBullishCount = strengthFactors.filter(f => strongBullishFactors.includes(f)).length;
+    const strongBearishCount = strengthFactors.filter(f => strongBearishFactors.includes(f)).length;
+    const totalStrongFactors = strongBullishCount + strongBearishCount;
+
+    // Calcula a probabilidade base
+    let probability = Math.min(100, Math.max(0, rawScore));
+    
+    // Ajusta com base nos fatores fortes
+    if (totalStrongFactors >= 5) {
+      // Múltiplos fatores fortes - permite até 100%
+      probability = Math.min(100, probability + (totalStrongFactors * 2));
+    } else if (totalStrongFactors >= 3) {
+      // Alguns fatores fortes - limita a 90%
+      probability = Math.min(90, probability + (totalStrongFactors * 3));
+    } else if (totalStrongFactors > 0) {
+      // Poucos fatores fortes - limita a 85%
+      probability = Math.min(85, probability + (totalStrongFactors * 4));
+    } else {
+      // Sem fatores fortes - limita a 80%
+      probability = Math.min(80, probability);
+    }
+
+    // Ajusta com base nas confirmações
+    if (confirmations >= 4) {
+      probability = Math.min(100, probability + 5);
+    } else if (confirmations >= 3) {
+      probability = Math.min(95, probability + 3);
+    } else if (confirmations >= 2) {
+      probability = Math.min(90, probability + 2);
+    } else if (confirmations < 2) {
+      // Penaliza sinais com poucas confirmações
+      probability = Math.max(0, probability - 15);
+    }
+
+    // Ajusta com base no ML (mas com peso menor)
+    const mlAdjustment = (mlProbability - 0.5) * 10; // -5 a +5
+    probability = Math.min(100, Math.max(0, probability + mlAdjustment));
+
+    // Arredonda para múltiplo de 5 mais próximo
+    probability = Math.round(probability / 5) * 5;
+
+    // Calcula confiança (0-100%)
+    const confidence = Math.min(100, 
+      30 + // base
+      (totalStrongFactors * 5) + // 5% por fator forte
+      (confirmations * 3) + // 3% por confirmação
+      (mlProbability * 20) // Até 20% do ML
+    );
+
+    // Garante que a probabilidade nunca seja 100% sem múltiplos fatores fortes
+    if (probability >= 95 && totalStrongFactors < 3) {
+      probability = 90; // Limita a 90% sem múltiplos fatores fortes
+    }
+
+    // Garante que a probabilidade nunca seja 100% sem confirmação do ML
+    if (probability >= 95 && mlProbability < 0.7) {
+      probability = Math.min(90, probability - 5);
+    }
+
+    return {
+      probability: Math.min(100, Math.max(0, probability)),
+      confidence: Math.min(100, Math.max(0, confidence)),
+      strongFactors: totalStrongFactors,
+      confirmations
+    };
   }
 }
 

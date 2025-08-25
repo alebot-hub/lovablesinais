@@ -187,56 +187,146 @@ class PerformanceTrackerService {
   generateWeeklyReport() {
     const currentWeek = this.getWeekKey(new Date());
     const lastWeek = this.getWeekKey(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
-    
     const stats = this.weeklyStats.get(lastWeek) || this.weeklyStats.get(currentWeek);
     
     if (!stats || stats.completedSignals === 0) {
-      return {
-        hasData: false,
-        message: 'Dados insuficientes para relatório semanal'
-      };
+      return { hasData: false, message: 'Dados insuficientes' };
     }
 
-    const winRate = stats.completedSignals > 0 ? (stats.winningSignals / stats.completedSignals * 100) : 0;
-    const mlWinRate = stats.mlSignals > 0 ? (stats.mlWins / stats.mlSignals * 100) : 0;
-    const avgPnL = stats.completedSignals > 0 ? stats.totalPnL / stats.completedSignals : 0;
-    
-    // Calcula performance por timeframe
-    const timeframePerformance = {};
-    Object.entries(stats.timeframeBreakdown).forEach(([tf, data]) => {
-      if (data.signals > 0) {
-        timeframePerformance[tf] = {
-          signals: data.signals,
-          winRate: (data.wins / data.signals * 100).toFixed(1)
+    // Filtra sinais completos da semana
+    const weekSignals = this.signals.filter(s => 
+      s.timestamp >= stats.weekStart && 
+      s.timestamp <= stats.weekEnd && 
+      s.status === 'COMPLETED' &&
+      s.results
+    );
+
+    // Inicializa métricas
+    const metrics = {
+      totalTrades: 0,
+      winningTrades: 0,
+      totalRawPnL: 0,
+      totalRiskAdjustedPnL: 0,
+      totalRealizedProfit: 0,
+      totalUnrealizedProfit: 0,
+      targetDistribution: [0, 0, 0, 0, 0, 0], // Contador de alvos 1-6
+      timeframeStats: {},
+      bestTrade: null,
+      worstTrade: null
+    };
+
+    // Processa cada sinal
+    weekSignals.forEach(signal => {
+      const result = signal.results;
+      const pnl = result.riskAdjustedPnL || result.finalPnL;
+      
+      // Atualiza métricas básicas
+      metrics.totalTrades++;
+      metrics.totalRawPnL += result.finalPnL;
+      metrics.totalRiskAdjustedPnL += pnl;
+      metrics.totalRealizedProfit += result.realizedProfit || 0;
+      metrics.totalUnrealizedProfit += result.unrealizedProfit || 0;
+      
+      // Conta vitórias
+      if (pnl > 0) metrics.winningTrades++;
+      
+      // Atualiza distribuição de alvos
+      if (result.targetsHit > 0 && result.targetsHit <= 6) {
+        metrics.targetDistribution[result.targetsHit - 1]++;
+      }
+      
+      // Atualiza melhor/maior trade
+      if (!metrics.bestTrade || pnl > metrics.bestTrade.pnl) {
+        metrics.bestTrade = {
+          symbol: signal.symbol,
+          pnl: pnl,
+          targetsHit: result.targetsHit,
+          timeframe: signal.timeframe
         };
       }
+      
+      // Atualiza pior trade
+      if (!metrics.worstTrade || pnl < metrics.worstTrade.pnl) {
+        metrics.worstTrade = {
+          symbol: signal.symbol,
+          pnl: pnl,
+          targetsHit: result.targetsHit,
+          timeframe: signal.timeframe
+        };
+      }
+      
+      // Atualiza estatísticas por timeframe
+      const tf = signal.timeframe || '1h';
+      if (!metrics.timeframeStats[tf]) {
+        metrics.timeframeStats[tf] = { trades: 0, wins: 0, pnl: 0 };
+      }
+      metrics.timeframeStats[tf].trades++;
+      metrics.timeframeStats[tf].pnl += pnl;
+      if (pnl > 0) metrics.timeframeStats[tf].wins++;
     });
+
+    // Calcula médias e percentuais
+    const winRate = metrics.totalTrades > 0 ? 
+      (metrics.winningTrades / metrics.totalTrades * 100) : 0;
+      
+    const avgRawPnL = metrics.totalTrades > 0 ? 
+      metrics.totalRawPnL / metrics.totalTrades : 0;
+      
+    const avgRiskAdjustedPnL = metrics.totalTrades > 0 ? 
+      metrics.totalRiskAdjustedPnL / metrics.totalTrades : 0;
+
+    // Formata estatísticas por timeframe
+    const timeframeStats = Object.entries(metrics.timeframeStats).map(([tf, data]) => ({
+      timeframe: tf,
+      trades: data.trades,
+      winRate: data.trades > 0 ? (data.wins / data.trades * 100).toFixed(1) : 0,
+      avgPnl: (data.pnl / data.trades).toFixed(2)
+    }));
+
+    // Formata distribuição de alvos
+    const targetDistribution = metrics.targetDistribution.map((count, index) => ({
+      target: index + 1,
+      count: count,
+      percentage: ((count / metrics.totalTrades) * 100).toFixed(1) + '%',
+      profitShare: [50, 15, 10, 10, 10, 5][index] + '%'
+    }));
 
     return {
       hasData: true,
-      period: {
-        start: stats.weekStart,
-        end: stats.weekEnd
+      period: { 
+        start: stats.weekStart, 
+        end: stats.weekEnd,
+        days: Math.ceil((stats.weekEnd - stats.weekStart) / (1000 * 60 * 60 * 24))
       },
       summary: {
-        totalSignals: stats.totalSignals,
-        completedSignals: stats.completedSignals,
+        totalTrades: metrics.totalTrades,
         winRate: winRate.toFixed(1),
-        totalPnL: stats.totalPnL.toFixed(2),
-        avgPnL: avgPnL.toFixed(2),
-        avgTargetsHit: stats.avgTargetsHit.toFixed(1)
+        totalRawPnL: metrics.totalRawPnL.toFixed(2),
+        totalRiskAdjustedPnL: metrics.totalRiskAdjustedPnL.toFixed(2),
+        avgRawPnL: avgRawPnL.toFixed(2),
+        avgRiskAdjustedPnL: avgRiskAdjustedPnL.toFixed(2),
+        realizedProfit: metrics.totalRealizedProfit.toFixed(2),
+        unrealizedProfit: metrics.totalUnrealizedProfit.toFixed(2),
+        profitRealizationRatio: metrics.totalRiskAdjustedPnL > 0 ? 
+          (metrics.totalRealizedProfit / metrics.totalRiskAdjustedPnL * 100).toFixed(1) + '%' : '0%'
       },
-      mlPerformance: {
-        signals: stats.mlSignals,
-        winRate: mlWinRate.toFixed(1),
-        percentage: stats.totalSignals > 0 ? (stats.mlSignals / stats.totalSignals * 100).toFixed(1) : 0
+      performance: {
+        bestTrade: metrics.bestTrade ? {
+          symbol: metrics.bestTrade.symbol,
+          pnl: metrics.bestTrade.pnl.toFixed(2) + '%',
+          targetsHit: metrics.bestTrade.targetsHit,
+          timeframe: metrics.bestTrade.timeframe
+        } : null,
+        worstTrade: metrics.worstTrade ? {
+          symbol: metrics.worstTrade.symbol,
+          pnl: metrics.worstTrade.pnl.toFixed(2) + '%',
+          targetsHit: metrics.worstTrade.targetsHit,
+          timeframe: metrics.worstTrade.timeframe
+        } : null,
+        targetDistribution,
+        timeframes: timeframeStats
       },
-      timeframes: timeframePerformance,
-      bestTrade: stats.bestTrade,
-      worstTrade: stats.worstTrade,
-      topPerformers: stats.topPerformers,
-      worstPerformers: stats.worstPerformers,
-      insights: this.generateInsights(stats, winRate, mlWinRate)
+      insights: this.generateInsights(stats, winRate, 0)
     };
   }
 

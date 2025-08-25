@@ -880,6 +880,11 @@ class TelegramBotService {
       interpretation.push('🟡 Leve viés de baixa - cautela com compras');
     }
     
+    // Adiciona aviso se for contra-tendência
+    if (sentiment.isCounterTrend) {
+      interpretation.push('⚠️ ATENÇÃO: Operação contra a tendência - risco elevado');
+    }
+    
     return interpretation.slice(0, 5); // Máximo 5 pontos mais específicos
   }
 
@@ -986,6 +991,121 @@ class TelegramBotService {
       }
     } catch (error) {
       console.error(`❌ Erro ao atualizar stop loss para ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Analisa o RSI considerando a tendência atual
+   */
+  analyzeRSI(indicators, isBullish, isWithTrend, analysis) {
+    if (indicators.rsi === undefined) return;
+    
+    // Fatores de pontuação mais altos para contra-tendência
+    const trendFactor = isWithTrend ? 1 : 1.5;
+    
+    if (indicators.rsi <= 25) {
+      // RSI em sobrevenda
+      const points = isWithTrend ? 25 : 35;
+      analysis.score += isBullish ? points * trendFactor : -10;
+      analysis.factors.push('RSI em forte sobrevenda (≤25)');
+      
+      if (!isBullish && !isWithTrend) {
+        analysis.factors.push('⚠️ Cuidado: Venda com RSI baixo requer confirmação extra');
+      }
+    } 
+    else if (indicators.rsi >= 85) {
+      // RSI em sobrecompra
+      const points = isWithTrend ? 25 : 35;
+      analysis.score += !isBullish ? points * trendFactor : -10;
+      analysis.factors.push('RSI em forte sobrecompra (≥85)');
+      
+      if (isBullish && !isWithTrend) {
+        analysis.factors.push('⚠️ Cuidado: Compra com RSI alto requer confirmação extra');
+      }
+    }
+    else if (indicators.rsi < 40) {
+      // RSI próximo à sobrevenda
+      analysis.score += isBullish ? 10 * trendFactor : -5;
+      if (isWithTrend || indicators.rsi < 30) {
+        analysis.factors.push('RSI próximo à sobrevenda');
+      }
+    }
+    else if (indicators.rsi > 60) {
+      // RSI próximo à sobrecompra
+      analysis.score += !isBullish ? 10 * trendFactor : -5;
+      if (isWithTrend || indicators.rsi > 70) {
+        analysis.factors.push('RSI próximo à sobrecompra');
+      }
+    }
+  }
+
+  /**
+   * Analisa o MACD considerando a tendência atual
+   */
+  analyzeMACD(indicators, isBullish, isWithTrend, analysis) {
+    if (!indicators.macd) return;
+    
+    const macdBullish = indicators.macd.MACD > indicators.macd.signal;
+    const histogramRising = indicators.macd.histogram > 0 && 
+                           indicators.macd.histogram > indicators.macd.prevHistogram;
+    
+    // Fatores de pontuação
+    const trendFactor = isWithTrend ? 1 : 1.2;
+    const directionMatch = (isBullish && macdBullish) || (!isBullish && !macdBullish);
+    
+    if (directionMatch) {
+      // Sinal na mesma direção
+      let points = 10;
+      if (histogramRising) points += 5;
+      
+      analysis.score += points * trendFactor;
+      analysis.factors.push(`MACD ${macdBullish ? 'bullish' : 'bearish'}`);
+      
+      if (histogramRising) {
+        analysis.factors.push('Impulso do histograma aumentando');
+      }
+    } else {
+      // Sinal contrário - penaliza menos se for com a tendência
+      analysis.score -= isWithTrend ? 5 : 15;
+      analysis.factors.push(`⚠️ Alerta: MACD ${macdBullish ? 'bullish' : 'bearish'} contra o sinal`);
+    }
+  }
+
+  /**
+   * Determina o sentimento final baseado na pontuação
+   */
+  determineSentiment(analysis, isBullish) {
+    // Ajusta o limiar baseado se é contra-tendência
+    const threshold = analysis.isCounterTrend ? 75 : 65;
+    
+    if (analysis.score >= 85) {
+      analysis.sentiment = isBullish ? 'MUITO BULLISH' : 'MUITO BEARISH';
+      analysis.interpretation = analysis.isCounterTrend 
+        ? `Forte sinal de ${isBullish ? 'compra' : 'venda'} mesmo contra a tendência`
+        : `Forte viés de ${isBullish ? 'alta' : 'baixa'}, entrada recomendada`;
+    } 
+    else if (analysis.score >= threshold) {
+      analysis.sentiment = isBullish ? 'BULLISH' : 'BEARISH';
+      analysis.interpretation = analysis.isCounterTrend
+        ? `Sinal de ${isBullish ? 'compra' : 'venda'} contra-tendência, confirmação necessária`
+        : `Viés de ${isBullish ? 'alta' : 'baixa'}, condições favoráveis`;
+    } 
+    else if (analysis.score >= 50) {
+      analysis.sentiment = isBullish ? 'LEVEMENTE BULLISH' : 'LEVEMENTE BEARISH';
+      analysis.interpretation = analysis.isCounterTrend
+        ? `Fraca confirmação para operação contra-tendência, aguarde melhores condições`
+        : 'Sinais mistos, aguarde confirmação';
+    } 
+    else {
+      analysis.sentiment = 'NEUTRO';
+      analysis.interpretation = analysis.isCounterTrend
+        ? '❌ Contra-tendência sem confirmação suficiente, evite operar'
+        : 'Sem direção clara, aguardar melhores condições';
+    }
+    
+    // Adiciona aviso se for contra-tendência
+    if (analysis.isCounterTrend) {
+      analysis.interpretation += '\n⚠️ ATENÇÃO: Operação contra a tendência - risco elevado';
     }
   }
 }
