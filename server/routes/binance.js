@@ -33,7 +33,19 @@ router.get('/symbol/:symbol', async (req, res) => {
 router.get('/candles/:symbol/:interval', async (req, res) => {
   try {
     const { symbol, interval } = req.params;
-    const candles = await binanceService.getCandles(symbol, interval);
+    const limit = parseInt(req.query.limit) || 100;
+    const ohlcvData = await binanceService.getOHLCVData(symbol, interval, limit);
+    
+    // Converte o formato dos dados para manter compatibilidade
+    const candles = ohlcvData.close.map((close, index) => ({
+      timestamp: ohlcvData.timestamp ? ohlcvData.timestamp[index] : Date.now() - (limit - index) * 60000,
+      open: ohlcvData.open[index],
+      high: ohlcvData.high[index],
+      low: ohlcvData.low[index],
+      close: close,
+      volume: ohlcvData.volume ? ohlcvData.volume[index] : 0
+    }));
+    
     res.json(candles);
   } catch (error) {
     logger.error(`Erro ao obter candles para ${symbol}/${interval}:`, error);

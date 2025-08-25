@@ -63,27 +63,43 @@ class MarketRegimeService {
    */
   async getBTCMetrics(timeframe) {
     try {
-      const candles = await this.binanceService.getCandles('BTC/USDT', timeframe, 200);
-      const closes = candles.map(c => parseFloat(c.close));
-      const rsi = this.technicalAnalysis.calculateRSI(closes, 14);
+      // Usando getOHLCVData em vez de getCandles
+      const ohlcvData = await this.binanceService.getOHLCVData('BTC/USDT', timeframe, 200);
+      
+      // Extrai os preços de fechamento do OHLCV
+      const closes = ohlcvData.close || [];
+      
+      // Calcula indicadores
+      const rsi = this.technicalAnalysis.calculateRSI({ close: closes }, 14);
       const ma200 = this.technicalAnalysis.calculateSMA(closes, 200);
       
       // Cálculo simplificado de volatilidade
       const returns = closes.slice(1).map((c, i) => (c - closes[i]) / closes[i]);
-      const volatility = Math.sqrt(returns.reduce((a, b) => a + b * b, 0) / returns.length);
+      const volatility = returns.length > 0 ? 
+        Math.sqrt(returns.reduce((a, b) => a + b * b, 0) / returns.length) : 0;
+      
+      const lastClose = closes[closes.length-1] || 0;
+      const lastMA200 = ma200[ma200.length-1] || 0;
       
       return {
-        price: closes[closes.length-1],
-        rsi: rsi[rsi.length-1],
-        ma200: ma200[ma200.length-1],
-        volatility,
-        trend: closes[closes.length-1] > ma200[ma200.length-1] * 1.02 ? 'UP' : 
-               closes[closes.length-1] < ma200[ma200.length-1] * 0.98 ? 'DOWN' : 'NEUTRAL'
+        price: lastClose,
+        rsi: rsi || 50, // Valor padrão se RSI não puder ser calculado
+        ma200: lastMA200,
+        volatility: volatility || 0,
+        trend: lastMA200 === 0 ? 'NEUTRAL' : 
+               lastClose > lastMA200 * 1.02 ? 'UP' : 
+               lastClose < lastMA200 * 0.98 ? 'DOWN' : 'NEUTRAL'
       };
       
     } catch (error) {
-      console.error(`Erro ao obter métricas BTC (${timeframe}):`, error.message);
-      return { price: 0, rsi: 50, ma200: 0, volatility: 0, trend: 'NEUTRAL' };
+      console.error(`❌ Erro ao obter métricas BTC (${timeframe}):`, error.message);
+      return { 
+        price: 0, 
+        rsi: 50, 
+        ma200: 0, 
+        volatility: 0, 
+        trend: 'NEUTRAL' 
+      };
     }
   }
 
