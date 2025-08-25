@@ -14,7 +14,7 @@ dotenv.config();
 
 // Importa serviços
 import BinanceService from './services/binanceService.js';
-import TechnicalAnalysisService from './services/technicalAnalysis.js';
+import technicalAnalysis from './services/technicalAnalysis.js';
 import PatternDetectionService from './services/patternDetection.js';
 import SignalScoringService from './services/signalScoring.js';
 import MachineLearningService from './services/machineLearning.js';
@@ -45,7 +45,6 @@ const __dirname = path.dirname(__filename);
 
 // Inicialização dos serviços
 const binanceService = new BinanceService();
-const technicalAnalysis = new TechnicalAnalysisService();
 const patternDetection = new PatternDetectionService();
 const signalScoring = new SignalScoringService();
 const machineLearning = new MachineLearningService();
