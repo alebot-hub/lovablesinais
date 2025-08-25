@@ -78,6 +78,58 @@ class TechnicalAnalysisService {
     }
   }
 
+  /**
+   * Detecta a tendência do mercado com base nos indicadores técnicos
+   * @param {Object} indicators - Objeto contendo os indicadores técnicos
+   * @returns {string} - 'BULLISH', 'BEARISH' ou 'NEUTRAL'
+   */
+  detectTrend(indicators) {
+    try {
+      if (!indicators) return 'NEUTRAL';
+
+      let bullishScore = 0;
+      let bearishScore = 0;
+      let totalIndicators = 0;
+
+      // RSI
+      if (indicators.rsi !== undefined && indicators.rsi !== null) {
+        totalIndicators++;
+        if (indicators.rsi > 60) bullishScore++;
+        else if (indicators.rsi < 40) bearishScore++;
+      }
+
+      // MACD
+      if (indicators.macd && indicators.macd.MACD !== null && indicators.macd.signal !== null) {
+        totalIndicators++;
+        if (indicators.macd.MACD > indicators.macd.signal) bullishScore++;
+        else bearishScore++;
+      }
+
+      // Médias Móveis
+      if (indicators.ma21 !== null && indicators.ma200 !== null) {
+        totalIndicators++;
+        if (indicators.ma21 > indicators.ma200) bullishScore++;
+        else bearishScore++;
+      }
+
+      // Se não há indicadores suficientes, retorna NEUTRAL
+      if (totalIndicators === 0) return 'NEUTRAL';
+
+      // Calcula a porcentagem de confirmação de tendência
+      const bullishPercentage = (bullishScore / totalIndicators) * 100;
+      const bearishPercentage = (bearishScore / totalIndicators) * 100;
+
+      // Define a tendência com base nos indicadores
+      if (bullishPercentage >= 66) return 'BULLISH';
+      if (bearishPercentage >= 66) return 'BEARISH';
+      return 'NEUTRAL';
+      
+    } catch (error) {
+      console.error('❌ Erro ao detectar tendência:', error);
+      return 'NEUTRAL';
+    }
+  }
+
   validateData(data) {
     try {
       // Verifica se o objeto de dados existe
