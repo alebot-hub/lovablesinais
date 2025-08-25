@@ -46,27 +46,34 @@ class BitcoinCorrelationService {
       }
 
       // Análise técnica do Bitcoin
-      const btcIndicators = this.technicalAnalysis.calculateIndicators(btcData);
-      const btcTrend = this.technicalAnalysis.detectTrend(btcIndicators);
-      const btcStrength = this.calculateTrendStrength(btcIndicators, btcData);
+      const btcIndicators = await this.technicalAnalysis.calculateIndicators(btcData);
+      
+      // Garante que detectTrend existe antes de chamar
+      if (typeof this.technicalAnalysis.detectTrend === 'function') {
+        const btcTrend = this.technicalAnalysis.detectTrend(btcIndicators);
+        const btcStrength = this.calculateTrendStrength(btcIndicators, btcData);
+        
+        // Atualiza cache
+        this.btcCache = {
+          data: btcData,
+          trend: btcTrend,
+          strength: btcStrength,
+          timestamp: now,
+          cacheTimeout: this.btcCache.cacheTimeout
+        };
 
-      // Atualiza cache
-      this.btcCache = {
-        data: btcData,
-        trend: btcTrend,
-        strength: btcStrength,
-        timestamp: now,
-        cacheTimeout: this.btcCache.cacheTimeout
-      };
+        console.log(`₿ Bitcoin: ${btcTrend} (força: ${btcStrength}) - $${btcData.close[btcData.close.length - 1].toFixed(2)}`);
 
-      console.log(`₿ Bitcoin: ${btcTrend} (força: ${btcStrength}) - $${btcData.close[btcData.close.length - 1].toFixed(2)}`);
-
-      return {
-        trend: btcTrend,
-        strength: btcStrength,
-        price: btcData.close[btcData.close.length - 1],
-        cached: false
-      };
+        return {
+          trend: btcTrend,
+          strength: btcStrength,
+          price: btcData.close[btcData.close.length - 1],
+          cached: false
+        };
+      } else {
+        console.error('❌ Método detectTrend não encontrado no serviço de análise técnica');
+        return { trend: 'NEUTRAL', strength: 0, price: btcData.close[btcData.close.length - 1], cached: false };
+      }
 
     } catch (error) {
       console.error('❌ Erro ao obter tendência do Bitcoin:', error.message);
