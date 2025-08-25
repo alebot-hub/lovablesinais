@@ -28,7 +28,6 @@ class BitcoinCorrelationService {
       if (this.btcCache.data && 
           this.btcCache.timestamp && 
           (now - this.btcCache.timestamp) < this.btcCache.cacheTimeout) {
-        console.log(`₿ Usando cache BTC: ${this.btcCache.trend} (força: ${this.btcCache.strength})`);
         return {
           trend: this.btcCache.trend,
           strength: this.btcCache.strength,
@@ -39,32 +38,34 @@ class BitcoinCorrelationService {
 
       console.log('₿ Atualizando análise do Bitcoin...');
       
-      // Obtém dados do Bitcoin
-      const btcData = await this.binanceService.getOHLCVData('BTC/USDT', '1h', 100);
+      // Obtém mais dados para análise
+      const btcData = await this.binanceService.getOHLCVData('BTC/USDT', '1h', 500);
       
-      if (!btcData || !btcData.close || btcData.close.length < 50) {
+      if (!btcData?.close?.length) {
         console.log('⚠️ Dados insuficientes do Bitcoin');
         return { trend: 'NEUTRAL', strength: 0, price: 0, cached: false };
       }
 
-      // Prepara dados no formato esperado
       const formattedData = {
         open: btcData.open,
         high: btcData.high,
         low: btcData.low,
         close: btcData.close,
-        volume: btcData.volume || Array(btcData.close.length).fill(0)
+        volume: btcData.volume || Array(btcData.close.length).fill(1)
       };
-
-      // Calcula indicadores técnicos
+      
       const btcIndicators = await this.technicalAnalysis.calculateIndicators(formattedData, 'BTC/USDT', '1h');
       
-      // Verifica se o método detectTrend existe
       if (typeof this.technicalAnalysis.detectTrend === 'function') {
-        const btcTrend = this.technicalAnalysis.detectTrend(btcIndicators);
-        const btcStrength = this.calculateTrendStrength(btcIndicators, btcData);
+        let btcTrend = this.technicalAnalysis.detectTrend(btcIndicators);
+        let btcStrength = this.calculateTrendStrength(btcIndicators, btcData);
         
-        // Atualiza cache
+        // Ajuste para evitar neutralidade excessiva
+        if (btcStrength > 40) {
+          // Se a tendência for clara, força um mínimo de 60% de confiança
+          btcStrength = Math.max(btcStrength, 60);
+        }
+        
         this.btcCache = {
           data: btcData,
           trend: btcTrend,
@@ -74,17 +75,16 @@ class BitcoinCorrelationService {
         };
 
         console.log(`₿ Bitcoin: ${btcTrend} (força: ${btcStrength}) - $${btcData.close[btcData.close.length - 1].toFixed(2)}`);
-
+        
         return {
           trend: btcTrend,
           strength: btcStrength,
           price: btcData.close[btcData.close.length - 1],
           cached: false
         };
-      } else {
-        console.error('❌ Erro: Método detectTrend não encontrado no serviço de análise técnica');
-        return { trend: 'NEUTRAL', strength: 0, price: btcData.close[btcData.close.length - 1], cached: false };
       }
+      
+      return { trend: 'NEUTRAL', strength: 0, price: btcData.close[btcData.close.length - 1], cached: false };
       
     } catch (error) {
       console.error('❌ Erro ao obter tendência do Bitcoin:', error.message);

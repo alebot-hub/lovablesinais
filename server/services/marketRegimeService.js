@@ -28,35 +28,71 @@ class MarketRegimeService {
       // Análise de tendência e volatilidade
       let regimeScores = { BULL: 0, BEAR: 0, VOLATILE: 0, NORMAL: 0 };
       
+      // Se o BTC está claramente em tendência, aumenta o peso
+      const isStrongUptrend = btcDaily.trend === 'UP' && btcDaily.rsi > 60 && btcDaily.price > btcDaily.ma200 * 1.05;
+      const isStrongDowntrend = btcDaily.trend === 'DOWN' && btcDaily.rsi < 40 && btcDaily.price < btcDaily.ma200 * 0.95;
+      
       // Tendência de alta
-      if (btcDaily.trend === 'UP' && btcDaily.rsi > 55) regimeScores.BULL += 2;
-      if (btcDaily.price > btcDaily.ma200 * 1.05) regimeScores.BULL += 1;
+      if (isStrongUptrend) {
+        regimeScores.BULL += 3; // Peso maior para tendências fortes
+      } else if (btcDaily.trend === 'UP' && btcDaily.rsi > 55) {
+        regimeScores.BULL += 2;
+      }
       
       // Tendência de baixa
-      if (btcDaily.trend === 'DOWN' && btcDaily.rsi < 45) regimeScores.BEAR += 2;
-      if (btcDaily.price < btcDaily.ma200 * 0.95) regimeScores.BEAR += 1;
+      if (isStrongDowntrend) {
+        regimeScores.BEAR += 3; // Peso maior para tendências fortes
+      } else if (btcDaily.trend === 'DOWN' && btcDaily.rsi < 45) {
+        regimeScores.BEAR += 2;
+      }
       
-      // Mercado volátil
-      if (btcDaily.volatility > 0.03) regimeScores.VOLATILE += 2;
-      if (fearGreed >= 80 || fearGreed <= 20) regimeScores.VOLATILE += 1;
+      // Mercado volátil - apenas se não houver tendência clara
+      const hasClearTrend = isStrongUptrend || isStrongDowntrend;
+      if (!hasClearTrend) {
+        if (btcDaily.volatility > 0.03) regimeScores.VOLATILE += 2;
+        if (fearGreed >= 80 || fearGreed <= 20) regimeScores.VOLATILE += 1;
+      }
+
+      // Se houver uma tendência clara, reduz a chance de ser classificado como NORMAL
+      if (hasClearTrend) {
+        regimeScores.NORMAL = -1; // Torna menos provável
+      }
 
       // Determina o regime com maior pontuação
       let newRegime = 'NORMAL';
       let maxScore = Math.max(...Object.values(regimeScores));
       
-      if (maxScore > 1) {
+      // Só muda para um novo regime se a pontuação for pelo menos 2
+      if (maxScore >= 2) {
         newRegime = Object.entries(regimeScores).find(([_, v]) => v === maxScore)[0];
       }
+
+      // Log detalhado para debug
+      console.log('📊 Pontuação dos regimes:', {
+        scores: regimeScores,
+        selected: newRegime,
+        btcTrend: btcDaily.trend,
+        rsi: btcDaily.rsi,
+        priceVsMA: (btcDaily.price / btcDaily.ma200 - 1) * 100 + '%',
+        volatility: btcDaily.volatility,
+        fearGreed
+      });
 
       this.regime = newRegime;
       this.lastUpdate = new Date();
       
-      console.log(`✅ Regime de mercado: ${this.regime}`);
-      return this.regime;
+      return {
+        regime: newRegime,
+        btcTrend: btcDaily.trend,
+        rsi: btcDaily.rsi,
+        volatility: btcDaily.volatility,
+        fearGreedIndex: fearGreed,
+        btcDominance
+      };
       
     } catch (error) {
-      console.error('❌ Erro ao identificar regime:', error.message);
-      return 'NORMAL';
+      console.error('❌ Erro ao identificar regime de mercado:', error);
+      return { regime: 'NORMAL', error: error.message };
     }
   }
 
