@@ -15,54 +15,151 @@ class TechnicalAnalysisService {
    * Calcula todos os indicadores técnicos com parâmetros otimizados
    */
   async calculateIndicators(data, symbol = 'UNKNOWN', timeframe = '1h') {
+    const logPrefix = `[${symbol} ${timeframe}]`;
+    
     try {
+      // Valida dados de entrada
       if (!this.validateData(data)) {
+        console.error(`${logPrefix} ❌ Dados inválidos`);
         return {};
       }
 
+      // Verifica cache
       const cacheKey = `${symbol}:${timeframe}`;
       const cached = this.indicatorCache.get(cacheKey);
-      
-      // Usa cache se disponível e recente (menos de 1 hora)
-      if (cached && (Date.now() - new Date(cached.timestamp).getTime() < 60 * 60 * 1000)) {
+      if (cached && (Date.now() - cached.timestamp < 60 * 60 * 1000)) {
+        console.log(`${logPrefix} ✅ Usando cache`);
         return cached.indicators;
       }
 
       // Obtém parâmetros otimizados
-      const optimizedParams = await indicatorOptimizer.optimizeIndicators(data, symbol, timeframe);
-      
+      let optimizedParams;
+      try {
+        optimizedParams = await indicatorOptimizer.optimizeIndicators(data, symbol, timeframe);
+      } catch (error) {
+        console.error(`${logPrefix} ❌ Erro ao otimizar parâmetros:`, error.message);
+        optimizedParams = indicatorOptimizer.getDefaultParams();
+      }
+
+      // Calcula indicadores
       const indicators = {
-        rsi: this.calculateRSI(data, optimizedParams.RSI.period),
-        macd: this.calculateMACD(data, 
+        rsi: this.safeCalculate(() => this.calculateRSI(data, optimizedParams.RSI.period), 'RSI'),
+        macd: this.safeCalculate(() => this.calculateMACD(
+          data, 
           optimizedParams.MACD.fastPeriod, 
           optimizedParams.MACD.slowPeriod, 
           optimizedParams.MACD.signalPeriod
-        ),
-        ma21: this.calculateMA(data.close, optimizedParams.MA.shortPeriod),
-        ma200: this.calculateMA(data.close, optimizedParams.MA.longPeriod),
+        ), 'MACD'),
+        ma21: this.safeCalculate(() => this.calculateMA(data.close, optimizedParams.MA.shortPeriod), 'MA21'),
+        ma200: this.safeCalculate(() => this.calculateMA(data.close, optimizedParams.MA.longPeriod), 'MA200'),
         volatility: optimizedParams.VOLATILITY,
         optimizedParams
       };
 
       // Atualiza cache
-      this.indicatorCache.set(cacheKey, {
-        indicators,
-        timestamp: new Date()
-      });
-
+      this.indicatorCache.set(cacheKey, { indicators, timestamp: Date.now() });
       return indicators;
+      
     } catch (error) {
-      console.error('❌ Erro ao calcular indicadores:', error);
+      console.error(`${logPrefix} ❌ Erro ao calcular indicadores:`, error);
       return {};
     }
   }
 
+  // Função auxiliar para cálculo seguro com tratamento de erro
+  safeCalculate(calcFn, indicatorName) {
+    try {
+      const result = calcFn();
+      console.log(`✅ ${indicatorName} calculado com sucesso`);
+      return result;
+    } catch (error) {
+      console.error(`❌ Erro ao calcular ${indicatorName}:`, error.message);
+      return null;
+    }
+  }
+
   validateData(data) {
-    if (!data?.close?.length || data.close.length < 50) {
-      console.error('❌ Dados insuficientes para análise técnica');
+    try {
+      // Verifica se o objeto de dados existe
+      if (!data) {
+        console.error('❌ Dados não fornecidos para validação');
+        return false;
+      }
+
+      // Verifica se os arrays necessários existem
+      const requiredArrays = ['open', 'high', 'low', 'close', 'volume'];
+      const minLength = 50; // Mínimo de candles necessários
+      
+      // Verifica arrays obrigatórios
+      for (const key of requiredArrays) {
+        if (!Array.isArray(data[key])) {
+          console.error(`❌ Dados inválidos: ${key} não é um array`);
+          return false;
+        }
+        
+        if (data[key].length < minLength) {
+          console.error(`❌ Dados insuficientes: ${key} tem apenas ${data[key].length} candles (mínimo ${minLength})`);
+          return false;
+        }
+      }
+
+      // Verifica consistência nos tamanhos dos arrays
+      const firstLength = data.close.length;
+      for (const key of requiredArrays) {
+        if (data[key].length !== firstLength) {
+          console.error(`❌ Tamanho inconsistente: ${key} tem ${data[key].length} itens, esperado ${firstLength}`);
+          return false;
+        }
+      }
+
+      // Verifica valores inválidos nos primeiros e últimos 5 candles
+      const checkIndices = [
+        ...Array(5).fill().map((_, i) => i), // Primeiros 5
+        ...Array(5).fill().map((_, i) => data.close.length - 5 + i) // Últimos 5
+      ];
+
+      for (const i of checkIndices) {
+        if (i >= data.close.length) continue;
+        
+        const candle = {
+          open: data.open[i],
+          high: data.high[i],
+          low: data.low[i],
+          close: data.close[i],
+          volume: data.volume[i]
+        };
+
+        // Verifica valores numéricos válidos
+        for (const [key, value] of Object.entries(candle)) {
+          if (typeof value !== 'number' || !isFinite(value) || value < 0) {
+            console.error(`❌ Valor inválido em ${key}[${i}]:`, value);
+            return false;
+          }
+        }
+
+        // Verifica consistência dos preços
+        if (candle.high < candle.low) {
+          console.error(`❌ Candle ${i}: high (${candle.high}) < low (${candle.low})`);
+          return false;
+        }
+        
+        if (candle.high < Math.max(candle.open, candle.close)) {
+          console.error(`❌ Candle ${i}: high (${candle.high}) menor que open/close (${candle.open}/${candle.close})`);
+          return false;
+        }
+        
+        if (candle.low > Math.min(candle.open, candle.close)) {
+          console.error(`❌ Candle ${i}: low (${candle.low}) maior que open/close (${candle.open}/${candle.close})`);
+          return false;
+        }
+      }
+
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Erro ao validar dados:', error);
       return false;
     }
-    return true;
   }
 
   calculateRSI(data, period = 14) {

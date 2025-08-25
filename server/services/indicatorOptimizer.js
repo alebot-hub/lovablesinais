@@ -20,20 +20,40 @@ class IndicatorOptimizer {
   async optimizeIndicators(historicalData, symbol, timeframe) {
     try {
       if (!historicalData?.close?.length || historicalData.close.length < 50) {
-        logger.warn(`Dados insuficientes para ${symbol} (${timeframe})`);
+        logger.warn(`Dados insuficientes para ${symbol} (${timeframe}): ${historicalData?.close?.length || 0} candles`);
         return this.getDefaultParams();
       }
 
       const cacheKey = `${symbol}:${timeframe}`;
-      if (this.optimizedParams.has(cacheKey)) {
-        return this.optimizedParams.get(cacheKey);
+      const cached = this.optimizedParams.get(cacheKey);
+      
+      // Usa cache se disponível e recente (menos de 1 hora)
+      if (cached && (Date.now() - new Date(cached.lastUpdated).getTime() < 60 * 60 * 1000)) {
+        logger.info(`Usando parâmetros em cache para ${cacheKey}`);
+        return cached;
       }
 
+      logger.info(`Otimizando indicadores para ${cacheKey}...`);
+      
       const volatility = this.calculateVolatility(historicalData);
-      const optimized = {
-        RSI: await this.optimizeRSI(historicalData, volatility),
-        MACD: await this.optimizeMACD(historicalData, volatility),
-        MA: await this.optimizeMovingAverages(historicalData, volatility),
+      
+      // Tenta otimizar cada indicador individualmente
+      let optimized = {
+        RSI: await this.optimizeRSI(historicalData, volatility).catch(err => {
+          logger.error(`Erro ao otimizar RSI para ${cacheKey}:`, err);
+          return this.getDefaultParams().RSI;
+        }),
+        
+        MACD: await this.optimizeMACD(historicalData, volatility).catch(err => {
+          logger.error(`Erro ao otimizar MACD para ${cacheKey}:`, err);
+          return this.getDefaultParams().MACD;
+        }),
+        
+        MA: await this.optimizeMovingAverages(historicalData, volatility).catch(err => {
+          logger.error(`Erro ao otimizar Médias Móveis para ${cacheKey}:`, err);
+          return this.getDefaultParams().MA;
+        }),
+        
         VOLATILITY: {
           value: volatility,
           level: this.getVolatilityLevel(volatility)
@@ -41,11 +61,23 @@ class IndicatorOptimizer {
         lastUpdated: new Date()
       };
 
+      // Valida os parâmetros otimizados
+      if (!optimized.RSI || !optimized.MACD || !optimized.MA) {
+        logger.warn(`Falha na otimização para ${cacheKey}, usando parâmetros padrão`);
+        return this.getDefaultParams();
+      }
+
       this.optimizedParams.set(cacheKey, optimized);
-      logger.info(`Parâmetros otimizados para ${cacheKey}`);
+      logger.info(`Parâmetros otimizados para ${cacheKey}:`, {
+        RSI: optimized.RSI.period,
+        MACD: `${optimized.MACD.fastPeriod}/${optimized.MACD.slowPeriod}/${optimized.MACD.signalPeriod}`,
+        MA: `${optimized.MA.shortPeriod}/${optimized.MA.longPeriod}`,
+        volatility: `${volatility.toFixed(2)}% (${this.getVolatilityLevel(volatility)})`
+      });
+      
       return optimized;
     } catch (error) {
-      logger.error('Erro na otimização:', error);
+      logger.error(`Erro crítico na otimização para ${symbol} (${timeframe}):`, error);
       return this.getDefaultParams();
     }
   }
@@ -102,12 +134,12 @@ class IndicatorOptimizer {
     return rsiValues.filter(v => v > 30 && v < 70).length / rsiValues.length;
   }
 
-  async optimizeMACD() {
+  async optimizeMACD(historicalData, volatility) {
     // Implementação simplificada
     return { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 };
   }
 
-  async optimizeMovingAverages() {
+  async optimizeMovingAverages(historicalData, volatility) {
     // Implementação simplificada
     return { shortPeriod: 21, longPeriod: 50 };
   }

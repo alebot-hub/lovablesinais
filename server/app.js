@@ -111,135 +111,98 @@ export async function analyzeSignals() {
     analysisCount++;
     lastAnalysisTime = new Date();
     
-    console.log(`\n🚀 ===== ANÁLISE DE SINAIS #${analysisCount} =====`);
-    console.log(`⏰ Iniciada em: ${lastAnalysisTime.toLocaleString('pt-BR')}`);
-    console.log(`📊 Analisando ${CRYPTO_SYMBOLS.length} símbolos em ${TIMEFRAMES.length} timeframes`);
+    console.log(`\n🚀 ANÁLISE #${analysisCount} - ${lastAnalysisTime.toLocaleString('pt-BR')}`);
+    console.log(`📊 ${CRYPTO_SYMBOLS.length} símbolos x ${TIMEFRAMES.length} timeframes`);
 
     let bestSignal = null;
     let bestScore = 0;
     let totalAnalyzed = 0;
     let validSignals = 0;
+    let errors = [];
 
-    // Analisa cada símbolo em cada timeframe
     for (const symbol of CRYPTO_SYMBOLS) {
-      // Verifica se já tem monitor ativo
       if (telegramBot.hasActiveMonitor(symbol)) {
-        console.log(`⏭️ ${symbol}: Monitor ativo - pulando análise`);
+        console.log(`⏭️ ${symbol}: Monitor ativo`);
         continue;
       }
 
       for (const timeframe of TIMEFRAMES) {
+        const logPrefix = `[${symbol} ${timeframe}]`;
+        totalAnalyzed++;
+        
         try {
-          totalAnalyzed++;
-          console.log(`\n🔍 ANALISANDO: ${symbol} ${timeframe} (${totalAnalyzed}/${CRYPTO_SYMBOLS.length * TIMEFRAMES.length})`);
-
-          // Obtém dados históricos
+          // 1. Obtém dados históricos
           const data = await binanceService.getOHLCVData(symbol, timeframe, 200);
-          
-          if (!data || !data.close || data.close.length < 50) {
-            console.log(`❌ ${symbol} ${timeframe}: Dados insuficientes (${data?.close?.length || 0} < 50)`);
-            continue;
+          if (!data?.close?.length || data.close.length < 50) {
+            throw new Error(`Dados insuficientes (${data?.close?.length || 0})`);
           }
 
-          const currentPrice = data.close[data.close.length - 1];
-          console.log(`💰 ${symbol}: Preço atual $${currentPrice.toFixed(8)}`);
-
-          // Análise técnica
-          const indicators = technicalAnalysis.calculateIndicators(data);
+          // 2. Análise técnica
+          const indicators = await technicalAnalysis.calculateIndicators(data, symbol, timeframe);
           if (!indicators || Object.keys(indicators).length === 0) {
-            console.log(`❌ ${symbol} ${timeframe}: Falha nos indicadores`);
-            continue;
+            throw new Error('Falha nos indicadores');
           }
 
-          // Detecção de padrões
+          // 3. Processa sinal
           const patterns = patternDetection.detectPatterns(data);
-
-          // Previsão ML
-          const mlProbability = await machineLearning.predict(symbol, data, indicators);
-
-          // Análise de correlação com Bitcoin
+          const mlProbability = await machineLearning.predict(symbol, data, indicators).catch(() => 0);
+          
           const signalTrend = signalScoring.detectSignalTrend(indicators, patterns);
-          const btcCorrelation = await bitcoinCorrelation.analyzeCorrelation(symbol, signalTrend, data);
-
-          // Pontuação adaptativa
+          const btcCorrelation = await bitcoinCorrelation.analyzeCorrelation(symbol, signalTrend, data).catch(() => ({}));
+          
+          signalScoring.setCurrentTimeframe(timeframe);
           const scoring = adaptiveScoring.calculateAdaptiveScore(
             data, indicators, patterns, mlProbability, signalTrend, symbol, btcCorrelation
           );
-          
-          // Define timeframe atual no scoring para análise contra-tendência
-          signalScoring.setCurrentTimeframe(timeframe);
 
-          console.log(`📊 ${symbol} ${timeframe}: Score ${scoring.totalScore.toFixed(1)}% (${scoring.isValid ? 'VÁLIDO' : 'INVÁLIDO'})`);
+          console.log(`📊 ${logPrefix} Score: ${scoring.totalScore.toFixed(1)}%`);
 
           if (scoring.isValid) {
             validSignals++;
-            console.log(`✅ Sinal válido encontrado: ${symbol} ${timeframe} (${scoring.totalScore.toFixed(1)}%)`);
-          }
-
-          // Verifica se é o melhor sinal
-          if (scoring.isValid && scoring.totalScore > bestScore) {
-            // Verifica gestão de risco
-            const riskCheck = riskManagement.canOpenTrade(symbol, telegramBot.activeMonitors);
-            
-            if (riskCheck.allowed) {
-              console.log(`🔍 QUALIDADE DO SINAL ${symbol}:`);
-              console.log(`   📊 Score: ${scoring.totalScore.toFixed(1)}%`);
-              console.log(`   ✅ Confirmações: ${scoring.confirmations || 0}`);
-              console.log(`   🎯 Filtros: ${scoring.details.qualityCheck?.reason || 'Aprovado'}`);
-              
-              bestSignal = {
-                symbol,
-                timeframe,
-                entry: currentPrice,
-                probability: scoring.totalScore,
-                totalScore: scoring.totalScore,
-                trend: signalTrend,
-                indicators,
-                patterns,
-                mlProbability,
-                isMLDriven: scoring.isMLDriven,
-                adaptiveDetails: scoring.details,
-                bitcoinCorrelation: btcCorrelation,
-                signalId: `${symbol.replace('/', '')}_${Date.now()}`
-              };
-              bestScore = scoring.totalScore;
-              console.log(`🏆 NOVO MELHOR SINAL: ${symbol} ${timeframe} (${scoring.totalScore.toFixed(1)}%)`);
-            } else {
-              console.log(`🚫 ${symbol}: Bloqueado pela gestão de risco - ${riskCheck.reason}`);
+            if (scoring.totalScore > bestScore) {
+              const riskCheck = riskManagement.canOpenTrade(symbol, telegramBot.activeMonitors);
+              if (riskCheck.allowed) {
+                bestSignal = {
+                  symbol,
+                  timeframe,
+                  entry: data.close[data.close.length - 1],
+                  probability: scoring.totalScore,
+                  riskCheck,
+                  timestamp: new Date()
+                };
+                bestScore = scoring.totalScore;
+                console.log(`✅ ${logPrefix} NOVO MELHOR SINAL (${bestScore.toFixed(1)}%)`);
+              }
             }
           }
-
-          // Pausa para rate limiting
-          await new Promise(resolve => setTimeout(resolve, 150));
-
+          
         } catch (error) {
-          console.error(`❌ Erro ao analisar ${symbol} ${timeframe}:`, error.message);
-          continue;
+          errors.push(`${symbol} ${timeframe}: ${error.message}`);
+          console.error(`❌ ${logPrefix} ${error.message}`);
         }
       }
     }
 
-    console.log(`\n📊 RESUMO DA ANÁLISE #${analysisCount}:`);
-    console.log(`   🔍 Total analisado: ${totalAnalyzed}`);
-    console.log(`   ✅ Sinais válidos: ${validSignals}`);
-    console.log(`   🏆 Melhor score: ${bestScore.toFixed(1)}%`);
-    console.log(`   📊 Operações ativas: ${telegramBot.activeMonitors.size}`);
+    // Resumo
+    console.log(`\n📊 RESUMO #${analysisCount}:`);
+    console.log(`✅ ${validSignals} sinais válidos`);
+    console.log(`❌ ${errors.length} erros`);
+    errors.slice(0, 5).forEach((e, i) => console.log(`  ${i+1}. ${e}`));
+    if (errors.length > 5) console.log(`  ...e mais ${errors.length - 5} erros`);
 
-    // Processa melhor sinal
+    // Processa o melhor sinal encontrado
     if (bestSignal) {
-      console.log(`\n🎯 PROCESSANDO MELHOR SINAL: ${bestSignal.symbol} ${bestSignal.timeframe}`);
+      console.log(`\n🎯 MELHOR SINAL: ${bestSignal.symbol} ${bestSignal.timeframe} (${bestSignal.probability.toFixed(1)}%)`);
       await processBestSignal(bestSignal);
     } else {
-      console.log(`\n⚠️ Nenhum sinal válido encontrado nesta análise`);
-      console.log(`💡 Aguardando próxima análise em 2 horas...`);
+      console.log('\nℹ️ Nenhum sinal válido encontrado');
     }
 
   } catch (error) {
-    console.error('❌ ERRO CRÍTICO na análise de sinais:', error.message);
-    console.error('Stack trace:', error.stack);
+    console.error('❌ ERRO NA ANÁLISE:', error);
   } finally {
     isAnalyzing = false;
-    console.log(`✅ Análise #${analysisCount} concluída em ${new Date().toLocaleString('pt-BR')}\n`);
+    console.log(`\n🏁 Análise #${analysisCount} concluída em ${((Date.now() - lastAnalysisTime) / 1000).toFixed(1)}s`);
   }
 }
 
