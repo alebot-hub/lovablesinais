@@ -36,22 +36,23 @@ class TelegramBotService {
       console.log(`📊 Criando monitor para ${symbol}...`);
       
       const monitor = {
-        symbol,
+        symbol: symbol,
         entry: entry,
-        targets: [...targets],
-        targetsHit: 0,
-        stopLoss,
+        targets: targets,
+        stopLoss: stopLoss,
         currentStopLoss: stopLoss, // Stop loss atual (pode ser móvel)
         signalId: signalId,
         timestamp: new Date(),
         status: 'ACTIVE',
+        targetsHit: 0,
         maxTargetsHit: 0,
         peakProfit: 0,
         currentDrawdown: 0,
         lastPrice: entry,
         stopType: 'INITIAL', // INITIAL, PROFIT_PROTECTION
         partialProfitRealized: 0, // Percentual de lucro já realizado
-        riskConfig: null // Configurações de risco
+        riskConfig: null, // Configurações de risco
+        isShort: trend === 'BEARISH'
       };
       
       this.activeMonitors.set(symbol, monitor);
@@ -127,10 +128,26 @@ class TelegramBotService {
    */
   formatTradingSignal(signal) {
     const baseSymbol = signal.symbol.split('/')[0];
-    const trend = signal.trend || 'BULLISH';
-    const isLong = trend === 'BULLISH';
+    const isLong = signal.trend === 'BULLISH';
     const trendEmoji = isLong ? '🟢 COMPRA' : '🔴 VENDA';
     const timeframe = signal.timeframe || '4h'; // Default para 4h se não especificado
+    
+    // Adiciona informação do regime de mercado
+    const regime = signal.regime || 'NORMAL';
+    const regimeEmoji = regime === 'BEAR' ? '🐻' : regime === 'BULL' ? '🐂' : regime === 'VOLATILE' ? '⚡' : '⚖️';
+    
+    // Determina o sentimento e interpretação
+    const sentimentScore = signal.sentimentScore || 50;
+    let sentimentEmoji = '🟡';
+    let sentimentText = 'NEUTRO';
+    
+    if (sentimentScore >= 70) {
+      sentimentEmoji = '🟢';
+      sentimentText = isLong ? 'FORTE BULLISH' : 'FORTE BEARISH';
+    } else if (sentimentScore >= 60) {
+      sentimentEmoji = '🟠';
+      sentimentText = isLong ? 'LEVEMENTE BULLISH' : 'LEVEMENTE BEARISH';
+    }
     
     // Corrige regime inconsistente
     let actualRegime = signal.regime || 'NORMAL';
@@ -141,25 +158,68 @@ class TelegramBotService {
       actualRegime = 'BULL'; // Sinal de compra em regime bear não faz sentido
     }
     
-    const regimeEmoji = this.getRegimeEmoji(actualRegime);
+    const regimeEmoji2 = this.getRegimeEmoji(actualRegime);
     
     // Gera fatores-chave consistentes com o sinal
     const factorsKey = this.generateConsistentFactors(signal, isLong);
     
+    // Fatores-chave (exemplo, ajuste conforme sua análise)
+    const keyFactors = [];
+    if (signal.indicators) {
+      if (signal.indicators.rsi !== undefined) {
+        if (signal.indicators.rsi < 30) keyFactors.push('RSI em sobrevenda - favorável para COMPRA');
+        else if (signal.indicators.rsi > 70) keyFactors.push('RSI em sobrecompra - favorável para VENDA');
+      }
+      if (signal.indicators.macd) {
+        const macdSignal = signal.indicators.macd.MACD > signal.indicators.macd.signal ? 'bullish' : 'bearish';
+        keyFactors.push(`MACD ${macdSignal}`);
+      }
+      if (signal.indicators.trend) {
+        keyFactors.push(`Tendência de ${signal.indicators.trend === 'up' ? 'alta' : 'baixa'} confirmada`);
+      }
+    }
+    
+    // Adiciona correlação com Bitcoin se disponível
+    if (signal.btcCorrelation && signal.btcCorrelation.btcTrend) {
+      keyFactors.push(`Bitcoin ${signal.btcCorrelation.btcTrend.toLowerCase()} (força: ${signal.btcCorrelation.btcStrength || 0})`);
+    }
+    
+    // Adiciona fatores padrão se não houver suficientes
+    while (keyFactors.length < 3) {
+      keyFactors.push('Análise de volume e preço favorável');
+    }
+    
+    // Verifica se há conflito com a tendência do Bitcoin
+    let riskWarning = '';
+    if (signal.btcCorrelation && signal.btcCorrelation.btcTrend) {
+      const btcTrendUp = signal.btcCorrelation.btcTrend === 'BULLISH';
+      if ((isLong && !btcTrendUp) || (!isLong && btcTrendUp)) {
+        riskWarning = `\n⚠️ ATENÇÃO: O Bitcoin está em tendência de ${btcTrendUp ? 'ALTA' : 'BAIXA'}. `;
+        riskWarning += `Operações ${isLong ? 'COMPRA' : 'VENDA'} podem ter risco elevado.`;
+      }
+    }
+
     // Monta a mensagem
     let message = `🚨 LOBO PREMIUM #${baseSymbol} ${trendEmoji} ${regimeEmoji}\n\n`;
     
     // Informações básicas
     message += `💰 #${baseSymbol} Futures\n`;
     message += `📊 TEMPO GRÁFICO: ${timeframe}\n`;
-    message += `🌐 REGIME: ${actualRegime} ${regimeEmoji}\n`;
+    message += `🌐 REGIME: ${actualRegime} ${regimeEmoji2}\n`;
     message += `📈 Alavancagem sugerida: 15x\n`;
     message += `🎯 Probabilidade: ${signal.probability || 'N/A'}%\n\n`;
     
     // Análise de sentimento
     message += `📊 ANÁLISE DE SENTIMENTO:\n`;
+    message += `${sentimentEmoji} Sentimento: ${sentimentText} (${sentimentScore}/100)\n`;
     message += `💡 Interpretação: ${isLong ? 'Análise técnica favorável para compra' : 'Análise técnica favorável para venda'}\n`;
-    message += `${factorsKey}\n\n`;
+    message += `🔍 Fatores-chave:\n`;
+    message += `${factorsKey}\n`;
+    keyFactors.forEach((factor, index) => {
+      message += `   • ${factor}${index < keyFactors.length - 1 ? '\n' : ''}`;
+    });
+    
+    message += '\n\n';
     
     // Entrada e alvos
     message += `⚡️ Entrada: ${this.formatPrice(signal.entry)}\n\n`;
@@ -185,7 +245,14 @@ class TelegramBotService {
     message += `🛑 Stop Loss: ${this.formatPrice(signal.stopLoss)}\n\n`;
     
     // Regime de operação
-    message += `🎛️ Regime: ${regimeEmoji} MODO ${actualRegime} - ${this.getRegimeDescription(actualRegime)}\n`;
+    const operationMode = signal.operationMode || 'NORMAL';
+    const modeEmoji = operationMode === 'AGGRESSIVE' ? '⚡️' : operationMode === 'CONSERVATIVE' ? '🛡️' : '⚖️';
+    message += `🎛️ Regime: ${modeEmoji} MODO ${operationMode} - ${this.getRegimeDescription(actualRegime)}\n`;
+    
+    // Aviso de risco se aplicável
+    if (riskWarning) {
+      message += `\n${riskWarning}\n`;
+    }
     
     // Rodapé
     message += `\n👑 Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin\n`;
@@ -883,4 +950,409 @@ class TelegramBotService {
       }
     }
     
-    // Análise de Fear & Greed com
+    // Análise de Fear & Greed com contexto
+    if (fgIndex > 80) {
+      interpretation.push(`Ganância extrema (${fgIndex}/100) - risco de correção iminente`);
+    } else if (fgIndex < 20) {
+      interpretation.push(`Medo extremo (${fgIndex}/100) - oportunidades históricas de compra`);
+    } else if (fgIndex > 70) {
+      interpretation.push(`Alta ganância (${fgIndex}/100) - realize lucros gradualmente`);
+    } else if (fgIndex < 30) {
+      interpretation.push(`Alto medo (${fgIndex}/100) - considere acumulação`);
+    }
+    
+    // Análise de notícias com contexto específico
+    if (newsScore >= 70) {
+      interpretation.push(`Notícias muito positivas (${newsScore}/100) - momentum midiático`);
+    } else if (newsScore <= 35) {
+      interpretation.push(`Notícias negativas (${newsScore}/100) - sentimento pessimista`);
+    }
+    
+    // Análise de dominância BTC com recomendações específicas
+    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
+      const dominance = sentiment.cryptoMarketCap.btcDominance;
+      if (dominance > 70) {
+        interpretation.push(`Dominância BTC extrema (${dominance.toFixed(1)}%) - apenas Bitcoin`);
+      } else if (dominance > 60) {
+        interpretation.push(`Alta dominância BTC (${dominance.toFixed(1)}%) - foque em BTC e top 5`);
+      } else if (dominance < 35) {
+        interpretation.push(`Baixa dominância BTC (${dominance.toFixed(1)}%) - altcoin season ativa`);
+      } else if (dominance < 45) {
+        interpretation.push(`Dominância BTC moderada (${dominance.toFixed(1)}%) - altcoins favorecidas`);
+      }
+    }
+    
+    // Recomendação final baseada no contexto geral
+    if (generalScore >= 70 && btcScore >= 65) {
+      interpretation.push('🟢 Ambiente muito favorável para posições de compra');
+    } else if (generalScore <= 30 && btcScore <= 35) {
+      interpretation.push('🔴 Ambiente desfavorável - evite compras, considere vendas');
+    } else if (Math.abs(generalScore - 50) <= 10) {
+      interpretation.push('🟡 Mercado neutro - opere com base em análise técnica');
+    } else if (generalScore > 50) {
+      interpretation.push('🟢 Leve viés de alta - prefira compras em correções');
+    } else {
+      interpretation.push('🟡 Leve viés de baixa - cautela com compras');
+    }
+    
+    // Adiciona aviso se for contra-tendência
+    if (sentiment.isCounterTrend) {
+      interpretation.push('⚠️ ATENÇÃO: Operação contra a tendência - risco elevado');
+    }
+    
+    return interpretation.slice(0, 5); // Máximo 5 pontos mais específicos
+  }
+
+  /**
+   * Formata preço sem gerar links automáticos
+   */
+  formatPrice(price) {
+    if (!price || isNaN(price)) return '0.00';
+    
+    // Formata preço evitando links automáticos do Telegram
+    const formattedPrice = price.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: price >= 1 ? 2 : 8,
+      useGrouping: false
+    });
+    
+    // Adiciona espaços invisíveis para quebrar detecção de links
+    return formattedPrice.replace(/\./g, '․'); // Usa ponto médio Unicode U+2024
+  }
+
+  /**
+   * Lista operações ativas (para debugging)
+   */
+  listActiveOperations() {
+    console.log(`📊 Operações ativas (${this.activeMonitors.size}):`);
+    
+    if (this.activeMonitors.size === 0) {
+      console.log('   Nenhuma operação ativa');
+      return;
+    }
+    
+    this.activeMonitors.forEach((monitor, symbol) => {
+      const targetsHit = monitor.targetsHit || 0;
+      const totalTargets = monitor.targets?.length || 0;
+      
+      console.log(`🔍 Operação ativa encontrada para ${symbol}:`);
+      console.log(`   • Entrada: $${monitor.entry.toFixed(4)}`);
+      console.log(`   • Alvos atingidos: ${targetsHit}/${totalTargets}`);
+      console.log(`   • Status: ${monitor.status || 'ACTIVE'}`);
+      console.log(`   • Timestamp: ${monitor.timestamp}`);
+    });
+  }
+
+  /**
+   * Atualiza o stop loss baseado no alvo atingido
+   */
+  updateStopLoss(symbol, targetNumber) {
+    try {
+      const monitor = this.activeMonitors.get(symbol);
+      if (!monitor) {
+        console.error(`❌ Monitor não encontrado para ${symbol}`);
+        return;
+      }
+
+      let newStopLoss = null;
+      let stopType = null;
+
+      // Determina novo stop loss baseado no alvo
+      switch (targetNumber) {
+        case 1:
+          // Alvo 1: Mantém stop original (não move ainda)
+          console.log(`🎯 ALVO 1: ${symbol} - Stop mantido no original`);
+          return;
+        case 2:
+          // Alvo 2: Move stop para entrada
+          newStopLoss = monitor.entry;
+          stopType = 'BREAKEVEN';
+          break;
+        case 3:
+          // Alvo 3: Move stop para alvo 1
+          newStopLoss = monitor.targets[0];
+          stopType = 'TARGET_1';
+          break;
+        case 4:
+          // Alvo 4: Move stop para alvo 2
+          newStopLoss = monitor.targets[1];
+          stopType = 'TARGET_2';
+          break;
+        case 5:
+          // Alvo 5: Move stop para alvo 3
+          newStopLoss = monitor.targets[2];
+          stopType = 'TARGET_3';
+          break;
+        case 6:
+          // Alvo 6: Operação finalizada
+          console.log(`🌕 ALVO FINAL: ${symbol} - Operação será finalizada`);
+          return;
+        default:
+          console.log(`⚠️ Alvo ${targetNumber} não reconhecido para ${symbol}`);
+          return;
+      }
+
+      if (newStopLoss !== null) {
+        // Para LONG: novo stop deve ser maior que o atual (mais proteção)
+        if (!monitor.isShort && newStopLoss > monitor.currentStopLoss) {
+          monitor.currentStopLoss = newStopLoss;
+          monitor.stopType = stopType;
+          console.log(`🛡️ STOP MOVIDO: ${symbol} - Novo stop: $${newStopLoss.toFixed(8)} (${stopType})`);
+        }
+        // Para SHORT: novo stop deve ser menor que o atual (mais proteção)
+        else if (monitor.isShort && newStopLoss < monitor.currentStopLoss) {
+          monitor.currentStopLoss = newStopLoss;
+          monitor.stopType = stopType;
+          console.log(`🛡️ STOP MOVIDO: ${symbol} - Novo stop: $${newStopLoss.toFixed(8)} (${stopType})`);
+        }
+        else {
+          console.log(`ℹ️ STOP NÃO MOVIDO: ${symbol} - Novo stop ($${newStopLoss.toFixed(8)}) não é mais favorável que atual ($${monitor.currentStopLoss.toFixed(8)})`);
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Erro ao atualizar stop loss para ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Atualiza o gerenciamento de risco baseado no alvo atingido
+   */
+  updateRiskManagement(symbol, targetNumber) {
+    try {
+      const monitor = this.activeMonitors.get(symbol);
+      if (!monitor) {
+        console.error(`❌ Monitor não encontrado para ${symbol}`);
+        return;
+      }
+
+      // Define as configurações de risco para cada alvo
+      const riskConfig = {
+        1: {
+          stopType: 'INITIAL', // Mantém stop original
+          positionSize: 0.5, // 50% da posição  
+          message: 'Realize 50% da posição'
+        },
+        2: {
+          stopType: 'BREAKEVEN',
+          positionSize: 0.15, // 15% da posição
+          message: 'Realize 15% da posição e mova o stop para o ponto de entrada'
+        },
+        3: {
+          stopType: 'TARGET_1',
+          positionSize: 0.1, // 10% da posição
+          message: 'Realize 10% da posição e mova o stop para o Alvo 1'
+        },
+        4: {
+          stopType: 'TARGET_2',
+          positionSize: 0.1, // 10% da posição
+          message: 'Realize 10% da posição e mova o stop para o Alvo 2'
+        },
+        5: {
+          stopType: 'TARGET_3',
+          positionSize: 0.1, // 10% da posição
+          message: 'Realize 10% da posição e mova o stop para o Alvo 3'
+        },
+        6: {
+          stopType: 'COMPLETE',
+          positionSize: 0.15, // 15% da posição (restante)
+          message: 'Realize o restante da posição. Operação concluída com sucesso!'
+        }
+      };
+
+      const config = riskConfig[targetNumber];
+      if (!config) return;
+
+      // Atualiza o monitor com as configurações de risco
+      monitor.riskConfig = config;
+      
+      console.log(`🔄 Gerenciamento de risco atualizado para ${symbol}:`);
+      console.log(`   • Alvo ${targetNumber}: ${config.message}`);
+      console.log(`   • Tipo de stop: ${config.stopType}`);
+      console.log(`   • Tamanho da posição: ${(config.positionSize * 100).toFixed(0)}%`);
+
+    } catch (error) {
+      console.error(`❌ Erro ao atualizar gerenciamento de risco para ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Analisa o RSI considerando a tendência atual
+   */
+  analyzeRSI(indicators, isBullish, isWithTrend, analysis) {
+    if (indicators.rsi === undefined) return;
+    
+    // Fatores de pontuação mais altos para contra-tendência
+    const trendFactor = isWithTrend ? 1 : 1.5;
+    
+    if (indicators.rsi <= 25) {
+      // RSI em sobrevenda
+      const points = isWithTrend ? 25 : 35;
+      analysis.score += isBullish ? points * trendFactor : -10;
+      analysis.factors.push('RSI em forte sobrevenda (≤25)');
+      
+      if (!isBullish && !isWithTrend) {
+        analysis.factors.push('⚠️ Cuidado: Venda com RSI baixo requer confirmação extra');
+      }
+    } 
+    else if (indicators.rsi >= 85) {
+      // RSI em sobrecompra
+      const points = isWithTrend ? 25 : 35;
+      analysis.score += !isBullish ? points * trendFactor : -10;
+      analysis.factors.push('RSI em forte sobrecompra (≥85)');
+      
+      if (isBullish && !isWithTrend) {
+        analysis.factors.push('⚠️ Cuidado: Compra com RSI alto requer confirmação extra');
+      }
+    }
+    else if (indicators.rsi < 40) {
+      // RSI próximo à sobrevenda
+      analysis.score += isBullish ? 10 * trendFactor : -5;
+      if (isWithTrend || indicators.rsi < 30) {
+        analysis.factors.push('RSI próximo à sobrevenda');
+      }
+    }
+    else if (indicators.rsi > 60) {
+      // RSI próximo à sobrecompra
+      analysis.score += !isBullish ? 10 * trendFactor : -5;
+      if (isWithTrend || indicators.rsi > 70) {
+        analysis.factors.push('RSI próximo à sobrecompra');
+      }
+    }
+  }
+
+  /**
+   * Analisa o MACD considerando a tendência atual
+   */
+  analyzeMACD(indicators, isBullish, isWithTrend, analysis) {
+    if (!indicators.macd) return;
+    
+    const macdBullish = indicators.macd.MACD > indicators.macd.signal;
+    const histogramRising = indicators.macd.histogram > 0 && 
+                           indicators.macd.histogram > indicators.macd.prevHistogram;
+    
+    // Fatores de pontuação
+    const trendFactor = isWithTrend ? 1 : 1.2;
+    const directionMatch = (isBullish && macdBullish) || (!isBullish && !macdBullish);
+    
+    if (directionMatch) {
+      // Sinal na mesma direção
+      let points = 10;
+      if (histogramRising) points += 5;
+      
+      analysis.score += points * trendFactor;
+      analysis.factors.push(`MACD ${macdBullish ? 'bullish' : 'bearish'}`);
+      
+      if (histogramRising) {
+        analysis.factors.push('Impulso do histograma aumentando');
+      }
+    } else {
+      // Sinal contrário - penaliza menos se for com a tendência
+      analysis.score -= isWithTrend ? 5 : 15;
+      analysis.factors.push(`⚠️ Alerta: MACD ${macdBullish ? 'bullish' : 'bearish'} contra o sinal`);
+    }
+  }
+
+  /**
+   * Determina o sentimento final baseado na pontuação
+   */
+  determineSentiment(analysis, isBullish) {
+    // Ajusta o limiar baseado se é contra-tendência
+    const threshold = analysis.isCounterTrend ? 75 : 65;
+    
+    if (analysis.score >= 85) {
+      analysis.sentiment = isBullish ? 'MUITO BULLISH' : 'MUITO BEARISH';
+      analysis.interpretation = analysis.isCounterTrend 
+        ? `Forte sinal de ${isBullish ? 'compra' : 'venda'} mesmo contra a tendência`
+        : `Forte viés de ${isBullish ? 'alta' : 'baixa'}, entrada recomendada`;
+    } 
+    else if (analysis.score >= threshold) {
+      analysis.sentiment = isBullish ? 'BULLISH' : 'BEARISH';
+      analysis.interpretation = analysis.isCounterTrend
+        ? `Sinal de ${isBullish ? 'compra' : 'venda'} contra-tendência, confirmação necessária`
+        : `Viés de ${isBullish ? 'alta' : 'baixa'}, condições favoráveis`;
+    } 
+    else if (analysis.score >= 50) {
+      analysis.sentiment = isBullish ? 'LEVEMENTE BULLISH' : 'LEVEMENTE BEARISH';
+      analysis.interpretation = analysis.isCounterTrend
+        ? `Fraca confirmação para operação contra-tendência, aguarde melhores condições`
+        : 'Sinais mistos, aguarde confirmação';
+    } 
+    else {
+      analysis.sentiment = 'NEUTRO';
+      analysis.interpretation = analysis.isCounterTrend
+        ? '❌ Contra-tendência sem confirmação suficiente, evite operar'
+        : 'Sem direção clara, aguardar melhores condições';
+    }
+    
+    // Adiciona aviso se for contra-tendência
+    if (analysis.isCounterTrend) {
+      analysis.interpretation += '\n⚠️ ATENÇÃO: Operação contra a tendência - risco elevado';
+    }
+  }
+
+  /**
+   * Escapa caracteres especiais do Markdown do Telegram
+   */
+  escapeMarkdown(text) {
+    if (!text) return '';
+    return String(text).replace(/[\_*\[\]()~`>#+\-=\|{}.!]/g, '\\$&');
+  }
+
+  /**
+   * Obtém emoji do regime
+   */
+  getRegimeEmoji(regime) {
+    switch(regime) {
+      case 'BULL': return '🐂';
+      case 'BEAR': return '🐻';
+      case 'VOLATILE': return '⚡';
+      default: return '⚖️';
+    }
+  }
+
+  /**
+   * Obtém descrição do regime
+   */
+  getRegimeDescription(regime) {
+    switch(regime) {
+      case 'BULL': return 'Mercado em alta';
+      case 'BEAR': return 'Mercado em baixa';
+      case 'VOLATILE': return 'Mercado volátil';
+      default: return 'Mercado neutro';
+    }
+  }
+
+  /**
+   * Gera fatores consistentes com o sinal
+   */
+  generateConsistentFactors(signal, isLong) {
+    const factors = [];
+    
+    // Adiciona fatores baseados nos indicadores
+    if (signal.indicators) {
+      if (signal.indicators.rsi !== undefined) {
+        if (isLong && signal.indicators.rsi < 50) {
+          factors.push('RSI favorável para compra');
+        } else if (!isLong && signal.indicators.rsi > 50) {
+          factors.push('RSI favorável para venda');
+        }
+      }
+      
+      if (signal.indicators.macd) {
+        const macdBullish = signal.indicators.macd.MACD > signal.indicators.macd.signal;
+        if ((isLong && macdBullish) || (!isLong && !macdBullish)) {
+          factors.push(`MACD ${macdBullish ? 'bullish' : 'bearish'}`);
+        }
+      }
+    }
+    
+    // Adiciona fatores padrão se necessário
+    while (factors.length < 3) {
+      factors.push('Análise técnica favorável');
+    }
+    
+    return factors.slice(0, 3).map(f => `   • ${f}`).join('\n');
+  }
+}
+
+export default TelegramBotService;
