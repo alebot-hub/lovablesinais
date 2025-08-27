@@ -122,7 +122,150 @@ class MarketAnalysisService {
     try {
       console.log('😰 Obtendo Fear & Greed Index real...');
       
-      const response = await fetch('https://api.alternative.me/fng/', {
+      // Tenta múltiplas fontes para Fear & Greed
+      const sources = [
+        'https://api.alternative.me/fng/',
+        'https://api.alternative.me/fng/?limit=1'
+      ];
+      
+      let response = null;
+      let lastError = null;
+      
+      for (const url of sources) {
+        try {
+          response = await fetch(url, {
+            headers: {
+              'Accept': 'application/json',
+              'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)',
+              'Cache-Control': 'no-cache'
+            },
+            signal: AbortSignal.timeout(8000)
+          });
+          
+          if (response.ok) break;
+          lastError = `HTTP ${response.status}: ${response.statusText}`;
+        } catch (error) {
+          lastError = error.message;
+          continue;
+        }
+      }
+      
+      if (!response || !response.ok) {
+        throw new Error(lastError || 'Todas as fontes falharam');
+      }
+      
+      const data = await response.json();
+      
+      if (data && data.data && data.data[0]) {
+        const fngData = data.data[0];
+        const index = parseInt(fngData.value);
+        const label = fngData.value_classification;
+        
+        console.log(`✅ Fear & Greed real: ${index}/100 (${label})`);
+        
+        return {
+          index: index,
+          label: label,
+          isReal: true,
+          timestamp: fngData.timestamp
+        };
+      }
+      
+      throw new Error('Dados inválidos da API');
+    } catch (error) {
+      console.error('❌ Erro no Fear & Greed real:', error.message);
+      
+      // Fallback inteligente baseado no Bitcoin
+      const btcSentiment = await this.calculateBtcBasedFearGreed().catch(() => null);
+      
+      if (btcSentiment) {
+        console.log(`✅ Fear & Greed calculado via BTC: ${btcSentiment.index}/100`);
+        return btcSentiment;
+      }
+      
+      // Fallback final com dados simulados mais realistas
+      const simulatedIndex = 35 + Math.random() * 30; // 35-65 (mais realista)
+      return {
+        index: Math.round(simulatedIndex),
+        label: this.getFearGreedLabel(simulatedIndex),
+        isReal: false,
+        timestamp: Date.now()
+      };
+    }
+  }
+
+  /**
+   * Calcula Fear & Greed baseado no Bitcoin
+   */
+  async calculateBtcBasedFearGreed() {
+    try {
+      const btcData = await this.binanceService.getOHLCVData('BTC/USDT', '1d', 30);
+      
+      if (!btcData || !btcData.close || btcData.close.length < 20) {
+        return null;
+      }
+      
+      const currentPrice = btcData.close[btcData.close.length - 1];
+      const price7dAgo = btcData.close[btcData.close.length - 8];
+      const price30dAgo = btcData.close[0];
+      
+      const change7d = ((currentPrice - price7dAgo) / price7dAgo) * 100;
+      const change30d = ((currentPrice - price30dAgo) / price30dAgo) * 100;
+      
+      // Calcula volatilidade
+      const returns = [];
+      for (let i = 1; i < btcData.close.length; i++) {
+        returns.push((btcData.close[i] - btcData.close[i-1]) / btcData.close[i-1]);
+      }
+      const volatility = Math.sqrt(returns.reduce((sum, ret) => sum + ret * ret, 0) / returns.length) * 100;
+      
+      // Calcula índice baseado em múltiplos fatores
+      let index = 50; // Base neutra
+      
+      // Variação 7 dias (peso 40%)
+      if (change7d > 15) index += 25;
+      else if (change7d > 5) index += 15;
+      else if (change7d > 0) index += 5;
+      else if (change7d < -15) index -= 25;
+      else if (change7d < -5) index -= 15;
+      else if (change7d < 0) index -= 5;
+      
+      // Variação 30 dias (peso 30%)
+      if (change30d > 30) index += 15;
+      else if (change30d > 10) index += 10;
+      else if (change30d < -30) index -= 15;
+      else if (change30d < -10) index -= 10;
+      
+      // Volatilidade (peso 20% - inverso)
+      if (volatility > 5) index -= 10;
+      else if (volatility < 2) index += 5;
+      
+      // Volume (peso 10%)
+      const avgVolume = btcData.volume.reduce((sum, vol) => sum + vol, 0) / btcData.volume.length;
+      const currentVolume = btcData.volume[btcData.volume.length - 1];
+      if (currentVolume > avgVolume * 1.5) index += 5;
+      
+      index = Math.max(0, Math.min(100, Math.round(index)));
+      
+      return {
+        index: index,
+        label: this.getFearGreedLabel(index),
+        isReal: false,
+        calculatedFrom: 'Bitcoin metrics',
+        timestamp: Date.now()
+      };
+    } catch (error) {
+      console.error('Erro ao calcular F&G via BTC:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Obtém dados de Altcoin Season
+   */
+  async getAltcoinSeasonData() {
+    try {
+      console.log('🚀 Verificando Altcoin Season...');
         headers: {
           'Accept': 'application/json',
           'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
@@ -173,24 +316,14 @@ class MarketAnalysisService {
     try {
       console.log('🚀 Verificando Altcoin Season...');
       
-      const response = await fetch('https://www.blockchaincenter.net/api/altcoin_season', {
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
-        },
-        signal: AbortSignal.timeout(10000)
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      // API original frequentemente instável, usar fallback inteligente
+      const btcDominance = await this.getBtcDominanceFromCoinGecko();
       
-      if (data && data.altcoin_season_index !== undefined) {
-        const index = data.altcoin_season_index;
-        const isAltcoinSeason = index > 75;
-        const isBitcoinSeason = index < 25;
+      if (btcDominance !== null) {
+        // Calcula Altcoin Season baseado na dominância do BTC
+        const altcoinIndex = Math.max(0, Math.min(100, 100 - btcDominance * 1.5));
+        const isAltcoinSeason = altcoinIndex > 75;
+        const isBitcoinSeason = altcoinIndex < 25;
         
         let status = 'Neutro';
         let description = 'Mercado equilibrado';
@@ -203,21 +336,61 @@ class MarketAnalysisService {
           description = 'Bitcoin dominando o mercado';
         }
         
-        console.log(`✅ Altcoin Season real: ${index}/100 (${status})`);
+        console.log(`✅ Altcoin Season calculado: ${altcoinIndex}/100 (${status}) - BTC Dom: ${btcDominance}%`);
         
         return {
-          index: index,
+          index: Math.round(altcoinIndex),
           status: status,
           description: description,
           isAltcoinSeason: isAltcoinSeason,
           isBitcoinSeason: isBitcoinSeason,
-          isRealData: true
+          isRealData: false,
+          calculatedFrom: `BTC Dominance ${btcDominance.toFixed(1)}%`
         };
       }
       
-      throw new Error('Dados inválidos da API');
+      // Fallback se não conseguir dominância
+      console.log('⚠️ Usando fallback para Altcoin Season');
+      return {
+        index: 45,
+        status: 'Neutro',
+        description: 'Dados temporariamente indisponíveis',
+        isAltcoinSeason: false,
+        isBitcoinSeason: false,
+        isRealData: false
+      };
     } catch (error) {
-      console.error('❌ Erro no Altcoin Season real:', error.message);
+      console.error('❌ Erro no Altcoin Season:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Obtém dominância do BTC via CoinGecko
+   */
+  async getBtcDominanceFromCoinGecko() {
+    try {
+      const response = await fetch('https://api.coingecko.com/api/v3/global', {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)',
+          'Cache-Control': 'no-cache'
+        },
+        signal: AbortSignal.timeout(8000)
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      if (data && data.data && data.data.market_cap_percentage && data.data.market_cap_percentage.btc) {
+        return data.data.market_cap_percentage.btc;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('❌ Erro ao obter dominância BTC:', error.message);
       return null;
     }
   }
@@ -229,16 +402,19 @@ class MarketAnalysisService {
     try {
       console.log('📰 Analisando trending coins para sentimento de notícias...');
       
+      // Usa endpoint mais estável do CoinGecko
       const response = await fetch('https://api.coingecko.com/api/v3/search/trending', {
         headers: {
           'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
+          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)',
+          'Cache-Control': 'no-cache'
         },
-        signal: AbortSignal.timeout(10000)
+        signal: AbortSignal.timeout(8000)
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        console.warn(`⚠️ CoinGecko trending falhou: ${response.status}`);
+        return this.getFallbackNewsAnalysis();
       }
 
       const data = await response.json();
@@ -322,17 +498,46 @@ class MarketAnalysisService {
         };
       }
       
-      throw new Error('Dados inválidos da API');
+      return this.getFallbackNewsAnalysis();
     } catch (error) {
       console.error('❌ Erro na análise de notícias:', error.message);
-      
-      // Fallback
-      return {
-        score: 45 + Math.random() * 20, // 45-65
-        trendingCoins: [],
-        categories: {},
-        isRealData: false
-      };
+      return this.getFallbackNewsAnalysis();
+    }
+  }
+
+  /**
+   * Fallback para análise de notícias
+   */
+  getFallbackNewsAnalysis() {
+    // Calcula score baseado no horário (simulação de ciclo de notícias)
+    const hour = new Date().getHours();
+    let baseScore = 50;
+    
+    // Horários de maior atividade de notícias (UTC)
+    if (hour >= 13 && hour <= 16) { // Horário comercial US
+      baseScore += 10;
+    } else if (hour >= 8 && hour <= 10) { // Abertura EU
+      baseScore += 5;
+    } else if (hour >= 0 && hour <= 2) { // Abertura Ásia
+      baseScore += 8;
+    }
+    
+    // Adiciona variação aleatória
+    const variation = (Math.random() - 0.5) * 20; // ±10
+    const finalScore = Math.max(30, Math.min(70, baseScore + variation));
+    
+    return {
+      score: finalScore,
+      trendingCoins: ['BTC', 'ETH', 'SOL'], // Coins sempre relevantes
+      categories: {
+        blueChip: 2,
+        defi: 1,
+        layer2: 1,
+        meme: 1,
+        ai: 0
+      },
+      isRealData: false,
+      fallbackReason: 'API temporariamente indisponível'
     }
   }
 

@@ -428,11 +428,32 @@ app.get('/api/signals/latest', (req, res) => {
 // Sentimento do mercado
 app.get('/api/market/sentiment', async (req, res) => {
   try {
-    const sentiment = await marketAnalysis.analyzeMarketSentiment();
+    const sentiment = await Promise.race([
+      marketAnalysis.analyzeMarketSentiment(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout na análise de sentimento')), 15000)
+      )
+    ]);
     res.json(sentiment);
   } catch (error) {
     console.error('Erro na rota /api/market/sentiment:', error.message);
-    res.status(500).json({ error: 'Erro ao obter sentimento do mercado' });
+    
+    // Retorna dados de fallback ao invés de erro 500
+    const fallbackSentiment = {
+      overall: 'NEUTRO',
+      fearGreedIndex: 50,
+      fearGreedLabel: 'Neutro',
+      isRealFearGreed: false,
+      totalVolume: 0,
+      volatility: 2,
+      assetsUp: 35,
+      assetsDown: 35,
+      volumeVsAverage: 1,
+      analysis: ['Dados temporariamente indisponíveis - usando fallback'],
+      timestamp: new Date().toISOString()
+    };
+    
+    res.json(fallbackSentiment);
   }
 });
 
