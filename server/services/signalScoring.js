@@ -181,33 +181,43 @@ class SignalScoringService {
       
       scoreComponents.forEach(comp => {
         console.log(`📊 [${symbol}] ${comp.name}: ${comp.value.toFixed(2)} × ${comp.weight.toFixed(2)} = ${comp.weightedValue.toFixed(2)}`);
-      });
-      
+        if (indicators.rsi < 30) {
+          bullishScore++; // Sobrevenda = oportunidade de compra
+        } else if (indicators.rsi > 70) {
+          bearishScore++; // Sobrecompra = oportunidade de venda
+        }
       console.log(`🎯 [${symbol}] SCORE FINAL: ${finalScore.toFixed(1)}/${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY}`);
       
       // Log resumido
       const logPrefix = isValid ? '✅ SINAL VÁLIDO' : '❌ SINAL INVÁLIDO';
       console.log(`${logPrefix} [${symbol}] Score: ${finalScore.toFixed(1)}/100`);
-      
-      // Log detalhado dos motivos de não envio
+        if (indicators.macd.histogram > 0) {
+          bullishScore++; // Histograma positivo = momentum de alta
+        } else if (indicators.macd.histogram < 0) {
+          bearishScore++; // Histograma negativo = momentum de baixa
+        }
       if (!isValid) {
         const missingPoints = (TRADING_CONFIG.MIN_SIGNAL_PROBABILITY - finalScore).toFixed(1);
         console.log(`❌ [${symbol}] Insuficiente: ${finalScore.toFixed(1)} < ${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY} (faltam ${missingPoints})`);
       }
       
-      // Adiciona aos melhores sinais se for válido
-      if (isValid) {
+        if (indicators.ma21 > indicators.ma200) {
+          bullishScore++; // MA curta > MA longa = tendência de alta
+        } else if (indicators.ma21 < indicators.ma200) {
+          bearishScore++; // MA curta < MA longa = tendência de baixa
+        }
         console.log(`🏆 [${symbol}] SINAL VÁLIDO ENCONTRADO!`);
       }
       
       return {
         totalScore: finalScore,
         details: { ...details, scoreComponents },
-        isValid,
-        isMLDriven,
+      const bullishRatio = bullishScore / totalFactors;
+      const bearishRatio = bearishScore / totalFactors;
         confirmations,
-        strengthFactors,
-        scoreComponents,
+      // Threshold de 50% para maior sensibilidade
+      if (bullishRatio >= 0.5) return 'BULLISH';
+      if (bearishRatio >= 0.5) return 'BEARISH';
         reason: isValid ? 'Sinal válido' : `Pontuação insuficiente (${finalScore.toFixed(1)}/${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY})`
       };
       
