@@ -4,7 +4,6 @@ import React from 'react';
 import App from './App.tsx';
 import './index.css';
 
-// Error boundary mais robusto
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -42,10 +41,7 @@ class ErrorBoundary extends React.Component {
             maxWidth: '500px',
             width: '90%'
           }}>
-            <div style={{
-              fontSize: '3rem',
-              marginBottom: '1rem'
-            }}>🤖</div>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🤖</div>
             <h1 style={{
               fontSize: '1.5rem',
               fontWeight: 'bold',
@@ -75,40 +71,6 @@ class ErrorBoundary extends React.Component {
             >
               🔄 Recarregar Dashboard
             </button>
-            <details style={{ marginTop: '1rem', textAlign: 'left' }}>
-              <summary style={{ 
-                cursor: 'pointer', 
-                fontSize: '0.875rem', 
-                color: '#6b7280',
-                marginBottom: '0.5rem'
-              }}>
-                🔍 Detalhes técnicos do erro
-              </summary>
-              <div style={{
-                fontSize: '0.75rem',
-                color: '#dc2626',
-                backgroundColor: '#fef2f2',
-                padding: '1rem',
-                borderRadius: '6px',
-                overflow: 'auto',
-                maxHeight: '200px',
-                fontFamily: 'monospace'
-              }}>
-                <strong>Erro:</strong><br/>
-                {this.state.error?.toString()}<br/><br/>
-                <strong>Stack:</strong><br/>
-                {this.state.error?.stack}<br/><br/>
-                <strong>Component Stack:</strong><br/>
-                {this.state.errorInfo?.componentStack}
-              </div>
-            </details>
-            <div style={{
-              marginTop: '1rem',
-              fontSize: '0.75rem',
-              color: '#6b7280'
-            }}>
-              Se o problema persistir, verifique o console do navegador (F12)
-            </div>
           </div>
         </div>
       );
@@ -118,7 +80,6 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// Função de inicialização com logs detalhados
 function initializeApp() {
   try {
     console.log('🚀 Inicializando Bot Lobo Cripto Dashboard...');
@@ -145,7 +106,6 @@ function initializeApp() {
   } catch (error) {
     console.error('❌ Erro fatal na inicialização:', error);
     
-    // Fallback manual se React falhar completamente
     const rootElement = document.getElementById('root');
     if (rootElement) {
       rootElement.innerHTML = `
@@ -167,18 +127,14 @@ function initializeApp() {
   }
 }
 
-// Aguarda DOM estar pronto
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeApp);
 } else {
   initializeApp();
 }
 
-// Captura erros globais não tratados
 window.addEventListener('error', (event) => {
   console.error('❌ Erro global capturado:', event.error);
-  console.error('❌ Arquivo:', event.filename);
-  console.error('❌ Linha:', event.lineno);
 });
 
 window.addEventListener('unhandledrejection', (event) => {

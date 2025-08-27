@@ -1,6 +1,5 @@
 import React from 'react';
 
-// Componente de loading simples
 const LoadingFallback = () => (
   <div style={{
     minHeight: '100vh',
@@ -32,12 +31,10 @@ const LoadingFallback = () => (
   </div>
 );
 
-// Lazy load do Dashboard com fallback
 const Dashboard = React.lazy(() => {
   console.log('📊 Carregando componente Dashboard...');
   return import('./components/Dashboard').catch(error => {
     console.error('❌ Erro ao carregar Dashboard:', error);
-    // Retorna componente de erro como fallback
     return {
       default: () => (
         <div style={{

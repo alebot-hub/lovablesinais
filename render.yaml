@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: crypto-trading-bot
+    name: bot-lobo-cripto
     env: node
     runtime: node
-    plan: starter # Começar com starter para testar
+    plan: starter
     buildCommand: npm ci --only=production && npm run build
     startCommand: npm start
     envVars:
@@ -11,24 +11,10 @@ services:
         value: production
       - key: PORT
         value: 10000
-      # Adicione suas variáveis do Telegram no painel do Render
       - key: TELEGRAM_TOKEN
-        sync: false # Será configurado manualmente no painel
+        sync: false
       - key: TELEGRAM_CHAT_ID
-        sync: false # Será configurado manualmente no painel
+        sync: false
     healthCheckPath: /api/status
     autoDeploy: true
     region: oregon
-    buildFilter:
-      paths:
-      - server/**
-      - src/**
-      - package.json
-      - package-lock.json
-      - vite.config.ts
-      - tsconfig.json
-      - tailwind.config.js
-      - postcss.config.js
-      ignoredPaths:
-      - README.md
-      - .env.example
