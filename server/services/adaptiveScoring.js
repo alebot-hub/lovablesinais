@@ -927,6 +927,86 @@ class AdaptiveScoringService {
     this.marketRegime = 'NORMAL';
     console.log('🔄 Sistema adaptativo resetado');
   }
+
+  /**
+   * Calcula força de reversão baseada em múltiplos indicadores
+   */
+  calculateReversalStrength(indicators, patterns) {
+    let strength = 0;
+    const factors = [];
+    
+    // RSI extremo (peso 30%)
+    if (indicators.rsi !== undefined) {
+      if (indicators.rsi <= 20) {
+        strength += 30;
+        factors.push(`RSI sobrevenda extrema (${indicators.rsi.toFixed(2)})`);
+      } else if (indicators.rsi <= 30) {
+        strength += 20;
+        factors.push(`RSI sobrevenda (${indicators.rsi.toFixed(2)})`);
+      } else if (indicators.rsi >= 80) {
+        strength += 30;
+        factors.push(`RSI sobrecompra extrema (${indicators.rsi.toFixed(2)})`);
+      } else if (indicators.rsi >= 70) {
+        strength += 20;
+        factors.push(`RSI sobrecompra (${indicators.rsi.toFixed(2)})`);
+      }
+    }
+    
+    // MACD divergência ou cruzamento forte (peso 25%)
+    if (indicators.macd && indicators.macd.histogram !== undefined) {
+      const macdStrength = Math.abs(indicators.macd.histogram) * 1000000;
+      if (macdStrength > 10) {
+        strength += 25;
+        factors.push(`MACD forte (${macdStrength.toFixed(2)})`);
+      } else if (macdStrength > 5) {
+        strength += 15;
+        factors.push(`MACD moderado (${macdStrength.toFixed(2)})`);
+      }
+    }
+    
+    // Divergência RSI (peso 20%)
+    if (indicators.rsiDivergence) {
+      strength += 20;
+      factors.push('Divergência RSI detectada');
+    }
+    
+    // Padrões de reversão (peso 15%)
+    if (patterns.candlestick) {
+      const reversalPatterns = patterns.candlestick.filter(p => 
+        ['HAMMER', 'HANGING_MAN', 'BULLISH_ENGULFING', 'BEARISH_ENGULFING', 'DOJI'].includes(p.type)
+      );
+      if (reversalPatterns.length > 0) {
+        strength += 15;
+        factors.push(`Padrão de reversão (${reversalPatterns[0].type})`);
+      }
+    }
+    
+    // Volume confirmação (peso 10%)
+    if (indicators.volume && indicators.volume.volumeRatio > 1.5) {
+      strength += 10;
+      factors.push(`Volume alto (${indicators.volume.volumeRatio.toFixed(2)}x)`);
+    }
+    
+    console.log(`🔄 Fatores de reversão: ${factors.join(', ')}`);
+    return Math.min(100, strength);
+  }
+  
+  /**
+   * Verifica se é um breakout lateral (consolidação)
+   */
+  isSidewaysBreakout(patterns, indicators) {
+    // Verifica se o mercado estava em consolidação antes do breakout
+    if (!patterns.breakout) return false;
+    
+    // RSI próximo ao centro indica consolidação
+    const rsiNeutral = indicators.rsi && indicators.rsi > 40 && indicators.rsi < 60;
+    
+    // Médias móveis próximas indicam consolidação
+    const maFlat = indicators.ma21 && indicators.ma200 && 
+                   Math.abs(indicators.ma21 - indicators.ma200) / indicators.ma200 < 0.02;
+    
+    return rsiNeutral || maFlat;
+  }
 }
 
 export default AdaptiveScoringService;
