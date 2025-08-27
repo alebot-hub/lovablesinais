@@ -5,7 +5,7 @@
 ```
 🚨 LOBO PREMIUM #SOL 🟢 COMPRA ⚖️
 
-💰 *SOL/USDT* (tg://search_hashtag?hashtag=SOL) Futures
+💰 #SOL Futures
 📊 *TEMPO GRÁFICO:* 1h
 🌐 *REGIME:* NORMAL ⚖️
 📈 *Alavancagem sugerida:* 15x
@@ -77,7 +77,7 @@
 ## ❌ **4. STOP LOSS (Sem alvos atingidos)**
 
 ```
-❌ *SOL - OPERAÇÃO FINALIZADA* ❌
+❌ *#SOL - OPERAÇÃO FINALIZADA* ❌
 
 📊 *Resultado:* 🔴
 ⚡ *Alavancado (15x):* 🔴 -37.5%
@@ -107,7 +107,7 @@
 ## ❌ **5. STOP LOSS (Após Alvo 1)**
 
 ```
-❌ *SOL - OPERAÇÃO FINALIZADA* ❌
+❌ *#SOL - OPERAÇÃO FINALIZADA* ❌
 
 📊 *Resultado:* 🔴
 ⚡ *Alavancado (15x):* 🔴 -15.2%
@@ -137,7 +137,7 @@
 ## 🌕 **6. TODOS OS ALVOS ATINGIDOS**
 
 ```
-🌕 *SOL - OPERAÇÃO FINALIZADA* 🌕
+🌕 *#SOL - OPERAÇÃO FINALIZADA* 🌕
 
 📊 *Resultado:* 🟢 +135.0%
 ⚡ *Alavancado (15x):* 🟢 +2025.0%
