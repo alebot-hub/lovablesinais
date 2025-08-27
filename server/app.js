@@ -462,9 +462,9 @@ schedule.scheduleJob(SCHEDULE_CONFIG.MARKET_SENTIMENT, () => {
   analyzeMarketSentiment();
 });
 
-setInterval(() => {
+setInterval(async () => {
   try {
-    binanceService.cleanupOrphanedWebSockets();
+    await binanceService.cleanupOrphanedWebSockets();
   } catch (error) {
     console.error('Erro no cleanup de WebSockets:', error.message);
   }

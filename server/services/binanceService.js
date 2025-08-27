@@ -494,7 +494,7 @@ class BinanceService {
   /**
    * Limpa todas as conexões WebSocket órfãs
    */
-  cleanupOrphanedWebSockets() {
+  async cleanupOrphanedWebSockets() {
     console.log(`🧹 Limpando WebSockets órfãos...`);
     let cleaned = 0;
     
