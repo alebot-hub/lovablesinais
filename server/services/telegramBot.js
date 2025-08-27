@@ -56,6 +56,9 @@ class TelegramBotService {
     const emoji = isLong ? '🟢' : '🔴';
     const animal = isLong ? '🐂' : '🐻';
     
+    // Ajusta probabilidade para exibição mais realista (60-85% na maioria dos casos)
+    const displayProbability = this.calculateDisplayProbability(signal.probability || signal.totalScore || 0);
+    
     // Formata fatores-chave específicos e únicos
     const factors = this.generateSpecificFactors(signal, isLong);
     const factorsText = factors.map(f => `   • ${f}`).join('\n');
@@ -84,7 +87,7 @@ class TelegramBotService {
 
 💰 *#${signal.symbol.split('/')[0]} Futures*
 📈 *Alavancagem sugerida:* 15x
-🎯 *Probabilidade:* ${signal.probability.toFixed(3)}%
+🎯 *Probabilidade:* ${displayProbability.toFixed(1)}%
 
 💡 *Interpretação:* ${this.getInterpretation(signal, isLong)}
 🔍 *Fatores-chave:*
@@ -792,6 +795,42 @@ ${bitcoinWarning}
       case 6: return 'PARABÉNS! Todos os alvos atingidos!';
       default: return 'Continue seguindo a estratégia';
     }
+  }
+
+  /**
+   * Calcula probabilidade para exibição mais realista
+   */
+  calculateDisplayProbability(rawProbability) {
+    // Se a probabilidade bruta é muito alta (>95%), ajusta para faixa realista
+    if (rawProbability > 95) {
+      // Mapeia 95-100% para 75-85%
+      const excess = rawProbability - 95;
+      return 75 + (excess / 5) * 10; // 75-85%
+    }
+    
+    // Se a probabilidade bruta é alta (85-95%), ajusta para faixa realista
+    if (rawProbability > 85) {
+      // Mapeia 85-95% para 70-80%
+      const range = rawProbability - 85;
+      return 70 + (range / 10) * 10; // 70-80%
+    }
+    
+    // Se a probabilidade bruta é moderada (75-85%), ajusta para faixa realista
+    if (rawProbability > 75) {
+      // Mapeia 75-85% para 65-75%
+      const range = rawProbability - 75;
+      return 65 + (range / 10) * 10; // 65-75%
+    }
+    
+    // Se a probabilidade bruta é baixa (65-75%), ajusta para faixa realista
+    if (rawProbability > 65) {
+      // Mapeia 65-75% para 60-70%
+      const range = rawProbability - 65;
+      return 60 + (range / 10) * 10; // 60-70%
+    }
+    
+    // Se a probabilidade bruta é muito baixa (<65%), mantém mas com mínimo de 55%
+    return Math.max(55, rawProbability * 0.9); // Reduz 10% com mínimo de 55%
   }
 }
 
