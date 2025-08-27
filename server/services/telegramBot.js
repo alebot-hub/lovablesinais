@@ -505,11 +505,35 @@ ${bitcoinWarning}
    */
   async sendStopMovedNotification(symbol, newStopPrice, stopDescription) {
     try {
-      const message = `🛡️ *STOP MÓVEL ATIVADO #${symbol.split('/')[0]}*
+      const monitor = this.activeMonitors.get(symbol);
+      if (!monitor) {
+        console.error(`❌ Monitor não encontrado para ${symbol}`);
+        return;
+      }
+      
+      const isLong = monitor.trend === 'BULLISH';
+      const direction = isLong ? 'COMPRA' : 'VENDA';
+      const duration = this.calculateDuration(monitor.startTime);
+      
+      // Calcula lucro parcial realizado até agora
+      const totalRealizedPnL = this.calculateTotalRealizedPnL(monitor, monitor.targetsHit);
+      const leveragedTotalPnL = totalRealizedPnL * 15;
+      const realizationBreakdown = this.getRealizationBreakdown(monitor.targetsHit);
+      
+      const message = `🛡️ *STOP MÓVEL ATIVADO #${symbol.split('/')[0]} ${direction}*
 
 ✅ *Stop loss movido para ${stopDescription}*
+💰 *Lucro parcial realizado:* +${leveragedTotalPnL.toFixed(1)}% (${realizationBreakdown})
+📈 *Alvos atingidos:* ${monitor.targetsHit}/6
+📊 *Entrada:* ${monitor.entry.toFixed(2).replace('.', '․')}
 🛡️ *Novo stop:* ${newStopPrice.toFixed(2).replace('.', '․')}
-💰 *Operação protegida contra perdas*
+⏱️ *Duração:* ${duration}
+
+💡 *PROTEÇÃO ATIVADA:*
+• Stop móvel protegendo lucros parciais
+• Operação sem risco de perda
+• Gestão de risco funcionando perfeitamente
+• Continue seguindo a estratégia!
 
 👑 *Gestão de risco ativa*`;
 
@@ -903,36 +927,47 @@ ${bitcoinWarning}
    * Calcula probabilidade para exibição mais realista
    */
   calculateDisplayProbability(rawProbability) {
-    // Se a probabilidade bruta é muito alta (>95%), ajusta para faixa realista
+    // Mapeamento mais agressivo para manter realismo
+    
+    // Probabilidades excepcionais (>98%) → 80-85% (muito raras)
+    if (rawProbability > 98) {
+      const excess = rawProbability - 98;
+      return 80 + (excess / 2) * 5; // 80-85%
+    }
+    
+    // Probabilidades muito altas (95-98%) → 75-80%
     if (rawProbability > 95) {
-      // Mapeia 95-100% para 75-85%
-      const excess = rawProbability - 95;
-      return 75 + (excess / 5) * 10; // 75-85%
+      const range = rawProbability - 95;
+      return 75 + (range / 3) * 5; // 75-80%
     }
     
-    // Se a probabilidade bruta é alta (85-95%), ajusta para faixa realista
+    // Probabilidades altas (90-95%) → 70-75%
+    if (rawProbability > 90) {
+      const range = rawProbability - 90;
+      return 70 + (range / 5) * 5; // 70-75%
+    }
+    
+    // Probabilidades boas (85-90%) → 65-70%
     if (rawProbability > 85) {
-      // Mapeia 85-95% para 70-80%
       const range = rawProbability - 85;
-      return 70 + (range / 10) * 10; // 70-80%
+      return 65 + (range / 5) * 5; // 65-70%
     }
     
-    // Se a probabilidade bruta é moderada (75-85%), ajusta para faixa realista
+    // Probabilidades moderadas (80-85%) → 62-67%
+    if (rawProbability > 80) {
+      const range = rawProbability - 80;
+      return 62 + (range / 5) * 5; // 62-67%
+    }
+    
+    // Probabilidades baixas (75-80%) → 60-65%
     if (rawProbability > 75) {
-      // Mapeia 75-85% para 65-75%
       const range = rawProbability - 75;
-      return 65 + (range / 10) * 10; // 65-75%
+      return 60 + (range / 5) * 5; // 60-65%
     }
     
-    // Se a probabilidade bruta é baixa (65-75%), ajusta para faixa realista
-    if (rawProbability > 65) {
-      // Mapeia 65-75% para 60-70%
-      const range = rawProbability - 65;
-      return 60 + (range / 10) * 10; // 60-70%
-    }
-    
-    // Se a probabilidade bruta é muito baixa (<65%), mantém mas com mínimo de 55%
-    return Math.max(55, rawProbability * 0.9); // Reduz 10% com mínimo de 55%
+    // Probabilidades muito baixas (<75%) → 55-62%
+    const adjustedScore = Math.max(45, rawProbability * 0.85); // Reduz 15%
+    return Math.max(55, Math.min(62, adjustedScore));
   }
 }
 
