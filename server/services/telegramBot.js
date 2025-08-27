@@ -801,10 +801,74 @@ ${bitcoinWarning}
   getTargetRecommendation(targetNumber) {
     switch (targetNumber) {
       case 1: return 'Realize 50% de Lucro Parcial da posição';
-      case 2: return 'Mova o stop para o ponto de entrada';
+      case 2: return 'Realize 50% da posição e mova o stop para o ponto de entrada';
       case 3: return 'Mova o stop para o alvo 1';
       case 4: return 'Mova o stop para o alvo 2';
       case 5: return 'Mova o stop para o alvo 3';
+      
+      // Calcula duração da operação
+      const duration = this.calculateDuration(monitor.startTime);
+      
+      const message = `✅ *STOP DE LUCRO ATIVADO #${symbol.split('/')[0]} ${direction}*
+
+🔍 *Preço retornou ao ponto de proteção*
+💰 *Lucro realizado:* +${leveragedPartialPnL.toFixed(1)}% (50% da posição no Alvo ${targetsHit})
+📊 *Entrada:* ${monitor.entry.toFixed(2).replace('.', '․')}
+💵 *Preço atual:* ${currentPrice.toFixed(2).replace('.', '․')}
+⏱️ *Duração:* ${duration}
+
+🎉 *EXCELENTE RESULTADO!*
+• Operação finalizada sem perdas
+• Stop de lucro protegeu os ganhos
+• Gestão de risco funcionou perfeitamente
+• Parabéns pela disciplina!
+
+👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*`;
+
+      if (this.isEnabled) {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      }
+      
+      console.log(`🛡️ Stop de lucro enviado: ${symbol}`);
+      
+      // Registra resultado positivo
+      if (app.performanceTracker) {
+        app.performanceTracker.updateSignalResult(symbol, targetsHit, partialPnL, 'STOP_MOBILE');
+      }
+
+      // Registra no sistema adaptativo como sucesso
+      if (app.adaptiveScoring) {
+        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, true, partialPnL);
+      }
+
+      // Remove monitor e para WebSocket
+      this.removeMonitor(symbol, 'STOP_MOBILE');
+      app.binanceService.stopWebSocketForSymbol(symbol, '1m');
+      
+    } catch (error) {
+      console.error(`❌ Erro ao tratar stop móvel ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Calcula lucro parcial realizado
+   */
+  calculatePartialPnL(monitor, targetsHit) {
+    if (targetsHit === 0) return 0;
+    
+    const isLong = monitor.trend === 'BULLISH';
+    const firstTarget = monitor.originalTargets[0];
+    
+    // Calcula PnL do primeiro alvo (onde 50% foi realizado)
+    const pnlPercent = isLong ?
+      ((firstTarget - monitor.entry) / monitor.entry) * 100 :
+      ((monitor.entry - firstTarget) / monitor.entry) * 100;
+    
+    // Retorna 50% do lucro (posição parcial realizada)
+    return pnlPercent * 0.5;
+  }
+
+  /**
       case 6: return 'PARABÉNS! Todos os alvos atingidos!';
       default: return 'Continue seguindo a estratégia';
     }
