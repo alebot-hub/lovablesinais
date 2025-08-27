@@ -222,7 +222,17 @@ async function analyzeSymbolTimeframe(symbol, timeframe, logPrefix) {
     const signalTrend = signalScoring.detectSignalTrend(indicators, patterns);
     
     console.log(`${logPrefix} ₿ Analisando correlação BTC...`);
-    const btcCorrelation = await bitcoinCorrelation.analyzeCorrelation(symbol, signalTrend, data).catch(() => ({}));
+    const btcCorrelation = await bitcoinCorrelation.analyzeCorrelation(symbol, signalTrend, data).catch(error => {
+      console.warn(`${logPrefix} ⚠️ Erro na correlação BTC: ${error.message}`);
+      return {
+        btcTrend: 'NEUTRAL',
+        btcStrength: 0,
+        correlation: 'NEUTRAL',
+        bonus: 0,
+        penalty: 0,
+        alignment: 'NEUTRAL'
+      };
+    });
     
     console.log(`${logPrefix} 🎯 Calculando score...`);
     signalScoring.setCurrentTimeframe(timeframe);
