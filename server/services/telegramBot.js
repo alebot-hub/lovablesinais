@@ -429,11 +429,83 @@ ${bitcoinWarning}
           console.log(`🌕 [${symbol}] TODOS OS ALVOS ATINGIDOS!`);
           await this.handleAllTargetsHit(symbol, monitor, app);
         } else {
-          // Move stop loss para entrada após primeiro alvo (stop móvel)
-          if (targetNumber === 1) {
-            console.log(`🛡️ [${symbol}] Movendo stop para entrada: $${monitor.entry}`);
-            monitor.stopLoss = monitor.entry;
-            await this.sendStopMovedNotification(symbol, monitor.entry);
+          // Implementa stop móvel baseado no alvo atingido
+          await this.handleStopMovement(symbol, targetNumber, monitor);
+        }
+      } else {
+        console.log(`⏳ [${symbol}] Aguardando movimento para alvo...`);
+      }
+    } catch (error) {
+      console.error(`❌ Erro ao verificar alvos ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Trata movimento do stop loss baseado no alvo atingido
+   */
+  async handleStopMovement(symbol, targetNumber, monitor) {
+    try {
+      let newStopPrice = null;
+      let stopDescription = '';
+      
+      switch (targetNumber) {
+        case 2:
+          // Alvo 2: Move stop para entrada
+          newStopPrice = monitor.entry;
+          stopDescription = 'ponto de entrada';
+          break;
+        case 3:
+          // Alvo 3: Move stop para alvo 1
+          newStopPrice = monitor.originalTargets[0];
+          stopDescription = 'alvo 1';
+          break;
+        case 4:
+          // Alvo 4: Move stop para alvo 2
+          newStopPrice = monitor.originalTargets[1];
+          stopDescription = 'alvo 2';
+          break;
+        case 5:
+          // Alvo 5: Move stop para alvo 3
+          newStopPrice = monitor.originalTargets[2];
+          stopDescription = 'alvo 3';
+          break;
+        default:
+          // Alvo 1 e 6 não movem stop
+          return;
+      }
+      
+      if (newStopPrice) {
+        console.log(`🛡️ [${symbol}] Movendo stop para ${stopDescription}: $${newStopPrice}`);
+        monitor.stopLoss = newStopPrice;
+        await this.sendStopMovedNotification(symbol, newStopPrice, stopDescription);
+      }
+    } catch (error) {
+      console.error(`❌ Erro ao mover stop ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Envia notificação de stop móvel (atualizada)
+   */
+  async sendStopMovedNotification(symbol, newStopPrice, stopDescription) {
+    try {
+      const message = `🛡️ *STOP MÓVEL ATIVADO #${symbol.split('/')[0]}*
+
+✅ *Stop loss movido para ${stopDescription}*
+🛡️ *Novo stop:* ${newStopPrice.toFixed(2).replace('.', '․')}
+💰 *Operação protegida contra perdas*
+
+👑 *Gestão de risco ativa*`;
+
+      if (this.isEnabled) {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      }
+      
+      console.log(`🛡️ Stop móvel enviado: ${symbol} → ${stopDescription}`);
+    } catch (error) {
+      console.error(`❌ Erro ao enviar stop móvel:`, error.message);
+    }
+  }
           }
         }
       } else {
@@ -515,17 +587,28 @@ ${bitcoinWarning}
    */
   async sendTargetHitNotification(symbol, targetNumber, targetPrice, pnlPercent) {
     try {
+      const monitor = this.activeMonitors.get(symbol);
+      if (!monitor) {
+        console.error(`❌ Monitor não encontrado para ${symbol}`);
+        return;
+      }
+      
+      const isLong = monitor.trend === 'BULLISH';
+      const direction = isLong ? 'COMPRA' : 'VENDA';
       const leveragedPnL = pnlPercent * 15; // Alavancagem 15x
       
-      const message = `✅ *ALVO ${targetNumber} ATINGIDO #${symbol.split('/')[0]}*
+      // Calcula tempo decorrido desde o início do sinal
+      const timeElapsed = this.calculateDuration(monitor.startTime);
+      
+      const message = `✅ *ALVO ${targetNumber} ATINGIDO #${symbol.split('/')[0]} ${direction}*
 
 🔍 *Alvo ${targetNumber} atingido no par #${symbol.split('/')[0]}*
 💰 *Lucro atual:* +${leveragedPnL.toFixed(1)}% (Alv. 15×)
 ⚡️ *Posição parcial realizada*
-📊 *Entrada:* ${targetPrice.toFixed(2).replace('.', '․')}
+📊 *Entrada:* ${monitor.entry.toFixed(2).replace('.', '․')}
 💵 *Preço do alvo:* ${targetPrice.toFixed(2).replace('.', '․')}
-⏱️ *Tempo até o alvo:* ${this.calculateDuration(new Date())}
-🛡️ *Stop ativado:* ${targetNumber === 1 ? 'no ponto de entrada' : 'stop móvel'}
+⏱️ *Tempo até o alvo:* ${timeElapsed}
+🛡️ *Stop ativado:* ${this.getStopStatus(targetNumber)}
 
 💰 *Recomendação:* ${this.getTargetRecommendation(targetNumber)}
 
@@ -684,9 +767,24 @@ ${bitcoinWarning}
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     
     if (days > 0) {
-      return `${days} dias ${hours}h ${minutes}m`;
+      return `${days} dias ${hours}h`;
     } else {
       return `${hours}h ${minutes}m`;
+    }
+  }
+
+  /**
+   * Obtém status do stop loss baseado no alvo
+   */
+  getStopStatus(targetNumber) {
+    switch (targetNumber) {
+      case 1: return 'mantido na entrada';
+      case 2: return 'movido para entrada';
+      case 3: return 'movido para alvo 1';
+      case 4: return 'movido para alvo 2';
+      case 5: return 'movido para alvo 3';
+      case 6: return 'operação finalizada';
+      default: return 'stop móvel ativo';
     }
   }
 
@@ -695,11 +793,11 @@ ${bitcoinWarning}
    */
   getTargetRecommendation(targetNumber) {
     switch (targetNumber) {
-      case 1: return 'Realize 50% da posição e mova o stop para o ponto de entrada';
-      case 2: return 'Mantenha posição e monitore próximo alvo';
-      case 3: return 'Considere realizar mais 25% da posição';
-      case 4: return 'Posição em excelente lucro - mantenha disciplina';
-      case 5: return 'Próximo do alvo final - prepare-se para realização total';
+      case 1: return 'Realize 50% de Lucro Parcial da posição';
+      case 2: return 'Mova o stop para o ponto de entrada';
+      case 3: return 'Mova o stop para o alvo 1';
+      case 4: return 'Mova o stop para o alvo 2';
+      case 5: return 'Mova o stop para o alvo 3';
       case 6: return 'PARABÉNS! Todos os alvos atingidos!';
       default: return 'Continue seguindo a estratégia';
     }
