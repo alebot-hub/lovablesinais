@@ -308,6 +308,11 @@ ${bitcoinWarning}
   async startPriceMonitoring(symbol, entry, targets, stopLoss, binanceService, signalData, app, adaptiveScoring) {
     try {
       console.log(`📊 Iniciando monitoramento de ${symbol}...`);
+      console.log(`📊 Parâmetros do monitor:`);
+      console.log(`   💰 Entrada: $${entry}`);
+      console.log(`   🎯 Alvos: ${targets.map(t => '$' + t.toFixed(2)).join(', ')}`);
+      console.log(`   🛑 Stop: $${stopLoss}`);
+      console.log(`   📈 Trend: ${signalData.trend}`);
       
       const monitor = this.activeMonitors.get(symbol);
       if (!monitor) {
@@ -315,10 +320,18 @@ ${bitcoinWarning}
         return;
       }
 
+      console.log(`✅ Monitor encontrado para ${symbol}:`, {
+        status: monitor.status,
+        targetsRemaining: monitor.targets.length,
+        targetsHit: monitor.targetsHit
+      });
+
       // Conecta WebSocket para monitoramento em tempo real
       await binanceService.connectWebSocket(symbol, '1m', async (candleData) => {
         try {
           if (!candleData.isClosed) return; // Só processa candles fechados
+          
+          console.log(`📊 [${symbol}] Candle fechado: $${candleData.close} (${new Date(candleData.timestamp).toLocaleTimeString('pt-BR')})`);
           
           const currentPrice = candleData.close;
           const currentMonitor = this.activeMonitors.get(symbol);
@@ -329,12 +342,21 @@ ${bitcoinWarning}
             return;
           }
 
+          // Log detalhado do monitoramento
+          console.log(`📊 [${symbol}] Monitoramento ativo:`);
+          console.log(`   💰 Preço atual: $${currentPrice}`);
+          console.log(`   🎯 Próximo alvo: $${currentMonitor.targets[0] || 'N/A'}`);
+          console.log(`   🛑 Stop loss: $${currentMonitor.stopLoss}`);
+          console.log(`   📈 Trend: ${currentMonitor.trend}`);
+          console.log(`   🎯 Alvos restantes: ${currentMonitor.targets.length}/6`);
+
           // Verifica stop loss
           const hitStopLoss = currentMonitor.trend === 'BULLISH' ? 
             currentPrice <= currentMonitor.stopLoss :
             currentPrice >= currentMonitor.stopLoss;
 
           if (hitStopLoss) {
+            console.log(`🛑 [${symbol}] STOP LOSS ATINGIDO! Preço: $${currentPrice}, Stop: $${currentMonitor.stopLoss}`);
             await this.handleStopLoss(symbol, currentPrice, currentMonitor, app);
             return;
           }
@@ -346,6 +368,8 @@ ${bitcoinWarning}
           console.error(`❌ Erro no monitoramento ${symbol}:`, error.message);
         }
       });
+
+      console.log(`✅ WebSocket configurado para ${symbol} - monitoramento ativo`);
 
     } catch (error) {
       console.error(`❌ Erro ao iniciar monitoramento ${symbol}:`, error.message);
