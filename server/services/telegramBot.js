@@ -961,11 +961,34 @@ class TelegramBotService {
       interpretation.push(`Alto medo (${fgIndex}/100) - considere acumulação`);
     }
     
-    // Análise de notícias com contexto específico
-    if (newsScore >= 70) {
-      interpretation.push(`Notícias muito positivas (${newsScore}/100) - momentum midiático`);
-    } else if (newsScore <= 35) {
-      interpretation.push(`Notícias negativas (${newsScore}/100) - sentimento pessimista`);
+    // Análise de notícias
+    if (sentiment.newsAnalysis && sentiment.newsAnalysis.isRealData) {
+      interpretation.push(`📰 Notícias: Score ${sentiment.newsAnalysis.score.toFixed(0)}/100`);
+      
+      // Mostra tokens trending por categoria de forma clara
+      const trending = sentiment.newsAnalysis.trendingByCategory;
+      if (trending) {
+        if (trending.defi && trending.defi.length > 0) {
+          interpretation.push(`🏦 DeFi Trending: ${trending.defi.join(', ')} (${trending.defi.length} tokens)`);
+        }
+        if (trending.layer2 && trending.layer2.length > 0) {
+          interpretation.push(`🌉 Layer 2 Trending: ${trending.layer2.join(', ')} (${trending.layer2.length} tokens)`);
+        }
+        if (trending.blueChip && trending.blueChip.length > 0) {
+          interpretation.push(`💎 Blue Chips Trending: ${trending.blueChip.join(', ')} (${trending.blueChip.length} tokens)`);
+        }
+        if (trending.ai && trending.ai.length > 0) {
+          interpretation.push(`🤖 AI Trending: ${trending.ai.join(', ')} (${trending.ai.length} tokens)`);
+        }
+        if (trending.meme && trending.meme.length > 0) {
+          interpretation.push(`🐕 Memes Trending: ${trending.meme.join(', ')} (${trending.meme.length} tokens)`);
+        }
+      }
+      
+      // Fallback se não tiver categorização
+      else if (sentiment.newsAnalysis.trendingCoins && sentiment.newsAnalysis.trendingCoins.length > 0) {
+        interpretation.push(`🔥 Trending Geral: ${sentiment.newsAnalysis.trendingCoins.slice(0, 5).join(', ')}`);
+      }
     }
     
     // Análise de dominância BTC com recomendações específicas
