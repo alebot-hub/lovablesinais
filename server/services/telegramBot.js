@@ -384,14 +384,28 @@ ${bitcoinWarning}
     try {
       const isLong = monitor.trend === 'BULLISH';
       
+      console.log(`🎯 [${symbol}] Verificando alvos:`);
+      console.log(`   💰 Preço atual: $${currentPrice}`);
+      console.log(`   🎯 Próximo alvo: $${monitor.targets[0] || 'N/A'}`);
+      console.log(`   📊 Direção: ${isLong ? 'LONG' : 'SHORT'}`);
+      
       // Verifica se atingiu o próximo alvo
       const targetHit = isLong ? 
         currentPrice >= monitor.targets[0] :
         currentPrice <= monitor.targets[0];
 
+      if (monitor.targets.length > 0) {
+        const distance = isLong ? 
+          ((monitor.targets[0] - currentPrice) / currentPrice * 100) :
+          ((currentPrice - monitor.targets[0]) / currentPrice * 100);
+        console.log(`   📏 Distância para alvo: ${distance > 0 ? '+' : ''}${distance.toFixed(3)}%`);
+      }
+
       if (targetHit && monitor.targets.length > 0) {
         const targetNumber = monitor.originalTargets.length - monitor.targets.length + 1;
         const targetPrice = monitor.targets[0];
+        
+        console.log(`🎉 [${symbol}] ALVO ${targetNumber} ATINGIDO! $${targetPrice}`);
         
         // Remove alvo atingido
         monitor.targets.shift();
@@ -403,6 +417,8 @@ ${bitcoinWarning}
           ((targetPrice - monitor.entry) / monitor.entry) * 100 :
           ((monitor.entry - targetPrice) / monitor.entry) * 100;
 
+        console.log(`💰 [${symbol}] Lucro: ${pnlPercent.toFixed(2)}% (${(pnlPercent * 15).toFixed(1)}% com 15x)`);
+
         // Envia notificação
         await this.sendTargetHitNotification(symbol, targetNumber, targetPrice, pnlPercent);
 
@@ -413,14 +429,18 @@ ${bitcoinWarning}
 
         // Se atingiu todos os alvos
         if (monitor.targets.length === 0) {
+          console.log(`🌕 [${symbol}] TODOS OS ALVOS ATINGIDOS!`);
           await this.handleAllTargetsHit(symbol, monitor, app);
         } else {
           // Move stop loss para entrada após primeiro alvo (stop móvel)
           if (targetNumber === 1) {
+            console.log(`🛡️ [${symbol}] Movendo stop para entrada: $${monitor.entry}`);
             monitor.stopLoss = monitor.entry;
             await this.sendStopMovedNotification(symbol, monitor.entry);
           }
         }
+      } else {
+        console.log(`⏳ [${symbol}] Aguardando movimento para alvo...`);
       }
     } catch (error) {
       console.error(`❌ Erro ao verificar alvos ${symbol}:`, error.message);

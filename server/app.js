@@ -312,6 +312,17 @@ async function analyzeMarketSentiment() {
 
 app.get('/api/status', (req, res) => {
   try {
+    const activeMonitors = Array.from(telegramBot.activeMonitors.entries()).map(([symbol, monitor]) => ({
+      symbol,
+      entry: monitor.entry,
+      targetsHit: monitor.targetsHit,
+      targetsRemaining: monitor.targets.length,
+      stopLoss: monitor.stopLoss,
+      trend: monitor.trend,
+      startTime: monitor.startTime,
+      status: monitor.status
+    }));
+
     const status = {
       status: 'running',
       timestamp: new Date().toISOString(),
@@ -325,7 +336,8 @@ app.get('/api/status', (req, res) => {
         marketRegime: marketRegimeService.getCurrentRegime(),
         blacklistedSymbols: adaptiveScoring.getBlacklistedSymbols().length,
         indicatorPerformance: Object.keys(adaptiveScoring.getIndicatorPerformanceReport()).length
-      }
+      },
+      monitoringDetails: activeMonitors
     };
     res.json(status);
   } catch (error) {
