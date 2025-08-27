@@ -24,7 +24,6 @@ import RiskManagementService from './services/riskManagement.js';
 import PerformanceTrackerService from './services/performanceTracker.js';
 import AdaptiveScoringService from './services/adaptiveScoring.js';
 import AlertSystemService from './services/alertSystem.js';
-import MacroEconomicService from './services/macroEconomicService.js';
 import SocialSentimentService from './services/socialSentimentService.js';
 import BitcoinCorrelationService from './services/bitcoinCorrelationService.js';
 import MarketRegimeService from './services/marketRegimeService.js';
@@ -52,7 +51,6 @@ const riskManagement = new RiskManagementService();
 const performanceTracker = new PerformanceTrackerService();
 const adaptiveScoring = new AdaptiveScoringService();
 const alertSystem = new AlertSystemService(telegramBot);
-const macroEconomic = new MacroEconomicService();
 const socialSentiment = new SocialSentimentService();
 const bitcoinCorrelation = new BitcoinCorrelationService(binanceService);
 const marketRegimeService = new MarketRegimeService(binanceService);
@@ -79,7 +77,6 @@ app.riskManagement = riskManagement;
 app.performanceTracker = performanceTracker;
 app.adaptiveScoring = adaptiveScoring;
 app.alertSystem = alertSystem;
-app.macroEconomic = macroEconomic;
 app.socialSentiment = socialSentiment;
 app.bitcoinCorrelation = bitcoinCorrelation;
 app.marketRegimeService = marketRegimeService;
@@ -375,16 +372,6 @@ app.get('/api/market/sentiment', async (req, res) => {
     };
     
     res.json(fallbackSentiment);
-  }
-});
-
-app.get('/api/macro/data', async (req, res) => {
-  try {
-    const macroData = await macroEconomic.getMacroEconomicData();
-    res.json(macroData);
-  } catch (error) {
-    console.error('Erro na rota /api/macro/data:', error.message);
-    res.status(500).json({ error: 'Erro ao obter dados macro' });
   }
 });
 

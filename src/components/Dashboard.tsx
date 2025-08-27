@@ -16,7 +16,6 @@ import SignalCard from './SignalCard';
 import MarketSentiment from './MarketSentiment';
 import BacktestResults from './BacktestResults';
 import VolatilityAlerts from './VolatilityAlerts';
-import MacroEconomicData from './MacroEconomicData';
 import SystemHealth from './SystemHealth';
 import TradingPerformance from './TradingPerformance';
 import SystemStatus from './SystemStatus';
