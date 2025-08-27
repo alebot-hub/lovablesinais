@@ -381,6 +381,11 @@ class MarketAnalysisService {
         let aiCount = 0;
         
         const trendingNames = [];
+        const defiTokens = [];
+        const layer2Tokens = [];
+        const memeTokens = [];
+        const blueChipTokens = [];
+        const aiTokens = [];
         
         trendingCoins.forEach(coin => {
           const name = coin.item.name.toLowerCase();
@@ -391,14 +396,19 @@ class MarketAnalysisService {
           // Categoriza por tipo
           if (['uniswap', 'aave', 'compound', 'sushi', 'curve', 'pancake'].some(defi => name.includes(defi))) {
             defiCount++;
+            defiTokens.push(coin.item.symbol);
           } else if (['arbitrum', 'optimism', 'polygon', 'layer'].some(l2 => name.includes(l2))) {
             layer2Count++;
+            layer2Tokens.push(coin.item.symbol);
           } else if (['doge', 'shib', 'pepe', 'bonk', 'floki'].some(meme => name.includes(meme) || symbol.includes(meme))) {
             memeCount++;
+            memeTokens.push(coin.item.symbol);
           } else if (['bitcoin', 'ethereum', 'bnb', 'cardano', 'solana'].some(blue => name.includes(blue))) {
             blueChipCount++;
+            blueChipTokens.push(coin.item.symbol);
           } else if (['render', 'worldcoin', 'fetch', 'ocean'].some(ai => name.includes(ai))) {
             aiCount++;
+            aiTokens.push(coin.item.symbol);
           }
         });
         
@@ -438,6 +448,13 @@ class MarketAnalysisService {
         return {
           score: newsScore,
           trendingCoins: trendingNames,
+          trendingByCategory: {
+            blueChip: blueChipTokens,
+            defi: defiTokens,
+            layer2: layer2Tokens,
+            meme: memeTokens,
+            ai: aiTokens
+          },
           categories: {
             blueChip: blueChipCount,
             defi: defiCount,
