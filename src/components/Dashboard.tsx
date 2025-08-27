@@ -19,6 +19,7 @@ import VolatilityAlerts from './VolatilityAlerts';
 import MacroEconomicData from './MacroEconomicData';
 import SystemHealth from './SystemHealth';
 import TradingPerformance from './TradingPerformance';
+import SystemStatus from './SystemStatus';
 
 interface Signal {
   symbol: string;
@@ -267,18 +268,21 @@ const Dashboard: React.FC = () => {
         {botStatus?.activeSymbols && botStatus.activeSymbols.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-8 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Operações Ativas ({botStatus.activeSymbols.length})
+              🔥 Operações Ativas ({botStatus.activeSymbols.length})
             </h3>
             <div className="flex flex-wrap gap-2">
               {botStatus.activeSymbols.map((symbol, index) => (
                 <div key={index} className="flex items-center space-x-2 bg-green-50 px-3 py-1 rounded-full border border-green-200">
                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  <span className="text-sm font-medium text-green-700">{symbol}</span>
+                  <span className="text-sm font-medium text-green-700">{symbol.replace('/USDT', '')}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
+
+        {/* System Status Overview */}
+        <SystemStatus botStatus={botStatus} />
 
         {/* Navigation Tabs */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-8">

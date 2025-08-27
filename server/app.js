@@ -583,10 +583,15 @@ async function startBot() {
     
     // Verifica conectividade com Binance
     const serverTime = await binanceService.getServerTime();
-    console.log(`✅ Binance conectado - Server time: ${new Date(serverTime).toLocaleString('pt-BR')}`);
+    const formattedTime = serverTime ? new Date(parseInt(serverTime)).toLocaleString('pt-BR') : 'Não disponível';
+    console.log(`✅ Binance conectado - Server time: ${formattedTime}`);
     
     // Inicializa Machine Learning
-    await machineLearning.initialize();
+    if (!machineLearning.isInitialized) {
+      await machineLearning.initialize();
+    } else {
+      console.log('✅ Machine Learning já inicializado');
+    }
     
     // Verifica Telegram
     if (telegramBot.isEnabled) {

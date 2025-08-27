@@ -542,7 +542,9 @@ class BinanceService {
   async getServerTime() {
     try {
       const response = await this.exchange.fapiPublicGetTime();
-      return response.serverTime;
+      const serverTime = response.serverTime;
+      console.log(`🕐 Server time raw: ${serverTime}`);
+      return serverTime;
     } catch (error) {
       console.error('Erro ao obter tempo do servidor:', error.message);
       throw error;

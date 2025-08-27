@@ -54,6 +54,11 @@ class MachineLearningService {
 
   async initialize() {
     try {
+      if (this.isInitialized) {
+        console.log('✅ ML já inicializado - pulando reinicialização');
+        return this.isInitialized;
+      }
+      
       console.log('🤖 Inicializando sistema de Machine Learning...');
       
       // Suprime mensagens informativas do TensorFlow

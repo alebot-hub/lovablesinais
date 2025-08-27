@@ -310,14 +310,14 @@ class TechnicalAnalysisService {
       // Se não temos candles suficientes para o período solicitado, ajustamos para o máximo possível
       const maxPeriod = Math.min(period, values.length);
       
-      if (maxPeriod < 10) { // Mínimo de 10 períodos para um cálculo significativo
+      if (maxPeriod < Math.min(10, period * 0.5)) { // Mínimo flexível baseado no período
         console.error(`❌ Dados insuficientes para calcular MA(${period}): apenas ${values.length} candles disponíveis`);
         return null;
       }
       
       // Se o período foi ajustado, registra um aviso
       if (maxPeriod < period) {
-        console.warn(`⚠️ Ajustando período de MA de ${period} para ${maxPeriod} (dados insuficientes)`);
+        console.log(`📊 MA${period} ajustado para MA${maxPeriod} (${values.length} candles disponíveis)`);
       }
       
       // Verifica se todos os valores são números válidos
