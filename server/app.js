@@ -172,6 +172,8 @@ export async function analyzeSignals() {
                   trend: signalTrend,
                   indicators,
                   patterns,
+                  btcCorrelation,
+                  regime: adaptiveScoring.marketRegime,
                   riskCheck,
                   timestamp: new Date()
                 };
@@ -179,8 +181,6 @@ export async function analyzeSignals() {
                 console.log(`✅ ${logPrefix} NOVO MELHOR SINAL (${bestScore.toFixed(1)}%)`);
               }
             }
-              btcCorrelation,
-              regime: adaptiveScoring.marketRegime,
           }
           
         } catch (error) {
