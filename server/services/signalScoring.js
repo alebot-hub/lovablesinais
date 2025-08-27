@@ -181,43 +181,28 @@ class SignalScoringService {
       
       scoreComponents.forEach(comp => {
         console.log(`📊 [${symbol}] ${comp.name}: ${comp.value.toFixed(2)} × ${comp.weight.toFixed(2)} = ${comp.weightedValue.toFixed(2)}`);
-        if (indicators.rsi < 30) {
-          bullishScore++; // Sobrevenda = oportunidade de compra
-        } else if (indicators.rsi > 70) {
-          bearishScore++; // Sobrecompra = oportunidade de venda
-        }
+      });
+      
       console.log(`🎯 [${symbol}] SCORE FINAL: ${finalScore.toFixed(1)}/${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY}`);
       
       // Log resumido
       const logPrefix = isValid ? '✅ SINAL VÁLIDO' : '❌ SINAL INVÁLIDO';
       console.log(`${logPrefix} [${symbol}] Score: ${finalScore.toFixed(1)}/100`);
-        if (indicators.macd.histogram > 0) {
-          bullishScore++; // Histograma positivo = momentum de alta
-        } else if (indicators.macd.histogram < 0) {
-          bearishScore++; // Histograma negativo = momentum de baixa
-        }
+      
       if (!isValid) {
         const missingPoints = (TRADING_CONFIG.MIN_SIGNAL_PROBABILITY - finalScore).toFixed(1);
         console.log(`❌ [${symbol}] Insuficiente: ${finalScore.toFixed(1)} < ${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY} (faltam ${missingPoints})`);
-      }
-      
-        if (indicators.ma21 > indicators.ma200) {
-          bullishScore++; // MA curta > MA longa = tendência de alta
-        } else if (indicators.ma21 < indicators.ma200) {
-          bearishScore++; // MA curta < MA longa = tendência de baixa
-        }
+      } else {
         console.log(`🏆 [${symbol}] SINAL VÁLIDO ENCONTRADO!`);
       }
       
       return {
         totalScore: finalScore,
         details: { ...details, scoreComponents },
-      const bullishRatio = bullishScore / totalFactors;
-      const bearishRatio = bearishScore / totalFactors;
+        isValid,
+        isMLDriven,
         confirmations,
-      // Threshold de 50% para maior sensibilidade
-      if (bullishRatio >= 0.5) return 'BULLISH';
-      if (bearishRatio >= 0.5) return 'BEARISH';
+        strengthFactors,
         reason: isValid ? 'Sinal válido' : `Pontuação insuficiente (${finalScore.toFixed(1)}/${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY})`
       };
       
@@ -399,25 +384,38 @@ class SignalScoringService {
   detectSignalTrend(indicators, patterns = {}) {
     if (!indicators) return 'neutral';
     
-    let bullishFactors = 0;
-    let bearishFactors = 0;
+    let bullishScore = 0;
+    let bearishScore = 0;
+    let totalFactors = 0;
     
     // Análise de tendência com base no RSI
-    if (indicators.rsi) {
-      if (indicators.rsi > 70) bearishFactors++;
-      if (indicators.rsi < 30) bullishFactors++;
+    if (indicators.rsi !== undefined) {
+      totalFactors++;
+      if (indicators.rsi < 30) {
+        bullishScore++; // Sobrevenda = oportunidade de compra
+      } else if (indicators.rsi > 70) {
+        bearishScore++; // Sobrecompra = oportunidade de venda
+      }
     }
     
     // Análise de tendência com base no MACD
-    if (indicators.macd) {
-      if (indicators.macd.histogram > 0) bullishFactors++;
-      if (indicators.macd.histogram < 0) bearishFactors++;
+    if (indicators.macd && indicators.macd.histogram !== undefined) {
+      totalFactors++;
+      if (indicators.macd.histogram > 0) {
+        bullishScore++; // Histograma positivo = momentum de alta
+      } else if (indicators.macd.histogram < 0) {
+        bearishScore++; // Histograma negativo = momentum de baixa
+      }
     }
     
     // Análise de tendência com base nas Médias Móveis
-    if (indicators.maShort && indicators.maLong) {
-      if (indicators.maShort > indicators.maLong) bullishFactors++;
-      if (indicators.maShort < indicators.maLong) bearishFactors++;
+    if (indicators.ma21 !== undefined && indicators.ma200 !== undefined) {
+      totalFactors++;
+      if (indicators.ma21 > indicators.ma200) {
+        bullishScore++; // MA curta > MA longa = tendência de alta
+      } else if (indicators.ma21 < indicators.ma200) {
+        bearishScore++; // MA curta < MA longa = tendência de baixa
+      }
     }
     
     // Análise de padrões
@@ -426,17 +424,23 @@ class SignalScoringService {
     
     Object.entries(patterns).forEach(([pattern, data]) => {
       if (data && data.confidence > 60) {
-        if (bullishPatterns.includes(pattern)) bullishFactors++;
-        if (bearishPatterns.includes(pattern)) bearishFactors++;
+        totalFactors++;
+        if (bullishPatterns.includes(pattern)) bullishScore++;
+        if (bearishPatterns.includes(pattern)) bearishScore++;
       }
     });
     
-    // Determina a tendência com base nos fatores
-    const difference = bullishFactors - bearishFactors;
+    // Evita divisão por zero
+    if (totalFactors === 0) return 'neutral';
     
-    if (difference >= 2) return 'bullish';
-    if (difference <= -2) return 'bearish';
-    return 'neutral';
+    const bullishRatio = bullishScore / totalFactors;
+    const bearishRatio = bearishScore / totalFactors;
+    
+    // Threshold de 50% para maior sensibilidade
+    if (bullishRatio >= 0.5) return 'BULLISH';
+    if (bearishRatio >= 0.5) return 'BEARISH';
+    
+    return 'NEUTRAL';
   }
 
   // Restante do código...
