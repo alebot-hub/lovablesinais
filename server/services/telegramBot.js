@@ -604,9 +604,9 @@ ${bitcoinWarning}
       const direction = isLong ? 'COMPRA' : 'VENDA';
       const leveragedPnL = pnlPercent * 15; // Alavancagem 15x
       
-      // Calcula tempo decorrido desde o início do sinal
-      const timeElapsed = this.calculateDuration(monitor.startTime);
-      
+      // Calcula lucro total realizado de todos os alvos atingidos
+      const totalRealizedPnL = this.calculateTotalRealizedPnL(monitor, targetsHit);
+      const leveragedTotalPnL = totalRealizedPnL * 15;
       const message = `✅ *ALVO ${targetNumber} ATINGIDO #${symbol.split('/')[0]} ${direction}*
 
 🔍 *Alvo ${targetNumber} atingido no par #${symbol.split('/')[0]}*
@@ -812,7 +812,8 @@ ${bitcoinWarning}
       const message = `✅ *STOP DE LUCRO ATIVADO #${symbol.split('/')[0]} ${direction}*
 
 🔍 *Preço retornou ao ponto de proteção*
-💰 *Lucro realizado:* +${leveragedPartialPnL.toFixed(1)}% (50% da posição no Alvo ${targetsHit})
+💰 *Lucro realizado:* +${leveragedTotalPnL.toFixed(1)}% (${this.getRealizationBreakdown(targetsHit)})
+📈 *Alvos atingidos:* ${targetsHit}/6
 📊 *Entrada:* ${monitor.entry.toFixed(2).replace('.', '․')}
 💵 *Preço atual:* ${currentPrice.toFixed(2).replace('.', '․')}
 ⏱️ *Duração:* ${duration}
@@ -833,12 +834,12 @@ ${bitcoinWarning}
       
       // Registra resultado positivo
       if (app.performanceTracker) {
-        app.performanceTracker.updateSignalResult(symbol, targetsHit, partialPnL, 'STOP_MOBILE');
+        app.performanceTracker.updateSignalResult(symbol, targetsHit, totalRealizedPnL, 'STOP_MOBILE');
       }
 
       // Registra no sistema adaptativo como sucesso
       if (app.adaptiveScoring) {
-        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, true, partialPnL);
+        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, true, totalRealizedPnL);
       }
 
       // Remove monitor e para WebSocket
@@ -851,21 +852,45 @@ ${bitcoinWarning}
   }
 
   /**
-   * Calcula lucro parcial realizado
+   * Calcula lucro total realizado de todos os alvos atingidos
    */
-  calculatePartialPnL(monitor, targetsHit) {
+  calculateTotalRealizedPnL(monitor, targetsHit) {
     if (targetsHit === 0) return 0;
     
     const isLong = monitor.trend === 'BULLISH';
-    const firstTarget = monitor.originalTargets[0];
+    let totalPnL = 0;
     
-    // Calcula PnL do primeiro alvo (onde 50% foi realizado)
-    const pnlPercent = isLong ?
-      ((firstTarget - monitor.entry) / monitor.entry) * 100 :
-      ((monitor.entry - firstTarget) / monitor.entry) * 100;
+    // Percentuais de realização por alvo
+    const realizationPercentages = [50, 15, 10, 10, 10, 5]; // Alvo 1: 50%, Alvo 2: 15%, etc.
     
-    // Retorna 50% do lucro (posição parcial realizada)
-    return pnlPercent * 0.5;
+    for (let i = 0; i < targetsHit; i++) {
+      const targetPrice = monitor.originalTargets[i];
+      const realizationPercent = realizationPercentages[i];
+      
+      // Calcula PnL do alvo específico
+      const targetPnL = isLong ?
+        ((targetPrice - monitor.entry) / monitor.entry) * 100 :
+        ((monitor.entry - targetPrice) / monitor.entry) * 100;
+      
+      // Adiciona ao total baseado na porcentagem realizada
+      totalPnL += (targetPnL * realizationPercent) / 100;
+    }
+    
+    return totalPnL;
+  }
+
+  /**
+   * Gera breakdown da realização por alvos
+   */
+  getRealizationBreakdown(targetsHit) {
+    const realizationPercentages = [50, 15, 10, 10, 10, 5];
+    const breakdown = [];
+    
+    for (let i = 0; i < targetsHit; i++) {
+      breakdown.push(`${realizationPercentages[i]}% no Alvo ${i + 1}`);
+    }
+    
+    return breakdown.join(' + ');
   }
 
   /**
