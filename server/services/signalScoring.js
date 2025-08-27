@@ -2,6 +2,8 @@
  * Serviço de pontuação de sinais
  */
 
+import { TRADING_CONFIG } from '../config/constants.js';
+
 import { SCORING_WEIGHTS, TRADING_CONFIG } from '../config/constants.js';
 
 class SignalScoringService {
