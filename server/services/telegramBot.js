@@ -104,7 +104,7 @@ class TelegramBotService {
     // Determina se é sinal contra-tendência
     const isCounterTrend = signal.btcCorrelation && signal.btcCorrelation.alignment === 'AGAINST';
     const counterTrendWarning = isCounterTrend ? this.getCounterTrendWarning(signal, isLong) : '';
-    
+
 
     return `🚨 *LOBO PREMIUM #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*${isCounterTrend ? ' ⚡' : ''}
 
@@ -947,64 +947,6 @@ ${counterTrendWarning}
       const excess = rawProbability - 98;
       return 80 + (excess / 2) * 5; // 80-85%
     }
-    
-    // Probabilidades muito altas (95-98%) → 75-80%
-    if (rawProbability > 95) {
-      const range = rawProbability - 95;
-      return 75 + (range / 3) * 5; // 75-80%
-    }
-    
-    // Probabilidades altas (90-95%) → 70-75%
-    if (rawProbability > 90) {
-      const range = rawProbability - 90;
-      return 70 + (range / 5) * 5; // 70-75%
-    }
-    
-    // Probabilidades boas (85-90%) → 65-70%
-    if (rawProbability > 85) {
-      const range = rawProbability - 85;
-      return 65 + (range / 5) * 5; // 65-70%
-    }
-    
-    // Probabilidades moderadas (80-85%) → 62-67%
-    if (rawProbability > 80) {
-      const range = rawProbability - 80;
-      return 62 + (range / 5) * 5; // 62-67%
-    }
-    
-    // Probabilidades baixas (75-80%) → 60-65%
-    if (rawProbability > 75) {
-      const range = rawProbability - 75;
-      return 60 + (range / 5) * 5; // 60-65%
-    }
-    
-    // Probabilidades muito baixas (<75%) → 55-62%
-    const adjustedScore = Math.max(45, rawProbability * 0.85); // Reduz 15%
-    return Math.max(55, Math.min(62, adjustedScore));
-  }
-
-  /**
-   * Gera aviso específico para sinais contra-tendência
-   */
-  getCounterTrendWarning(signal, isLong) {
-    if (!signal.btcCorrelation || signal.btcCorrelation.alignment !== 'AGAINST') {
-      return '';
-    }
-    
-    const currentSignalTrend = signal.trend || 'NEUTRAL';
-    const btcTrend = signal.btcCorrelation.btcTrend;
-    
-    // Verifica se realmente é contra-tendência
-    const isActuallyCounterTrend = (
-      (btcTrend === 'BULLISH' && currentSignalTrend === 'BEARISH') ||
-      (btcTrend === 'BEARISH' && currentSignalTrend === 'BULLISH')
-    );
-    
-    if (!isActuallyCounterTrend) {
-      return ''; // Não mostra aviso se não for realmente contra-tendência
-    }
-    
-    const btcTrend = signal.btcCorrelation.btcTrend === 'BULLISH' ? 'ALTA' : 'BAIXA';
     const btcStrength = signal.btcCorrelation.btcStrength || 0;
     const operationType = isLong ? 'COMPRA' : 'VENDA';
     const reversalType = signal.details?.counterTrendAdjustments?.reversalType || 'MODERATE';
