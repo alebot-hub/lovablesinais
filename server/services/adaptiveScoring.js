@@ -2,6 +2,8 @@
  * Sistema de Scoring Dinâmico e Adaptativo
  */
 
+import { TRADING_CONFIG } from '../config/constants.js';
+
 class AdaptiveScoringService {
   constructor() {
     // Pesos iniciais dos indicadores
