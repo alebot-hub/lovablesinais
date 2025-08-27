@@ -15,32 +15,43 @@ class TelegramBotService {
     this.wsConnections = new Map();
     
     if (this.isEnabled) {
-      try {
-        this.bot = new TelegramBot(this.token, { polling: false });
+      const trend = signal.trend || 'BULLISH';
+      const isLong = trend === 'BULLISH';
         console.log('✅ TelegramBot: Bot inicializado com sucesso');
       } catch (error) {
-        console.error('❌ TelegramBot: Erro na inicialização:', error.message);
+      
+      // Corrige regime inconsistente
+      let actualRegime = signal.regime || 'NORMAL';
+      if (!isLong && actualRegime === 'BULL') {
+        actualRegime = 'BEAR'; // Sinal de venda em regime bull não faz sentido
+      }
+      if (isLong && actualRegime === 'BEAR') {
+        actualRegime = 'BULL'; // Sinal de compra em regime bear não faz sentido
+      }
+      
+      const regimeEmoji = this.getRegimeEmoji(actualRegime);
         this.isEnabled = false;
       }
     } else {
       console.log('⚠️ TelegramBot: Variáveis não configuradas - modo simulado ativo');
       console.log('💡 Configure TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no .env para ativar');
     }
+      // Gera fatores-chave consistentes com o sinal
+      const factorsKey = this.generateConsistentFactors(signal, isLong);
+      
   }
 
   /**
    * Cria monitor para um símbolo
-   */
+🌐 REGIME: ${actualRegime} ${regimeEmoji}
   createMonitor(symbol, entry, targets, stopLoss, signalId, trend = 'BULLISH') {
     try {
       console.log(`📊 Criando monitor para ${symbol}...`);
       
       const monitor = {
-        symbol: symbol,
+💡 Interpretação: ${isLong ? 'Análise técnica favorável para compra' : 'Análise técnica favorável para venda'}
         entry: entry,
-        targets: targets,
-        stopLoss: stopLoss,
-        isShort: trend === 'BEARISH', // Identifica se é operação SHORT
+${factorsKey}
         currentStopLoss: stopLoss, // Stop loss atual (pode ser móvel)
         signalId: signalId,
         timestamp: new Date(),
@@ -53,7 +64,7 @@ class TelegramBotService {
         stopType: 'INITIAL', // INITIAL, PROFIT_PROTECTION
         partialProfitRealized: 0, // Percentual de lucro já realizado
         riskConfig: null // Configurações de risco
-      };
+🎛️ Regime: ${regimeEmoji} MODO ${actualRegime} - ${this.getRegimeDescription(actualRegime)}
       
       this.activeMonitors.set(symbol, monitor);
       console.log(`✅ Monitor criado para ${symbol}. Total: ${this.activeMonitors.size}`);
