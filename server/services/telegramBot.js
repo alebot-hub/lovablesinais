@@ -109,6 +109,7 @@ class TelegramBotService {
     return `🚨 *LOBO PREMIUM #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*${isCounterTrend ? ' ⚡' : ''}
 
 💰 *#${signal.symbol.split('/')[0]} Futures*
+📊 *TEMPO GRÁFICO:* ${signal.timeframe || '1h'}
 📈 *Alavancagem sugerida:* 15x
 🎯 *Probabilidade:* ${displayProbability.toFixed(1)}%
 
