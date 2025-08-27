@@ -248,7 +248,7 @@ class TelegramBotService {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      timeZone: 'America/Sao_Paolo' 
+      timeZone: 'America/Sao_Paulo' 
     }).replace(/\//g, '/')}`;
     
     return message;
