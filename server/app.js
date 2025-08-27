@@ -177,6 +177,8 @@ export async function analyzeSignals() {
                   riskCheck,
                   timestamp: new Date()
                 };
+                  timestamp: new Date()
+                };
                 bestScore = scoring.totalScore;
                 console.log(`✅ ${logPrefix} NOVO MELHOR SINAL (${bestScore.toFixed(1)}%)`);
               }
