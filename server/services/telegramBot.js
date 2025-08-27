@@ -509,7 +509,7 @@ ${bitcoinWarning}
       if (!monitor) {
         console.error(`❌ Monitor não encontrado para ${symbol}`);
         return;
-      }
+  async handleStopMobile(symbol, currentPrice, monitor, app) {
       
       const isLong = monitor.trend === 'BULLISH';
       const direction = isLong ? 'COMPRA' : 'VENDA';
