@@ -247,8 +247,15 @@ class BitcoinCorrelationService {
         btcData = await this.binanceService.getOHLCVData('BTC/USDT', '1h', 50);
       }
 
-      if (!btcData || !assetData || 
-          btcData.close.length < 20 || assetData.close.length < 20) {
+      // Validação robusta dos dados
+      if (!btcData || !btcData.close || !Array.isArray(btcData.close) ||
+          !assetData || !assetData.close || !Array.isArray(assetData.close)) {
+        console.warn(`⚠️ Dados inválidos para correlação ${symbol}: BTC=${!!btcData?.close}, Asset=${!!assetData?.close}`);
+        return 0;
+      }
+      
+      if (btcData.close.length < 20 || assetData.close.length < 20) {
+        console.warn(`⚠️ Dados insuficientes para correlação ${symbol}: BTC=${btcData.close.length}, Asset=${assetData.close.length}`);
         return 0;
       }
 
@@ -271,8 +278,16 @@ class BitcoinCorrelationService {
    * Calcula retornos percentuais
    */
   calculateReturns(prices) {
+    if (!Array.isArray(prices) || prices.length < 2) {
+      console.warn('⚠️ Dados insuficientes para calcular retornos');
+      return [];
+    }
+    
     const returns = [];
     for (let i = 1; i < prices.length; i++) {
+      if (typeof prices[i] !== 'number' || typeof prices[i-1] !== 'number' || prices[i-1] === 0) {
+        continue; // Pula valores inválidos
+      }
       returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
     }
     return returns;
@@ -282,6 +297,11 @@ class BitcoinCorrelationService {
    * Calcula correlação de Pearson
    */
   pearsonCorrelation(x, y) {
+    if (!Array.isArray(x) || !Array.isArray(y) || x.length === 0 || y.length === 0) {
+      console.warn('⚠️ Arrays inválidos para correlação de Pearson');
+      return 0;
+    }
+    
     const n = Math.min(x.length, y.length);
     if (n === 0) return 0;
 
@@ -293,6 +313,11 @@ class BitcoinCorrelationService {
     let sumYSquared = 0;
 
     for (let i = 0; i < n; i++) {
+      if (typeof x[i] !== 'number' || typeof y[i] !== 'number' || 
+          !isFinite(x[i]) || !isFinite(y[i])) {
+        continue; // Pula valores inválidos
+      }
+      
       const deltaX = x[i] - meanX;
       const deltaY = y[i] - meanY;
       
