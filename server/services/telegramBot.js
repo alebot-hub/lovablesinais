@@ -330,7 +330,7 @@ ${bitcoinWarning}
           }
 
           // Verifica stop loss
-          const hitStopLoss = signal.trend === 'BULLISH' ? 
+          const hitStopLoss = currentMonitor.trend === 'BULLISH' ? 
             currentPrice <= currentMonitor.stopLoss :
             currentPrice >= currentMonitor.stopLoss;
 

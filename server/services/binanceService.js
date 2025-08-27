@@ -324,7 +324,6 @@ class BinanceService {
    */
   async connectWebSocket(symbol, timeframe, callback) {
     try {
-      const { default: WebSocket } = await import('ws');
       const binanceSymbol = symbol.replace('/', '').toLowerCase();
       const wsUrl = `wss://fstream.binance.com/ws/${binanceSymbol}@kline_${this.convertTimeframe(timeframe)}`;
       
@@ -336,6 +335,8 @@ class BinanceService {
         this.wsConnections.delete(connectionKey);
       }
       
+      // Importa WebSocket dinamicamente
+      const { default: WebSocket } = await import('ws');
       const ws = new WebSocket(wsUrl);
       
       ws.on('open', () => {
@@ -497,19 +498,30 @@ class BinanceService {
     console.log(`🧹 Limpando WebSockets órfãos...`);
     let cleaned = 0;
     
-    for (const [connectionKey, ws] of this.wsConnections) {
-      try {
-        if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+    try {
+      // Importa WebSocket para verificar estados
+      const { default: WebSocket } = await import('ws');
+      
+      for (const [connectionKey, ws] of this.wsConnections) {
+        try {
+          if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+            this.wsConnections.delete(connectionKey);
+            this.reconnectAttempts.delete(connectionKey);
+            cleaned++;
+            console.log(`🗑️ WebSocket órfão removido: ${connectionKey}`);
+          }
+        } catch (error) {
+          console.error(`Erro ao limpar WebSocket ${connectionKey}:`, error.message);
           this.wsConnections.delete(connectionKey);
-          this.reconnectAttempts.delete(connectionKey);
           cleaned++;
-          console.log(`🗑️ WebSocket órfão removido: ${connectionKey}`);
         }
-      } catch (error) {
-        console.error(`Erro ao limpar WebSocket ${connectionKey}:`, error.message);
-        this.wsConnections.delete(connectionKey);
-        cleaned++;
       }
+    } catch (importError) {
+      console.error('Erro ao importar WebSocket para cleanup:', importError.message);
+      // Se não conseguir importar, limpa todas as conexões
+      this.wsConnections.clear();
+      this.reconnectAttempts.clear();
+      cleaned = 1;
     }
     
     if (cleaned > 0) {
