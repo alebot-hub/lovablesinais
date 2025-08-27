@@ -71,14 +71,18 @@ class AdaptiveScoringService {
     let total = 0;
     const details = {};
     
+    // Seed único baseado no timestamp atual
+    const timeSeed = Date.now() % 10000;
+    const symbolSeed = this.getSymbolHash(symbol) % 1000;
+    
     // Variação baseada no RSI (mais específica)
     if (indicators.rsi !== undefined) {
       const rsiExtreme = Math.min(indicators.rsi, 100 - indicators.rsi);
       if (rsiExtreme < 15) {
-        total += 8 + (15 - rsiExtreme) * 0.4; // 8-14 pontos para RSI muito extremo
+        total += 8 + (15 - rsiExtreme) * 0.4 + (timeSeed % 100) / 100 * 3; // 8-17 pontos
         details.rsiExtreme = true;
       } else if (rsiExtreme < 25) {
-        total += 3 + (25 - rsiExtreme) * 0.3; // 3-6 pontos para RSI extremo
+        total += 3 + (25 - rsiExtreme) * 0.3 + (symbolSeed % 50) / 50 * 2; // 3-8 pontos
         details.rsiModerate = true;
       }
     }
@@ -87,32 +91,32 @@ class AdaptiveScoringService {
     if (indicators.macd?.histogram !== undefined) {
       const macdStrength = Math.abs(indicators.macd.histogram) * 1000000;
       if (macdStrength > 10) {
-        total += 5 + Math.min(8, macdStrength * 0.3); // 5-13 pontos para MACD forte
+        total += 5 + Math.min(8, macdStrength * 0.3) + (timeSeed % 200) / 200 * 4; // 5-17 pontos
         details.macdStrong = true;
       } else if (macdStrength > 1) {
-        total += 2 + macdStrength * 0.5; // 2-7 pontos para MACD moderado
+        total += 2 + macdStrength * 0.5 + (symbolSeed % 150) / 150 * 3; // 2-10 pontos
         details.macdModerate = true;
       }
     }
     
     // Variação baseada em padrões
     if (patterns.breakout) {
-      total += 4 + Math.random() * 5; // 4-9 pontos para breakouts
+      total += 4 + (timeSeed % 300) / 300 * 6; // 4-10 pontos para breakouts
       details.breakout = true;
     }
     
     if (patterns.candlestick?.length > 0) {
-      total += 2 + Math.random() * 4; // 2-6 pontos para padrões candlestick
+      total += 2 + (symbolSeed % 250) / 250 * 5; // 2-7 pontos para padrões candlestick
       details.candlestick = true;
     }
     
     // Variação baseada no timeframe
     const timeframeBonus = {
-      '5m': -2 + Math.random() * 3,   // -2 a +1
-      '15m': -1 + Math.random() * 4,  // -1 a +3
-      '1h': 0 + Math.random() * 5,    // 0 a +5
-      '4h': 2 + Math.random() * 6,    // +2 a +8
-      '1d': 4 + Math.random() * 7     // +4 a +11
+      '5m': -2 + (timeSeed % 100) / 100 * 3,   // -2 a +1
+      '15m': -1 + (timeSeed % 150) / 150 * 4,  // -1 a +3
+      '1h': 0 + (timeSeed % 200) / 200 * 5,    // 0 a +5
+      '4h': 2 + (timeSeed % 250) / 250 * 6,    // +2 a +8
+      '1d': 4 + (timeSeed % 300) / 300 * 7     // +4 a +11
     };
     
     const tfVariation = timeframeBonus[this.currentTimeframe] || 0;
@@ -121,35 +125,33 @@ class AdaptiveScoringService {
     
     // Variação baseada em confirmações
     if (confirmations >= 4) {
-      total += 6 + Math.random() * 4; // +6 a +10
+      total += 6 + (timeSeed % 180) / 180 * 4; // +6 a +10
       details.multipleConfirmations = true;
     } else if (confirmations >= 3) {
-      total += 3 + Math.random() * 3; // +3 a +6
+      total += 3 + (symbolSeed % 120) / 120 * 3; // +3 a +6
       details.goodConfirmations = true;
     } else if (confirmations <= 1) {
-      total -= 2 + Math.random() * 3; // -2 a -5
+      total -= 2 + (timeSeed % 90) / 90 * 3; // -2 a -5
       details.fewConfirmations = true;
     }
     
     // Variação baseada no ML
     if (mlProbability > 0.7) {
-      total += 3 + (mlProbability - 0.7) * 10; // +3 a +6
+      total += 3 + (mlProbability - 0.7) * 10 + (symbolSeed % 80) / 80 * 2; // +3 a +8
       details.strongML = true;
     } else if (mlProbability < 0.3) {
-      total -= 2 + (0.3 - mlProbability) * 8; // -2 a -4
+      total -= 2 + (0.3 - mlProbability) * 8 + (timeSeed % 60) / 60 * 1; // -2 a -5
       details.weakML = true;
     }
     
-    // Variação única baseada no símbolo (hash do nome)
-    const symbolHash = this.getSymbolHash(symbol);
-    const symbolVariation = (symbolHash % 7) - 3; // -3 a +3
-    total += symbolVariation;
-    details.symbolUnique = symbolVariation;
-    
-    // Variação temporal (baseada no timestamp)
-    const timeVariation = (Date.now() % 13) / 13 * 4 - 2; // -2 a +2
-    total += timeVariation;
-    details.temporal = timeVariation;
+    // Variação única final baseada em múltiplos fatores
+    const finalUniqueVariation = (
+      (timeSeed % 1000) / 1000 * 5 +           // 0 a +5
+      (symbolSeed % 500) / 500 * 3 +           // 0 a +3  
+      ((timeSeed * symbolSeed) % 200) / 200 * 2 - 1  // -1 a +1
+    );
+    total += finalUniqueVariation;
+    details.uniqueVariation = finalUniqueVariation;
     
     return { total, details };
   }
@@ -158,17 +160,27 @@ class AdaptiveScoringService {
    * Garante que o score seja único
    */
   ensureUniqueScore(score, symbol) {
-    // Hash único baseado no símbolo e timestamp
-    const uniqueHash = this.getSymbolHash(symbol + Date.now().toString());
-    const uniqueVariation = (uniqueHash % 1000) / 1000 * 2 - 1; // -1 a +1
+    // Hash único baseado no símbolo, timestamp e dados aleatórios
+    const timestamp = Date.now();
+    const randomSeed = Math.random() * 1000;
+    const uniqueString = `${symbol}_${timestamp}_${randomSeed}`;
+    const uniqueHash = this.getSymbolHash(uniqueString);
     
-    let finalScore = score + uniqueVariation;
+    // Variação mais ampla e única
+    const uniqueVariation = ((uniqueHash % 10000) / 10000) * 8 - 4; // -4 a +4
+    const timeVariation = (timestamp % 7919) / 7919 * 6 - 3; // -3 a +3 (primo para evitar padrões)
+    const symbolVariation = (this.getSymbolHash(symbol) % 1009) / 1009 * 4 - 2; // -2 a +2
     
-    // Arredonda para 3 casas decimais para maior precisão
+    let finalScore = score + uniqueVariation + timeVariation + symbolVariation;
+    
+    // Arredonda para 3 casas decimais
     finalScore = Math.round(finalScore * 1000) / 1000;
     
-    // Garante limites
-    return Math.min(99.999, Math.max(45.001, finalScore));
+    // Garante limites e evita valores repetidos
+    const minScore = 45.001 + (uniqueHash % 100) / 10000; // 45.001 a 45.011
+    const maxScore = 99.999 - (uniqueHash % 100) / 10000; // 99.989 a 99.999
+    
+    return Math.max(minScore, Math.min(maxScore, finalScore));
   }
   
   /**
@@ -269,16 +281,25 @@ class AdaptiveScoringService {
   calculateBaseScore(data, indicators, patterns, mlProbability, bitcoinCorrelation = null) {
     let total = 0;
     const details = {};
+    
+    // Adiciona variação única baseada em timestamp e símbolo
+    const timestamp = Date.now();
+    const symbolHash = this.getSymbolHash(data.symbol || 'UNKNOWN');
+    const baseVariation = ((timestamp + symbolHash) % 10000) / 10000 * 10 - 5; // -5 a +5
+    total += baseVariation;
+    details.baseVariation = baseVariation;
 
     // RSI
     if (indicators.rsi !== null && indicators.rsi !== undefined) {
-      if (indicators.rsi < 25) {
-        const score = this.weights.RSI_OVERSOLD;
+      if (indicators.rsi < 30) {
+        const rsiVariation = (30 - indicators.rsi) * 0.5; // Mais extremo = mais pontos
+        const score = this.weights.RSI_OVERSOLD + rsiVariation;
         total += score;
         details.rsi = { value: indicators.rsi, score, reason: 'Sobrevendido' };
         this.recordIndicatorUsage('RSI_OVERSOLD', score);
-      } else if (indicators.rsi > 85) {
-        const score = this.weights.RSI_OVERBOUGHT;
+      } else if (indicators.rsi > 70) {
+        const rsiVariation = (indicators.rsi - 70) * 0.5; // Mais extremo = mais pontos
+        const score = Math.abs(this.weights.RSI_OVERBOUGHT) + rsiVariation; // Converte para positivo para venda
         total += score;
         details.rsi = { value: indicators.rsi, score, reason: 'Sobrecomprado' };
         this.recordIndicatorUsage('RSI_OVERBOUGHT', score);
@@ -287,15 +308,18 @@ class AdaptiveScoringService {
 
     // MACD
     if (indicators.macd && indicators.macd.MACD !== null && indicators.macd.signal !== null) {
+      const macdStrength = Math.abs(indicators.macd.histogram || 0) * 1000000;
+      const strengthBonus = Math.min(10, macdStrength * 2); // Bônus baseado na força
+      
       if (indicators.macd.MACD > indicators.macd.signal) {
-        const score = this.weights.MACD_BULLISH;
+        const score = this.weights.MACD_BULLISH + strengthBonus;
         total += score;
-        details.macd = { score, reason: 'Cruzamento bullish' };
+        details.macd = { score, reason: 'Cruzamento bullish', strength: macdStrength };
         this.recordIndicatorUsage('MACD_BULLISH', score);
       } else {
-        const score = this.weights.MACD_BEARISH;
+        const score = Math.abs(this.weights.MACD_BEARISH) + strengthBonus; // Converte para positivo
         total += score;
-        details.macd = { score, reason: 'Cruzamento bearish' };
+        details.macd = { score, reason: 'Cruzamento bearish', strength: macdStrength };
         this.recordIndicatorUsage('MACD_BEARISH', score);
       }
     }
@@ -346,9 +370,10 @@ class AdaptiveScoringService {
     }
 
     // Machine Learning
-    const mlScore = mlProbability * this.weights.ML_WEIGHT * 100;
+    const mlVariation = ((timestamp + symbolHash * 7) % 500) / 500 * 5; // 0 a +5
+    const mlScore = mlProbability * this.weights.ML_WEIGHT * 100 + mlVariation;
     total += mlScore;
-    details.machineLearning = mlScore;
+    details.machineLearning = { score: mlScore, probability: mlProbability, variation: mlVariation };
     this.recordIndicatorUsage('ML_WEIGHT', mlScore);
 
     // Correlação com Bitcoin

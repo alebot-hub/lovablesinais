@@ -490,19 +490,24 @@ class SignalScoringService {
     
     console.log('🔍 Detectando tendência do sinal...');
     
-    // Análise de tendência com base no RSI - AJUSTADO PARA VENDA
+    // Análise de tendência com base no RSI - BALANCEADO PARA COMPRA E VENDA
     if (indicators.rsi !== undefined) {
       totalFactors++;
-      if (indicators.rsi < 20) {
-        bullishScore += 2; // Sobrevenda extrema = forte oportunidade de compra
-      } else if (indicators.rsi < 30) {
-        bullishScore++; // Sobrevenda = oportunidade de compra
-      } else if (indicators.rsi > 80) {
-        bearishScore += 2; // Sobrecompra extrema = forte oportunidade de venda
-      } else if (indicators.rsi > 70) {
-        bearishScore++; // Sobrecompra = oportunidade de venda
+      if (indicators.rsi < 25) {
+        bullishScore += 2; // Sobrevenda extrema
+        console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BULLISH EXTREMO (sobrevenda)`);
+      } else if (indicators.rsi < 35) {
+        bullishScore++; // Sobrevenda
+        console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BULLISH (sobrevenda)`);
+      } else if (indicators.rsi > 75) {
+        bearishScore += 2; // Sobrecompra extrema
+        console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BEARISH EXTREMO (sobrecompra)`);
+      } else if (indicators.rsi > 65) {
+        bearishScore++; // Sobrecompra
+        console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BEARISH (sobrecompra)`);
+      } else {
+        console.log(`  RSI: ${indicators.rsi.toFixed(2)} → NEUTRAL`);
       }
-      console.log(`  RSI: ${indicators.rsi.toFixed(2)} → ${indicators.rsi < 30 ? 'BULLISH' : indicators.rsi > 70 ? 'BEARISH' : 'NEUTRAL'}`);
     }
     
     // Análise de tendência com base no MACD - MELHORADO
