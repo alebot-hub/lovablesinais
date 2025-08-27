@@ -266,55 +266,6 @@ class MarketAnalysisService {
   async getAltcoinSeasonData() {
     try {
       console.log('🚀 Verificando Altcoin Season...');
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (compatible; CryptoBot/1.0)'
-        },
-        signal: AbortSignal.timeout(10000)
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      if (data && data.data && data.data[0]) {
-        const fngData = data.data[0];
-        const index = parseInt(fngData.value);
-        const label = fngData.value_classification;
-        
-        console.log(`✅ Fear & Greed real: ${index}/100 (${label})`);
-        
-        return {
-          index: index,
-          label: label,
-          isReal: true,
-          timestamp: fngData.timestamp
-        };
-      }
-      
-      throw new Error('Dados inválidos da API');
-    } catch (error) {
-      console.error('❌ Erro no Fear & Greed real:', error.message);
-      
-      // Fallback com dados simulados mais realistas
-      const simulatedIndex = 45 + Math.random() * 20; // 45-65
-      return {
-        index: Math.round(simulatedIndex),
-        label: this.getFearGreedLabel(simulatedIndex),
-        isReal: false,
-        timestamp: Date.now()
-      };
-    }
-  }
-
-  /**
-   * Obtém dados de Altcoin Season
-   */
-  async getAltcoinSeasonData() {
-    try {
-      console.log('🚀 Verificando Altcoin Season...');
       
       // API original frequentemente instável, usar fallback inteligente
       const btcDominance = await this.getBtcDominanceFromCoinGecko();
@@ -538,7 +489,7 @@ class MarketAnalysisService {
       },
       isRealData: false,
       fallbackReason: 'API temporariamente indisponível'
-    }
+    };
   }
 
   /**
