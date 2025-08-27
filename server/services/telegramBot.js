@@ -48,6 +48,34 @@ class TelegramBotService {
   }
 
   /**
+   * Formata preço com casas decimais inteligentes
+   */
+  formatPrice(price) {
+    if (!price || isNaN(price)) return '0.00';
+    
+    // Ativos acima de $100: 2 casas decimais
+    if (price >= 100) {
+      return price.toFixed(2);
+    }
+    // Ativos entre $10-$100: 3 casas decimais
+    else if (price >= 10) {
+      return price.toFixed(3);
+    }
+    // Ativos entre $1-$10: 4 casas decimais
+    else if (price >= 1) {
+      return price.toFixed(4);
+    }
+    // Ativos entre $0.01-$1: 5 casas decimais
+    else if (price >= 0.01) {
+      return price.toFixed(5);
+    }
+    // Ativos abaixo de $0.01: 6 casas decimais
+    else {
+      return price.toFixed(6);
+    }
+  }
+
+  /**
    * Formata sinal de trading para Telegram
    */
   formatTradingSignal(signal) {
@@ -70,7 +98,7 @@ class TelegramBotService {
       const label = targetNum === 6 ? 
         (isLong ? 'Alvo 6 - Lua!' : 'Alvo 6 - Queda Infinita!') : 
         `Alvo ${targetNum}`;
-      return `${emoji} *${label}:* ${target.toFixed(2).replace('.', '․')}`;
+      return `${emoji} *${label}:* ${this.formatPrice(target).replace('.', '․')}`;
     }).join('\n');
 
     // Remove linha duplicada do regime - já está no cabeçalho
@@ -93,7 +121,7 @@ class TelegramBotService {
 🔍 *Fatores-chave:*
 ${factorsText}
 
-⚡️ *Entrada:* ${signal.entry.toFixed(2).replace('.', '․')}
+⚡️ *Entrada:* ${this.formatPrice(signal.entry).replace('.', '․')}
 
 🎯 *ALVOS (15x):*
 ${targets}
@@ -525,8 +553,8 @@ ${bitcoinWarning}
 ✅ *Stop loss movido para ${stopDescription}*
 💰 *Lucro parcial realizado:* +${leveragedTotalPnL.toFixed(1)}% (${realizationBreakdown})
 📈 *Alvos atingidos:* ${monitor.targetsHit}/6
-📊 *Entrada:* ${monitor.entry.toFixed(2).replace('.', '․')}
-🛡️ *Novo stop:* ${newStopPrice.toFixed(2).replace('.', '․')}
+📊 *Entrada:* ${this.formatPrice(monitor.entry).replace('.', '․')}
+🛡️ *Novo stop:* ${this.formatPrice(newStopPrice).replace('.', '․')}
 ⏱️ *Duração:* ${duration}
 
 💡 *PROTEÇÃO ATIVADA:*
@@ -640,7 +668,7 @@ ${bitcoinWarning}
 💰 *Lucro atual:* +${leveragedPnL.toFixed(1)}% (Alv. 15×)
 ⚡️ *Posição parcial realizada*
 📊 *Entrada:* ${monitor.entry.toFixed(2).replace('.', '․')}
-💵 *Preço do alvo:* ${targetPrice.toFixed(2).replace('.', '․')}
+💵 *Preço do alvo:* ${this.formatPrice(targetPrice).replace('.', '․')}
 ⏱️ *Tempo até o alvo:* ${timeElapsed}
 🛡️ *Stop ativado:* ${this.getStopStatus(targetNumber)}
 
@@ -678,7 +706,7 @@ ${bitcoinWarning}
 📌 *Motivo:* STOP LOSS ATIVADO
 
 📈 *Alvos atingidos:* Nenhum
-🛑 *Stop loss:* ${currentPrice.toFixed(2).replace('.', '․')}
+🛑 *Stop loss:* ${this.formatPrice(currentPrice).replace('.', '․')}
 📅 *Duração:* ${duration}
 
 💡 *GERENCIAMENTO DE RISCO:*
@@ -705,7 +733,7 @@ ${bitcoinWarning}
 📌 *Motivo:* STOP LOSS ATIVADO APÓS ALVO ${monitor.targetsHit}
 
 📈 *Alvos atingidos:* ${monitor.targetsHit}
-🛑 *Stop loss:* ${currentPrice.toFixed(2).replace('.', '․')}
+🛑 *Stop loss:* ${this.formatPrice(currentPrice).replace('.', '․')}
 📅 *Duração:* ${duration}
 
 💡 *GERENCIAMENTO DE RISCO:*
@@ -750,7 +778,7 @@ ${bitcoinWarning}
 📌 *Motivo:* TODOS OS ALVOS ATINGIDOS - LUA!
 
 📈 *Alvos atingidos:* 6/6
-🛑 *Stop loss:* ${monitor.stopLoss.toFixed(2).replace('.', '․')}
+🛑 *Stop loss:* ${this.formatPrice(monitor.stopLoss).replace('.', '․')}
 📅 *Duração:* ${duration}
 
 👑 *Sinais Lobo Cripto*
@@ -784,8 +812,8 @@ ${bitcoinWarning}
 🔍 *Preço retornou ao ponto de proteção*
 💰 *Lucro realizado:* +${leveragedTotalPnL.toFixed(1)}% (${this.getRealizationBreakdown(monitor.targetsHit)})
 📈 *Alvos atingidos:* ${monitor.targetsHit}/6
-📊 *Entrada:* ${monitor.entry.toFixed(2).replace('.', '․')}
-💵 *Preço atual:* ${currentPrice.toFixed(2).replace('.', '․')}
+📊 *Entrada:* ${this.formatPrice(monitor.entry).replace('.', '․')}
+💵 *Preço atual:* ${this.formatPrice(currentPrice).replace('.', '․')}
 ⏱️ *Duração:* ${duration}
 
 🎉 *EXCELENTE RESULTADO!*
