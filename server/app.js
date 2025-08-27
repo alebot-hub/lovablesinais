@@ -502,6 +502,59 @@ schedule.scheduleJob(SCHEDULE_CONFIG.MARKET_SENTIMENT, () => {
   analyzeMarketSentiment();
 });
 
+// Relatório semanal - Todo domingo às 20h (horário de Brasília)
+schedule.scheduleJob('0 23 * * 0', async () => {
+  console.log('\n⏰ Agendamento: Gerando relatório semanal...');
+  try {
+    if (performanceTracker.shouldSendWeeklyReport()) {
+      const weeklyReport = performanceTracker.generateWeeklyReport();
+      
+      if (weeklyReport.hasData && telegramBot.isEnabled) {
+        const message = formatWeeklyReportMessage(weeklyReport);
+        await telegramBot.bot.sendMessage(telegramBot.chatId, message, { parse_mode: 'Markdown' });
+        performanceTracker.markWeeklyReportSent();
+        console.log('✅ Relatório semanal enviado');
+      } else {
+        console.log('ℹ️ Relatório semanal não enviado - dados insuficientes ou Telegram desabilitado');
+      }
+    }
+  } catch (error) {
+    console.error('❌ Erro ao enviar relatório semanal:', error.message);
+  }
+});
+
+/**
+ * Formata mensagem do relatório semanal
+ */
+function formatWeeklyReportMessage(report) {
+  const { summary, performance, insights } = report;
+  
+  return `📊 *RELATÓRIO SEMANAL LOBO CRIPTO*
+
+📅 *Período:* ${new Date(report.period.start).toLocaleDateString('pt-BR')} - ${new Date(report.period.end).toLocaleDateString('pt-BR')}
+
+📈 *PERFORMANCE GERAL:*
+• Total de operações: ${summary.totalTrades}
+• Taxa de acerto: ${summary.winRate}%
+• P&L total: ${summary.totalRiskAdjustedPnL > 0 ? '+' : ''}${summary.totalRiskAdjustedPnL}%
+• Lucro realizado: ${summary.realizedProfit}%
+• Média de alvos: ${summary.avgTargetsHit}
+
+🛡️ *GESTÃO DE RISCO:*
+• Stop móvel ativado: ${report.stopMobileActivations || 0} vezes
+• Média alvos no stop móvel: ${(report.stopMobileAvgTargets || 0).toFixed(1)}
+• Taxa de realização: ${summary.profitRealizationRatio}
+
+🏆 *MELHOR OPERAÇÃO:*
+${performance.bestTrade ? `• ${performance.bestTrade.symbol}: ${performance.bestTrade.pnl} (${performance.bestTrade.targetsHit}/6 alvos)` : '• Nenhuma operação concluída'}
+
+💡 *INSIGHTS:*
+${insights.map(insight => `• ${insight}`).join('\n')}
+
+👑 *Bot Lobo Cripto - Relatório Automático*
+⏰ ${new Date().toLocaleString('pt-BR')}`;
+}
+
 setInterval(async () => {
   try {
     await binanceService.cleanupOrphanedWebSockets();

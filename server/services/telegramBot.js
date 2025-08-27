@@ -560,7 +560,8 @@ ${bitcoinWarning}
       // Registra resultado
       if (app.performanceTracker) {
         app.performanceTracker.recordTrade(symbol, pnlPercent, false);
-        app.performanceTracker.updateSignalResult(symbol, monitor.targetsHit, pnlPercent, 'STOP_LOSS');
+        const realizedPnL = this.calculateTotalRealizedPnL(monitor, monitor.targetsHit);
+        app.performanceTracker.updateSignalResult(symbol, monitor.targetsHit, pnlPercent, 'STOP_LOSS', realizedPnL);
       }
 
       // Registra no sistema adaptativo
@@ -593,7 +594,7 @@ ${bitcoinWarning}
 
       // Registra resultado final
       if (app.performanceTracker) {
-        app.performanceTracker.updateSignalResult(symbol, 6, totalPnlPercent, 'ALL_TARGETS');
+        app.performanceTracker.updateSignalResult(symbol, 6, totalPnlPercent, 'ALL_TARGETS', totalPnlPercent);
       }
 
       // Registra no sistema adaptativo
@@ -858,7 +859,8 @@ ${bitcoinWarning}
       
       // Registra resultado positivo
       if (app.performanceTracker) {
-        app.performanceTracker.updateSignalResult(symbol, targetsHit, totalRealizedPnL, 'STOP_MOBILE');
+        const realizedPnL = this.calculateTotalRealizedPnL(monitor, targetsHit);
+        app.performanceTracker.updateSignalResult(symbol, targetsHit, realizedPnL, 'STOP_MOBILE', realizedPnL);
       }
 
       // Registra no sistema adaptativo como sucesso

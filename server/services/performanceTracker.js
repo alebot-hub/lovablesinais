@@ -70,19 +70,23 @@ class PerformanceTrackerService {
   /**
    * Atualiza resultado do sinal
    */
-  updateSignalResult(symbol, targetsHit, finalPnL, exitReason) {
+  updateSignalResult(symbol, targetsHit, finalPnL, exitReason, realizedPnL = null) {
     const signal = this.signals.find(s => s.symbol === symbol && s.status === 'ACTIVE');
     
     if (signal) {
       signal.status = 'COMPLETED';
       signal.results.targetsHit = targetsHit;
       signal.results.finalPnL = finalPnL * 15; // Aplica alavancagem 15x
+      signal.results.realizedPnL = realizedPnL ? realizedPnL * 15 : signal.results.finalPnL;
+      signal.results.unrealizedPnL = signal.results.finalPnL - signal.results.realizedPnL;
       signal.results.duration = new Date() - signal.timestamp;
       signal.results.exitReason = exitReason;
+      signal.results.isStopMobile = exitReason === 'STOP_MOBILE';
+      signal.results.isPartialWin = targetsHit > 0 && exitReason !== 'ALL_TARGETS';
 
       this.updateMonthlyStats(signal);
       this.updateWeeklyStats(signal, 'COMPLETED');
-      console.log(`📈 Resultado atualizado: ${symbol} - ${targetsHit}/6 alvos (${(finalPnL * 15).toFixed(2)}% com 15x)`);
+      console.log(`📈 Resultado atualizado: ${symbol} - ${targetsHit}/6 alvos (${(finalPnL * 15).toFixed(2)}% total, ${(realizedPnL * 15).toFixed(2)}% realizado)`);
     }
   }
 
@@ -106,6 +110,12 @@ class PerformanceTrackerService {
         worstTrade: null,
         mlSignals: 0,
         mlWins: 0,
+        stopMobileActivations: 0,
+        stopMobileAvgTargets: 0,
+        partialWins: 0,
+        fullLosses: 0,
+        fullWins: 0,
+        partialLosses: 0,
         timeframeBreakdown: {
           '15m': { signals: 0, wins: 0 },
           '1h': { signals: 0, wins: 0 },
@@ -132,11 +142,23 @@ class PerformanceTrackerService {
       stats.totalPnL += signal.results.finalPnL;
       stats.avgTargetsHit = (stats.avgTargetsHit * (stats.completedSignals - 1) + signal.results.targetsHit) / stats.completedSignals;
       
-      if (signal.results.finalPnL > 0) {
+      // Classifica como vitória se teve lucro OU se foi stop móvel com alvos
+      const isWin = signal.results.finalPnL > 0 || 
+                   (signal.results.isStopMobile && signal.results.targetsHit > 0) ||
+                   signal.results.exitReason === 'STOP_MOBILE';
+      
+      if (isWin) {
         stats.winningSignals++;
         if (signal.isMLDriven) stats.mlWins++;
         if (signal.timeframe && stats.timeframeBreakdown[signal.timeframe]) {
           stats.timeframeBreakdown[signal.timeframe].wins++;
+        }
+        
+        // Conta vitórias parciais vs totais
+        if (signal.results.exitReason === 'ALL_TARGETS') {
+          stats.fullWins = (stats.fullWins || 0) + 1;
+        } else if (signal.results.isPartialWin) {
+          stats.partialWins = (stats.partialWins || 0) + 1;
         }
         
         // Atualiza melhor trade
@@ -145,7 +167,8 @@ class PerformanceTrackerService {
             symbol: signal.symbol,
             pnl: signal.results.finalPnL,
             targetsHit: signal.results.targetsHit,
-            duration: signal.results.duration
+            duration: signal.results.duration,
+            exitReason: signal.results.exitReason
           };
         }
         
@@ -153,30 +176,51 @@ class PerformanceTrackerService {
         stats.topPerformers.push({
           symbol: signal.symbol,
           pnl: signal.results.finalPnL,
-          targetsHit: signal.results.targetsHit
+          targetsHit: signal.results.targetsHit,
+          exitReason: signal.results.exitReason,
+          realizedPnL: signal.results.realizedPnL
         });
         stats.topPerformers.sort((a, b) => b.pnl - a.pnl);
         stats.topPerformers = stats.topPerformers.slice(0, 5);
         
-      } else {
+      } else if (signal.results.finalPnL <= 0) {
         stats.losingSignals++;
+        
+        // Conta perdas totais vs parciais
+        if (signal.results.targetsHit === 0) {
+          stats.fullLosses = (stats.fullLosses || 0) + 1;
+        } else {
+          stats.partialLosses = (stats.partialLosses || 0) + 1;
+        }
         
         // Atualiza pior trade
         if (!stats.worstTrade || signal.results.finalPnL < stats.worstTrade.pnl) {
           stats.worstTrade = {
             symbol: signal.symbol,
             pnl: signal.results.finalPnL,
-            duration: signal.results.duration
+            duration: signal.results.duration,
+            targetsHit: signal.results.targetsHit,
+            exitReason: signal.results.exitReason
           };
         }
         
         // Worst performers
         stats.worstPerformers.push({
           symbol: signal.symbol,
-          pnl: signal.results.finalPnL
+          pnl: signal.results.finalPnL,
+          targetsHit: signal.results.targetsHit,
+          exitReason: signal.results.exitReason
         });
         stats.worstPerformers.sort((a, b) => a.pnl - b.pnl);
         stats.worstPerformers = stats.worstPerformers.slice(0, 3);
+      }
+      
+      // Categoria especial para stop móvel (sempre considerado sucesso)
+      if (signal.results.isStopMobile) {
+        stats.stopMobileActivations = (stats.stopMobileActivations || 0) + 1;
+        stats.stopMobileAvgTargets = stats.stopMobileActivations > 0 ? 
+          ((stats.stopMobileAvgTargets || 0) * (stats.stopMobileActivations - 1) + signal.results.targetsHit) / stats.stopMobileActivations : 
+          signal.results.targetsHit;
       }
     }
   }
@@ -308,23 +352,35 @@ class PerformanceTrackerService {
         realizedProfit: metrics.totalRealizedProfit.toFixed(2),
         unrealizedProfit: metrics.totalUnrealizedProfit.toFixed(2),
         profitRealizationRatio: metrics.totalRiskAdjustedPnL > 0 ? 
-          (metrics.totalRealizedProfit / metrics.totalRiskAdjustedPnL * 100).toFixed(1) + '%' : '0%'
+          (metrics.totalRealizedProfit / metrics.totalRiskAdjustedPnL * 100).toFixed(1) + '%' : '0%',
+        stopMobileRate: stats.completedSignals > 0 ? 
+          ((stats.stopMobileActivations || 0) / stats.completedSignals * 100).toFixed(1) + '%' : '0%'
       },
       performance: {
         bestTrade: metrics.bestTrade ? {
           symbol: metrics.bestTrade.symbol,
           pnl: metrics.bestTrade.pnl.toFixed(2) + '%',
           targetsHit: metrics.bestTrade.targetsHit,
-          timeframe: metrics.bestTrade.timeframe
+          timeframe: metrics.bestTrade.timeframe,
+          exitReason: metrics.bestTrade.exitReason
         } : null,
         worstTrade: metrics.worstTrade ? {
           symbol: metrics.worstTrade.symbol,
           pnl: metrics.worstTrade.pnl.toFixed(2) + '%',
           targetsHit: metrics.worstTrade.targetsHit,
-          timeframe: metrics.worstTrade.timeframe
+          timeframe: metrics.worstTrade.timeframe,
+          exitReason: metrics.worstTrade.exitReason
         } : null,
         targetDistribution,
-        timeframes: timeframeStats
+        timeframes: timeframeStats,
+        riskManagement: {
+          stopMobileActivations: stats.stopMobileActivations || 0,
+          stopMobileAvgTargets: (stats.stopMobileAvgTargets || 0).toFixed(1),
+          fullWins: stats.fullWins || 0,
+          partialWins: stats.partialWins || 0,
+          fullLosses: stats.fullLosses || 0,
+          partialLosses: stats.partialLosses || 0
+        }
       },
       insights: this.generateInsights(stats, winRate, 0)
     };
@@ -345,6 +401,36 @@ class PerformanceTrackerService {
       insights.push('⚠️ Performance moderada - ajustes podem ser necessários');
     } else {
       insights.push('🔴 Performance abaixo do esperado - revisão de estratégia recomendada');
+    }
+    
+    // Stop móvel
+    if (stats.stopMobileActivations > 0) {
+      const stopMobileRate = (stats.stopMobileActivations / stats.completedSignals * 100).toFixed(1);
+      insights.push(`🛡️ Stop móvel ativado em ${stopMobileRate}% das operações (média ${stats.stopMobileAvgTargets.toFixed(1)} alvos)`);
+    }
+    
+    // Gestão de risco
+    if (stats.partialWins > stats.fullLosses) {
+      insights.push('✅ Gestão de risco eficiente - mais ganhos parciais que perdas totais');
+    }
+    
+    // Eficiência do stop móvel
+    if (stats.stopMobileActivations >= 3) {
+      const stopMobileEfficiency = stats.stopMobileAvgTargets;
+      if (stopMobileEfficiency >= 2.5) {
+        insights.push(`🛡️ Stop móvel muito eficiente - média de ${stopMobileEfficiency.toFixed(1)} alvos antes da ativação`);
+      } else if (stopMobileEfficiency >= 1.5) {
+        insights.push(`🛡️ Stop móvel funcionando bem - protegendo lucros parciais`);
+      }
+    }
+    
+    // Análise de realizações
+    const realizationRate = stats.completedSignals > 0 ? 
+      ((stats.partialWins + stats.fullWins) / stats.completedSignals * 100) : 0;
+    if (realizationRate >= 80) {
+      insights.push('💰 Excelente taxa de realização de lucros');
+    } else if (realizationRate >= 60) {
+      insights.push('💰 Boa disciplina na realização de lucros');
     }
     
     // ML vs Técnica
