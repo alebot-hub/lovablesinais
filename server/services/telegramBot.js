@@ -87,8 +87,6 @@ class TelegramBotService {
 📈 *Alavancagem sugerida:* 15x
 🎯 *Probabilidade:* ${signal.probability.toFixed(3)}%
 
-📊 *ANÁLISE DE SENTIMENTO:*
-🟡 *Sentimento:* NEUTRO (50/100)
 💡 *Interpretação:* ${this.getInterpretation(signal, isLong)}
 🔍 *Fatores-chave:*
 ${factorsText}
@@ -100,7 +98,7 @@ ${targets}
 
 🛑 *Stop Loss:* ${signal.stopLoss.toFixed(2).replace('.', '․')}
 
-🎛️ *Regime:* ${regimeEmoji} *MODO ${signal.regime}* - ${this.getRegimeDescription(signal.regime)}${bitcoinWarning}
+${bitcoinWarning}
 
 👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*
 ⏰ ${new Date().toLocaleString('pt-BR')}`;
