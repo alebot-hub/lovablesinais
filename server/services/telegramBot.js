@@ -3,60 +3,272 @@
  */
 
 import TelegramBot from 'node-telegram-bot-api';
-import { TRADING_CONFIG } from '../config/constants.js';
+import { Logger } from './logger.js';
+
+const logger = new Logger('TelegramBot');
 
 class TelegramBotService {
   constructor() {
     this.token = process.env.TELEGRAM_TOKEN;
     this.chatId = process.env.TELEGRAM_CHAT_ID;
     this.isEnabled = !!(this.token && this.chatId);
-    this.bot = null;
     this.activeMonitors = new Map();
-    this.wsConnections = new Map();
     
     if (this.isEnabled) {
-      try {
-        this.bot = new TelegramBot(this.token, { polling: false });
-        console.log('✅ TelegramBot: Bot inicializado com sucesso');
-      } catch (error) {
-        console.error('❌ TelegramBot: Erro ao inicializar bot:', error.message);
-        this.isEnabled = false;
-      }
+      this.bot = new TelegramBot(this.token, { polling: false });
+      console.log('✅ Telegram Bot inicializado');
     } else {
-      console.log('⚠️ TelegramBot: Variáveis não configuradas - modo simulado ativo');
-      console.log('💡 Configure TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no .env para ativar');
+      console.log('⚠️ Telegram Bot em modo simulado (variáveis não configuradas)');
+    }
+  }
+
+  /**
+   * Envia sinal de trading formatado
+   */
+  async sendTradingSignal(signalData) {
+    try {
+      if (!this.isEnabled) {
+        console.log('📱 [SIMULADO] Sinal enviado:', signalData.symbol);
+        return true;
+      }
+
+      const message = this.formatTradingSignal(signalData);
+      
+      await this.bot.sendMessage(this.chatId, message, {
+        parse_mode: 'Markdown',
+        disable_web_page_preview: true
+      });
+
+      console.log(`✅ Sinal enviado via Telegram: ${signalData.symbol}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Erro ao enviar sinal:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Formata sinal de trading para Telegram
+   */
+  formatTradingSignal(signal) {
+    const isLong = signal.trend === 'BULLISH';
+    const direction = isLong ? 'COMPRA' : 'VENDA';
+    const emoji = isLong ? '🟢' : '🔴';
+    const animal = isLong ? '🐂' : '🐻';
+    
+    // Formata fatores-chave específicos e únicos
+    const factors = this.generateSpecificFactors(signal, isLong);
+    const factorsText = factors.map(f => `   • ${f}`).join('\n');
+
+    // Calcula alvos baseados na direção
+    const targets = signal.targets.map((target, index) => {
+      const targetNum = index + 1;
+      const emoji = targetNum === 6 ? '🌕' : `${targetNum}️⃣`;
+      const label = targetNum === 6 ? 'Alvo 6 - Lua!' : `Alvo ${targetNum}`;
+      return `${emoji} *${label}:* ${target.toFixed(2).replace('.', '․')}`;
+    }).join('\n');
+
+    // Determina regime visual
+    const regimeEmoji = this.getRegimeEmoji(signal.regime);
+    
+    // Aviso de correlação Bitcoin se necessário
+    let bitcoinWarning = '';
+    if (signal.btcCorrelation && signal.btcCorrelation.alignment === 'AGAINST') {
+      const btcTrend = signal.btcCorrelation.btcTrend === 'BULLISH' ? 'ALTA' : 'BAIXA';
+      const operationType = isLong ? 'COMPRA' : 'VENDA';
+      bitcoinWarning = `\n\n⚠️ *ATENÇÃO:* O Bitcoin está em tendência de *${btcTrend}*. Operações *${operationType}* podem ter risco elevado.`;
+    }
+
+    return `🚨 *LOBO PREMIUM #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*
+
+💰 *#${signal.symbol.split('/')[0]} Futures*
+📊 *TEMPO GRÁFICO:* ${signal.timeframe}
+🌐 *REGIME:* ${signal.regime} ${regimeEmoji}
+📈 *Alavancagem sugerida:* 15x
+🎯 *Probabilidade:* ${signal.probability.toFixed(3)}%
+
+📊 *ANÁLISE DE SENTIMENTO:*
+🟡 *Sentimento:* NEUTRO (50/100)
+💡 *Interpretação:* ${this.getInterpretation(signal, isLong)}
+🔍 *Fatores-chave:*
+${factorsText}
+
+⚡️ *Entrada:* ${signal.entry.toFixed(2).replace('.', '․')}
+
+🎯 *ALVOS (15x):*
+${targets}
+
+🛑 *Stop Loss:* ${signal.stopLoss.toFixed(2).replace('.', '․')}
+
+🎛️ *Regime:* ${regimeEmoji} *MODO ${signal.regime}* - ${this.getRegimeDescription(signal.regime)}${bitcoinWarning}
+
+👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*
+⏰ ${new Date().toLocaleString('pt-BR')}`;
+  }
+
+  /**
+   * Gera fatores específicos e únicos baseados no sinal
+   */
+  generateSpecificFactors(signal, isLong) {
+    const factors = [];
+    const indicators = signal.indicators || {};
+    const patterns = signal.patterns || {};
+    const btcCorrelation = signal.btcCorrelation || {};
+
+    // RSI - específico por direção
+    if (indicators.rsi !== undefined) {
+      if (isLong && indicators.rsi < 30) {
+        factors.push('RSI em sobrevenda favorável para compra');
+      } else if (!isLong && indicators.rsi > 70) {
+        factors.push('RSI em sobrecompra extrema (oportunidade de venda)');
+      } else if (indicators.rsi < 40) {
+        factors.push('RSI em zona de compra');
+      } else if (indicators.rsi > 60) {
+        factors.push('RSI em zona de venda');
+      }
+    }
+
+    // MACD - específico por direção
+    if (indicators.macd && indicators.macd.histogram !== undefined) {
+      if (isLong && indicators.macd.histogram > 0) {
+        factors.push('MACD com momentum bullish confirmado');
+      } else if (!isLong && indicators.macd.histogram < 0) {
+        factors.push('MACD com momentum bearish confirmado');
+      } else if (indicators.macd.histogram > 0) {
+        factors.push('MACD indicando força compradora');
+      } else {
+        factors.push('MACD indicando pressão vendedora');
+      }
+    }
+
+    // Volume - específico por direção
+    if (indicators.volume && indicators.volume.volumeRatio > 1.2) {
+      if (isLong) {
+        factors.push('Volume alto confirmando movimento de compra');
+      } else {
+        factors.push('Volume alto confirmando pressão vendedora');
+      }
+    } else if (indicators.volume) {
+      factors.push('Volume moderado sustentando o movimento');
+    }
+
+    // Padrões - específico por tipo
+    if (patterns.breakout) {
+      if (patterns.breakout.type === 'BULLISH_BREAKOUT') {
+        factors.push('Rompimento bullish de resistência confirmado');
+      } else if (patterns.breakout.type === 'BEARISH_BREAKOUT') {
+        factors.push('Rompimento bearish de suporte confirmado');
+      }
+    }
+
+    if (patterns.candlestick && patterns.candlestick.length > 0) {
+      const pattern = patterns.candlestick[0];
+      if (pattern.bias === 'BULLISH') {
+        factors.push(`Padrão ${pattern.type.toLowerCase()} detectado (bullish)`);
+      } else if (pattern.bias === 'BEARISH') {
+        factors.push(`Padrão ${pattern.type.toLowerCase()} detectado (bearish)`);
+      }
+    }
+
+    // Divergência RSI
+    if (indicators.rsiDivergence) {
+      factors.push('Divergência RSI detectada (sinal de reversão)');
+    }
+
+    // Correlação Bitcoin - específico por alinhamento
+    if (btcCorrelation.alignment === 'ALIGNED') {
+      const btcTrend = btcCorrelation.btcTrend === 'BULLISH' ? 'bullish' : 'bearish';
+      factors.push(`Alinhado com tendência ${btcTrend} do Bitcoin`);
+    } else if (btcCorrelation.alignment === 'AGAINST') {
+      factors.push('Operação contra tendência do Bitcoin (risco elevado)');
+    }
+
+    // Médias móveis
+    if (indicators.ma21 && indicators.ma200) {
+      if (isLong && indicators.ma21 > indicators.ma200) {
+        factors.push('Médias móveis em configuração bullish');
+      } else if (!isLong && indicators.ma21 < indicators.ma200) {
+        factors.push('Médias móveis em configuração bearish');
+      }
+    }
+
+    // Remove duplicatas e limita a 4 fatores principais
+    const uniqueFactors = [...new Set(factors)];
+    return uniqueFactors.slice(0, 4);
+  }
+
+  /**
+   * Gera interpretação específica baseada no sinal
+   */
+  getInterpretation(signal, isLong) {
+    const indicators = signal.indicators || {};
+    
+    // Interpretação baseada no indicador mais forte
+    if (indicators.rsi < 25 && isLong) {
+      return 'RSI em sobrevenda extrema favorável para compra';
+    } else if (indicators.rsi > 75 && !isLong) {
+      return 'RSI em sobrecompra extrema favorável para venda';
+    } else if (indicators.macd && Math.abs(indicators.macd.histogram) > 0.001) {
+      const direction = isLong ? 'compra' : 'venda';
+      return `MACD com forte momentum favorável para ${direction}`;
+    } else if (signal.btcCorrelation && signal.btcCorrelation.alignment === 'ALIGNED') {
+      return 'Análise técnica alinhada com tendência do Bitcoin';
+    } else {
+      const direction = isLong ? 'compra' : 'venda';
+      return `Análise técnica favorável para ${direction}`;
+    }
+  }
+
+  /**
+   * Obtém emoji do regime de mercado
+   */
+  getRegimeEmoji(regime) {
+    switch (regime) {
+      case 'BULL': return '🐂';
+      case 'BEAR': return '🐻';
+      case 'VOLATILE': return '⚡';
+      default: return '⚖️';
+    }
+  }
+
+  /**
+   * Obtém descrição do regime de mercado
+   */
+  getRegimeDescription(regime) {
+    switch (regime) {
+      case 'BULL': return 'Mercado em alta';
+      case 'BEAR': return 'Mercado em baixa';
+      case 'VOLATILE': return 'Mercado volátil';
+      default: return 'Mercado em condições normais';
     }
   }
 
   /**
    * Cria monitor para um símbolo
    */
-  createMonitor(symbol, entry, targets, stopLoss, signalId, trend = 'BULLISH') {
+  createMonitor(symbol, entry, targets, stopLoss, signalId, trend) {
     try {
-      console.log(`📊 Criando monitor para ${symbol}...`);
-      
+      if (this.activeMonitors.has(symbol)) {
+        console.log(`⚠️ Monitor já existe para ${symbol} - substituindo`);
+        this.removeMonitor(symbol, 'REPLACED');
+      }
+
       const monitor = {
-        symbol: symbol,
-        entry: entry,
-        targets: targets,
-        stopLoss: stopLoss,
-        currentStopLoss: stopLoss, // Stop loss atual (pode ser móvel)
-        signalId: signalId,
-        timestamp: new Date(),
-        status: 'ACTIVE',
+        symbol,
+        entry,
+        targets: [...targets],
+        originalTargets: [...targets],
+        stopLoss,
+        signalId,
+        trend,
+        startTime: new Date(),
         targetsHit: 0,
-        maxTargetsHit: 0,
-        peakProfit: 0,
-        currentDrawdown: 0,
-        lastPrice: entry,
-        stopType: 'INITIAL', // INITIAL, PROFIT_PROTECTION
-        partialProfitRealized: 0, // Percentual de lucro já realizado
-        riskConfig: null, // Configurações de risco
-        isShort: trend === 'BEARISH'
+        status: 'ACTIVE',
+        lastUpdate: new Date()
       };
-      
+
       this.activeMonitors.set(symbol, monitor);
-      console.log(`✅ Monitor criado para ${symbol}. Total: ${this.activeMonitors.size}`);
+      console.log(`✅ Monitor criado para ${symbol} (${targets.length} alvos)`);
       
       return monitor;
     } catch (error) {
@@ -66,26 +278,23 @@ class TelegramBotService {
   }
 
   /**
-   * Verifica se tem monitor ativo para um símbolo
-   */
-  hasActiveMonitor(symbol) {
-    return this.activeMonitors.has(symbol);
-  }
-
-  /**
    * Remove monitor
    */
   removeMonitor(symbol, reason = 'COMPLETED') {
     if (this.activeMonitors.has(symbol)) {
       const monitor = this.activeMonitors.get(symbol);
       this.activeMonitors.delete(symbol);
-      
-      // WebSocket já foi parado em completeMonitor
-      
-      console.log(`🗑️ Monitor removido: ${symbol} (${reason}). Total: ${this.activeMonitors.size}`);
+      console.log(`🗑️ Monitor removido: ${symbol} (${reason})`);
       return monitor;
     }
     return null;
+  }
+
+  /**
+   * Verifica se tem monitor ativo
+   */
+  hasActiveMonitor(symbol) {
+    return this.activeMonitors.has(symbol);
   }
 
   /**
@@ -96,1262 +305,365 @@ class TelegramBotService {
   }
 
   /**
-   * Envia sinal de trading
+   * Inicia monitoramento de preços
    */
-  async sendTradingSignal(signal, chart = null) {
+  async startPriceMonitoring(symbol, entry, targets, stopLoss, binanceService, signalData, app, adaptiveScoring) {
     try {
-      if (!this.isEnabled) {
-        console.log(`📤 [SIMULADO] Sinal para ${signal.symbol}: ${signal.probability.toFixed(1)}%`);
-        console.log(`📊 [SIMULADO] Monitor mantido para ${signal.symbol} (modo desenvolvimento)`);
-        return true; // Sucesso simulado
-      }
-
-      // Formata mensagem
-      const message = this.formatTradingSignal(signal);
+      console.log(`📊 Iniciando monitoramento de ${symbol}...`);
       
-      // Envia mensagem
-      // Sempre envia como mensagem de texto (sem imagem)
-      await this.bot.sendMessage(this.chatId, message, {
-        parse_mode: 'Markdown'
-      });
-      
-      console.log(`✅ Sinal enviado para ${signal.symbol}`);
-      return true;
-    } catch (error) {
-      console.error(`❌ Erro ao enviar sinal para ${signal.symbol}:`, error.message);
-      throw error; // Propaga erro para tratamento correto
-    }
-  }
-
-  /**
-   * Formata sinal de trading
-   */
-  formatTradingSignal(signal) {
-    const baseSymbol = signal.symbol.split('/')[0];
-    const isLong = signal.trend === 'BULLISH';
-    const trendEmoji = isLong ? '🟢 COMPRA' : '🔴 VENDA';
-    const timeframe = signal.timeframe || '4h'; // Default para 4h se não especificado
-    
-    // Adiciona informação do regime de mercado
-    const regime = signal.regime || 'NORMAL';
-    const regimeEmoji = regime === 'BEAR' ? '🐻' : regime === 'BULL' ? '🐂' : regime === 'VOLATILE' ? '⚡' : '⚖️';
-    
-    // Determina o sentimento e interpretação
-    const sentimentScore = signal.sentimentScore || 50;
-    let sentimentEmoji = '🟡';
-    let sentimentText = 'NEUTRO';
-    
-    if (sentimentScore >= 70) {
-      sentimentEmoji = '🟢';
-      sentimentText = isLong ? 'FORTE BULLISH' : 'FORTE BEARISH';
-    } else if (sentimentScore >= 60) {
-      sentimentEmoji = '🟠';
-      sentimentText = isLong ? 'LEVEMENTE BULLISH' : 'LEVEMENTE BEARISH';
-    }
-    
-    // Corrige regime inconsistente
-    let actualRegime = signal.regime || 'NORMAL';
-    if (!isLong && actualRegime === 'BULL') {
-      actualRegime = 'BEAR'; // Sinal de venda em regime bull não faz sentido
-    }
-    if (isLong && actualRegime === 'BEAR') {
-      actualRegime = 'BULL'; // Sinal de compra em regime bear não faz sentido
-    }
-    
-    const regimeEmoji2 = this.getRegimeEmoji(actualRegime);
-    
-    // Gera fatores-chave consistentes com o sinal
-    const factorsKey = this.generateConsistentFactors(signal, isLong);
-    
-    // Fatores-chave (exemplo, ajuste conforme sua análise)
-    const keyFactors = [];
-    if (signal.indicators) {
-      if (signal.indicators.rsi !== undefined) {
-        if (signal.indicators.rsi < 30) keyFactors.push('RSI em sobrevenda - favorável para COMPRA');
-        else if (signal.indicators.rsi > 70) keyFactors.push('RSI em sobrecompra - favorável para VENDA');
-      }
-      if (signal.indicators.macd) {
-        const macdSignal = signal.indicators.macd.MACD > signal.indicators.macd.signal ? 'bullish' : 'bearish';
-        keyFactors.push(`MACD ${macdSignal}`);
-      }
-      if (signal.indicators.trend) {
-        keyFactors.push(`Tendência de ${signal.indicators.trend === 'up' ? 'alta' : 'baixa'} confirmada`);
-      }
-    }
-    
-    // Adiciona correlação com Bitcoin se disponível
-    if (signal.btcCorrelation && signal.btcCorrelation.btcTrend) {
-      keyFactors.push(`Bitcoin ${signal.btcCorrelation.btcTrend.toLowerCase()} (força: ${signal.btcCorrelation.btcStrength || 0})`);
-    }
-    
-    // Adiciona fatores padrão se não houver suficientes
-    while (keyFactors.length < 3) {
-      keyFactors.push('Análise de volume e preço favorável');
-    }
-    
-    // Verifica se há conflito com a tendência do Bitcoin
-    let riskWarning = '';
-    if (signal.btcCorrelation && signal.btcCorrelation.btcTrend) {
-      const btcTrendUp = signal.btcCorrelation.btcTrend === 'BULLISH';
-      if ((isLong && !btcTrendUp) || (!isLong && btcTrendUp)) {
-        riskWarning = `\n⚠️ ATENÇÃO: O Bitcoin está em tendência de ${btcTrendUp ? 'ALTA' : 'BAIXA'}. `;
-        riskWarning += `Operações ${isLong ? 'COMPRA' : 'VENDA'} podem ter risco elevado.`;
-      }
-    }
-
-    // Monta a mensagem
-    let message = `🚨 LOBO PREMIUM #${baseSymbol} ${trendEmoji} ${regimeEmoji}\n\n`;
-    
-    // Informações básicas
-    message += `💰 #${baseSymbol} Futures\n`;
-    message += `📊 TEMPO GRÁFICO: ${timeframe}\n`;
-    message += `🌐 REGIME: ${actualRegime} ${regimeEmoji2}\n`;
-    message += `📈 Alavancagem sugerida: 15x\n`;
-    message += `🎯 Probabilidade: ${signal.probability || 'N/A'}%\n\n`;
-    
-    // Análise de sentimento
-    message += `📊 ANÁLISE DE SENTIMENTO:\n`;
-    message += `${sentimentEmoji} Sentimento: ${sentimentText} (${sentimentScore}/100)\n`;
-    message += `💡 Interpretação: ${isLong ? 'Análise técnica favorável para compra' : 'Análise técnica favorável para venda'}\n`;
-    message += `🔍 Fatores-chave:\n`;
-    message += `${factorsKey}\n`;
-    keyFactors.forEach((factor, index) => {
-      message += `   • ${factor}${index < keyFactors.length - 1 ? '\n' : ''}`;
-    });
-    
-    message += '\n\n';
-    
-    // Entrada e alvos
-    message += `⚡️ Entrada: ${this.formatPrice(signal.entry)}\n\n`;
-    
-    message += `🎯 ALVOS (15x):\n`;
-    signal.targets.forEach((target, index) => {
-      const targetNumber = index + 1;
-      const isFinalTarget = targetNumber === signal.targets.length;
-      let targetLabel = '';
-      
-      if (isFinalTarget) {
-        // Mostra 'Lua!' para compras (LONG) e 'Queda Infinita' para vendas (SHORT)
-        targetLabel = isLong ? ' - Lua!' : ' - Queda Infinita';
-      }
-      
-      const targetEmoji = isFinalTarget ? '🌕' : `${targetNumber}️⃣`;
-      message += `${targetEmoji} Alvo ${targetNumber}${targetLabel}: ${this.formatPrice(target)}\n`;
-    });
-    
-    message += '\n';
-    
-    // Stop Loss
-    message += `🛑 Stop Loss: ${this.formatPrice(signal.stopLoss)}\n\n`;
-    
-    // Regime de operação
-    const operationMode = signal.operationMode || 'NORMAL';
-    const modeEmoji = operationMode === 'AGGRESSIVE' ? '⚡️' : operationMode === 'CONSERVATIVE' ? '🛡️' : '⚖️';
-    message += `🎛️ Regime: ${modeEmoji} MODO ${operationMode} - ${this.getRegimeDescription(actualRegime)}\n`;
-    
-    // Aviso de risco se aplicável
-    if (riskWarning) {
-      message += `\n${riskWarning}\n`;
-    }
-    
-    // Rodapé
-    message += `\n👑 Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin\n`;
-    message += `⏰ ${new Date().toLocaleString('pt-BR', { 
-      day: '2-digit', 
-      month: '2-digit', 
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      timeZone: 'America/Sao_Paulo' 
-    }).replace(/\//g, '/')}`;
-    
-    return message;
-  }
-
-  /**
-   * Inicia monitoramento de preço em tempo real
-   */
-  async startPriceMonitoring(symbol, entry, targets, stopLoss, binanceService, signal, app, adaptiveScoring = null) {
-    try {
-      console.log(`🔄 Iniciando monitoramento para ${symbol}...`);
-      
-      // Verifica se monitor existe
-      if (!this.hasActiveMonitor(symbol)) {
-        console.log(`❌ Monitor não encontrado para ${symbol} - criando...`);
-        this.createMonitor(symbol, entry, targets, stopLoss, signal.signalId || 'unknown');
-      }
-      
-      console.log(`📊 Monitor confirmado para ${symbol}. Iniciando WebSocket...`);
-      
-      // Conecta WebSocket
-      const ws = await binanceService.connectWebSocket(symbol, '1m', (candleData) => {
-        this.handlePriceUpdate(symbol, candleData, app, adaptiveScoring);
-      });
-      
-      if (ws) {
-        this.wsConnections.set(symbol, ws);
-        console.log(`✅ WebSocket conectado para ${symbol}`);
-      }
-      
-    } catch (error) {
-      console.error(`❌ Erro ao iniciar monitoramento para ${symbol}:`, error.message);
-      // Não remove monitor - pode funcionar sem WebSocket perfeito
-    }
-  }
-
-  /**
-   * Manipula atualizações de preço
-   */
-  async handlePriceUpdate(symbol, candleData, app, adaptiveScoring = null) {
-    try {
       const monitor = this.activeMonitors.get(symbol);
-      if (!monitor) return;
-      
-      const currentPrice = candleData.close;
-      
-      // Validação crítica do preço recebido
-      if (!currentPrice || currentPrice <= 0 || isNaN(currentPrice) || !isFinite(currentPrice)) {
-        console.error(`❌ PREÇO INVÁLIDO recebido para ${symbol}: ${currentPrice}`);
+      if (!monitor) {
+        console.error(`❌ Monitor não encontrado para ${symbol}`);
         return;
       }
-      
-      monitor.lastPrice = currentPrice;
-      
-      // Log detalhado do preço
-      const entryPriceChange = monitor.lastPrice ? 
-        ((currentPrice - monitor.entry) / monitor.entry) * 100 : 0;
-      
-      console.log(`📊 UPDATE ${symbol}: $${currentPrice.toFixed(8)} (${entryPriceChange > 0 ? '+' : ''}${entryPriceChange.toFixed(2)}%)`);
 
-      // Calcula P&L atual
-      let currentPnL;
-      if (monitor.isShort) {
-        // Para SHORT: lucro quando preço desce
-        currentPnL = ((monitor.entry - currentPrice) / monitor.entry) * 100;
-      } else {
-        // Para LONG: lucro quando preço sobe
-        currentPnL = ((currentPrice - monitor.entry) / monitor.entry) * 100;
-      }
-      
-      // Atualiza peak profit
-      if (currentPnL > monitor.peakProfit) {
-        monitor.peakProfit = currentPnL;
-      }
-      
-      // Calcula drawdown atual
-      monitor.currentDrawdown = monitor.peakProfit - currentPnL;
-
-      // Verifica se o preço retornou ao ponto de entrada após atingir o Alvo 1
-      if (monitor.targetsHit >= 1 && monitor.stopType === 'BREAKEVEN') {
-        const priceDiff = Math.abs(currentPrice - monitor.entry) / monitor.entry * 100;
-        
-        // Se o preço estiver muito próximo do ponto de entrada (dentro de 0.1%)
-        if (priceDiff <= 0.1) {
-          console.log(`🔄 PREÇO RETORNOU AO PONTO DE ENTRADA após Alvo 1: $${currentPrice.toFixed(8)}`);
+      // Conecta WebSocket para monitoramento em tempo real
+      await binanceService.connectWebSocket(symbol, '1m', async (candleData) => {
+        try {
+          if (!candleData.isClosed) return; // Só processa candles fechados
           
-          // Calcula o lucro realizado (50% da posição no Alvo 1)
-          const profitAtTarget1 = ((monitor.targets[0] - monitor.entry) / monitor.entry * 100) * 0.5;
+          const currentPrice = candleData.close;
+          const currentMonitor = this.activeMonitors.get(symbol);
           
-          // Envia notificação de stop de lucro
-          const baseSymbol = symbol.split('/')[0];
-          const message = `✅ *STOP DE LUCRO ATIVADO #${baseSymbol}*\n\n` +
-                         `🔍 *Preço retornou ao ponto de entrada*\n` +
-                         `💰 *Lucro realizado:* +${profitAtTarget1.toFixed(2)}% (50% da posição no Alvo 1)\n` +
-                         `📊 *Entrada:* ${this.formatPrice(monitor.entry)}\n` +
-                         `💵 *Preço atual:* ${this.formatPrice(currentPrice)}\n` +
-                         `\n` +
-                         `🎉 *EXCELENTE RESULTADO!*\n` +
-                         `• Operação finalizada sem perdas\n` +
-                         `• Stop de lucro protegeu os ganhos\n` +
-                         `• Gestão de risco funcionou perfeitamente\n` +
-                         `• Parabéns pela disciplina!\n\n` +
-                         `👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*`;
-          
-          if (this.isEnabled) {
-            await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
-          } else {
-            console.log(`[SIMULADO] STOP DE LUCRO: ${symbol} - Mensagem: ${message.replace(/\n/g, ' ')}`);
-          }
-          
-          // Finaliza o monitor com lucro
-          this.completeMonitor(symbol, 'PROFIT_STOP', profitAtTarget1, app, adaptiveScoring);
-          return;
-        }
-      }
-
-      // Verifica alvos
-      let newTargetsHit = 0;
-      
-      if (monitor.isShort) {
-        // Para SHORT: alvos são atingidos quando preço desce
-        for (let i = 0; i < monitor.targets.length; i++) {
-          if (currentPrice <= monitor.targets[i]) {
-            newTargetsHit = i + 1;
-          } else {
-            break;
-          }
-        }
-      } else {
-        // Para LONG: alvos são atingidos quando preço sobe
-        for (let i = monitor.targetsHit; i < monitor.targets.length; i++) {
-          if (currentPrice >= monitor.targets[i]) {
-            newTargetsHit = Math.max(newTargetsHit, i + 1);
-          } else {
-            break;
-          }
-        }
-      }
-
-      // Se atingiu novo alvo
-      if (newTargetsHit > monitor.targetsHit) {
-        // Processa apenas o próximo alvo (um por vez)
-        const nextTarget = monitor.targetsHit + 1;
-        
-        if (nextTarget <= newTargetsHit) {
-          monitor.targetsHit = nextTarget;
-          monitor.maxTargetsHit = Math.max(monitor.maxTargetsHit, nextTarget);
-          
-          console.log(`🎯 ALVO ${nextTarget} ATINGIDO: ${symbol} - $${monitor.targets[nextTarget - 1].toFixed(8)}`);
-          
-          this.sendTargetHitNotification(symbol, nextTarget, monitor.targets[nextTarget - 1], currentPnL);
-          
-          // Se atingiu todos os alvos
-          if (nextTarget >= monitor.targets.length) {
-            this.completeMonitor(symbol, 'ALL_TARGETS', currentPnL, app, adaptiveScoring);
+          if (!currentMonitor || currentMonitor.status !== 'ACTIVE') {
+            console.log(`⏭️ Monitor inativo para ${symbol} - parando WebSocket`);
+            binanceService.stopWebSocketForSymbol(symbol, '1m');
             return;
           }
-          
-          // Atualiza stop loss para este alvo
-          this.updateStopLoss(symbol, nextTarget);
-        }
-      }
 
-      // Verifica stop loss
-      let stopHit = false;
-      
-      if (monitor.isShort) {
-        // Para SHORT: stop loss quando preço sobe acima do stop
-        stopHit = currentPrice >= monitor.currentStopLoss;
-      } else {
-        // Para LONG: stop loss quando preço desce abaixo do stop
-        stopHit = currentPrice <= monitor.currentStopLoss;
-      }
-      
-      if (stopHit) {
-        const reason = monitor.stopType === 'INITIAL' ? 'STOP_LOSS' : 'PROFIT_PROTECTION';
-        console.log(`🛑 STOP HIT: ${symbol} - ${reason} ativado em $${currentPrice.toFixed(8)}`);
-        this.completeMonitor(symbol, reason, currentPnL, app, adaptiveScoring);
-      }
-      
+          // Verifica stop loss
+          const hitStopLoss = signal.trend === 'BULLISH' ? 
+            currentPrice <= currentMonitor.stopLoss :
+            currentPrice >= currentMonitor.stopLoss;
+
+          if (hitStopLoss) {
+            await this.handleStopLoss(symbol, currentPrice, currentMonitor, app);
+            return;
+          }
+
+          // Verifica alvos
+          await this.checkTargets(symbol, currentPrice, currentMonitor, app);
+
+        } catch (error) {
+          console.error(`❌ Erro no monitoramento ${symbol}:`, error.message);
+        }
+      });
+
     } catch (error) {
-      console.error(`❌ ERRO ao processar update de preço ${symbol}:`, error.message);
+      console.error(`❌ Erro ao iniciar monitoramento ${symbol}:`, error.message);
+      this.removeMonitor(symbol, 'ERROR');
     }
   }
 
   /**
-   * Completa monitoramento
+   * Verifica se alvos foram atingidos
    */
-  completeMonitor(symbol, reason, finalPnL, app, adaptiveScoring = null) {
+  async checkTargets(symbol, currentPrice, monitor, app) {
     try {
-      const monitor = this.activeMonitors.get(symbol);
-      if (!monitor) return;
+      const isLong = monitor.trend === 'BULLISH';
+      
+      // Verifica se atingiu o próximo alvo
+      const targetHit = isLong ? 
+        currentPrice >= monitor.targets[0] :
+        currentPrice <= monitor.targets[0];
 
-      const isWin = finalPnL > 0;
-      const leveragedPnL = finalPnL * 15; // Aplica alavancagem 15x
-      
-      // Registra resultado
-      if (app && app.performanceTracker) {
-        app.performanceTracker.updateSignalResult(symbol, monitor.targetsHit, leveragedPnL, reason);
-      }
-      
-      if (app && app.riskManagement) {
-        app.riskManagement.recordTrade(symbol, leveragedPnL, isWin);
-      }
-      
-      // Registra no sistema adaptativo
-      if (adaptiveScoring) {
-        adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, isWin, leveragedPnL);
-      }
+      if (targetHit && monitor.targets.length > 0) {
+        const targetNumber = monitor.originalTargets.length - monitor.targets.length + 1;
+        const targetPrice = monitor.targets[0];
+        
+        // Remove alvo atingido
+        monitor.targets.shift();
+        monitor.targetsHit++;
+        monitor.lastUpdate = new Date();
 
-      // Envia notificação de conclusão
-      this.sendCompletionNotification(symbol, reason, finalPnL, leveragedPnL, monitor);
-      
-      // Remove monitor
-      this.removeMonitor(symbol, reason);
-      
-      console.log(`✅ Operação concluída: ${symbol} - ${reason} (${leveragedPnL > 0 ? '+' : ''}${leveragedPnL.toFixed(2)}% com 15x)`);
-      
+        // Calcula lucro
+        const pnlPercent = isLong ? 
+          ((targetPrice - monitor.entry) / monitor.entry) * 100 :
+          ((monitor.entry - targetPrice) / monitor.entry) * 100;
+
+        // Envia notificação
+        await this.sendTargetHitNotification(symbol, targetNumber, targetPrice, pnlPercent);
+
+        // Registra no performance tracker
+        if (app.performanceTracker) {
+          app.performanceTracker.recordTrade(symbol, pnlPercent, true);
+        }
+
+        // Se atingiu todos os alvos
+        if (monitor.targets.length === 0) {
+          await this.handleAllTargetsHit(symbol, monitor, app);
+        } else {
+          // Move stop loss para entrada após primeiro alvo (stop móvel)
+          if (targetNumber === 1) {
+            monitor.stopLoss = monitor.entry;
+            await this.sendStopMovedNotification(symbol, monitor.entry);
+          }
+        }
+      }
     } catch (error) {
-      console.error(`Erro ao completar monitor ${symbol}:`, error.message);
+      console.error(`❌ Erro ao verificar alvos ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Trata stop loss atingido
+   */
+  async handleStopLoss(symbol, currentPrice, monitor, app) {
+    try {
+      const isLong = monitor.trend === 'BULLISH';
+      const pnlPercent = isLong ?
+        ((currentPrice - monitor.entry) / monitor.entry) * 100 :
+        ((monitor.entry - currentPrice) / monitor.entry) * 100;
+
+      // Registra resultado
+      if (app.performanceTracker) {
+        app.performanceTracker.recordTrade(symbol, pnlPercent, false);
+        app.performanceTracker.updateSignalResult(symbol, monitor.targetsHit, pnlPercent, 'STOP_LOSS');
+      }
+
+      // Registra no sistema adaptativo
+      if (app.adaptiveScoring) {
+        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, false, pnlPercent);
+      }
+
+      // Envia notificação
+      await this.sendStopLossNotification(symbol, currentPrice, monitor, pnlPercent);
+
+      // Remove monitor e para WebSocket
+      this.removeMonitor(symbol, 'STOP_LOSS');
+      app.binanceService.stopWebSocketForSymbol(symbol, '1m');
+
+    } catch (error) {
+      console.error(`❌ Erro ao tratar stop loss ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Trata todos os alvos atingidos
+   */
+  async handleAllTargetsHit(symbol, monitor, app) {
+    try {
+      const finalTarget = monitor.originalTargets[monitor.originalTargets.length - 1];
+      const isLong = monitor.trend === 'BULLISH';
+      const totalPnlPercent = isLong ?
+        ((finalTarget - monitor.entry) / monitor.entry) * 100 :
+        ((monitor.entry - finalTarget) / monitor.entry) * 100;
+
+      // Registra resultado final
+      if (app.performanceTracker) {
+        app.performanceTracker.updateSignalResult(symbol, 6, totalPnlPercent, 'ALL_TARGETS');
+      }
+
+      // Registra no sistema adaptativo
+      if (app.adaptiveScoring) {
+        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, true, totalPnlPercent);
+      }
+
+      // Envia notificação de lua
+      await this.sendAllTargetsHitNotification(symbol, monitor, totalPnlPercent);
+
+      // Remove monitor e para WebSocket
+      this.removeMonitor(symbol, 'ALL_TARGETS');
+      app.binanceService.stopWebSocketForSymbol(symbol, '1m');
+
+    } catch (error) {
+      console.error(`❌ Erro ao tratar todos alvos ${symbol}:`, error.message);
     }
   }
 
   /**
    * Envia notificação de alvo atingido
    */
-  async sendTargetHitNotification(symbol, targetNumber, targetPrice, currentPnL) {
+  async sendTargetHitNotification(symbol, targetNumber, targetPrice, pnlPercent) {
     try {
-      const leveragedPnL = currentPnL * 15; // Alavancagem 15x
-      const baseSymbol = symbol.split('/')[0];
-      const monitor = this.activeMonitors.get(symbol);
+      const leveragedPnL = pnlPercent * 15; // Alavancagem 15x
       
-      if (!monitor) {
-        console.error(`❌ Monitor não encontrado para ${symbol}`);
-        return;
-      }
+      const message = `✅ *ALVO ${targetNumber} ATINGIDO #${symbol.split('/')[0]}*
 
-      // Calcula tempo até o alvo
-      const timeToTarget = new Date() - monitor.timestamp;
-      const days = Math.floor(timeToTarget / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((timeToTarget % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((timeToTarget % (1000 * 60 * 60)) / (1000 * 60));
-      
-      // Atualiza o gerenciamento de risco primeiro
-      this.updateRiskManagement(symbol, targetNumber);
-      
-      // Obtém a configuração de risco atualizada
-      const riskConfig = monitor.riskConfig || {};
-      
-      // Mensagens específicas para cada alvo
-      let targetMessage = '';
-      let recommendation = '';
-      
-      switch(targetNumber) {
-        case 1:
-          targetMessage = '✅ *PRIMEIRO ALVO ATINGIDO*';
-          recommendation = '💰 *Recomendação:* Realize 50% da posição';
-          break;
-        case 2:
-          targetMessage = '🎯 *SEGUNDO ALVO ATINGIDO*';
-          recommendation = '💰 *Recomendação:* Realize 15% da posição e mova o stop para o ponto de entrada';
-          break;
-        case 3:
-          targetMessage = '🎯 *TERCEIRO ALVO ATINGIDO*';
-          recommendation = '💰 *Recomendação:* Realize 10% da posição e mova o stop para o Alvo 1';
-          break;
-        case 4:
-          targetMessage = '🎯 *QUARTO ALVO ATINGIDO*';
-          recommendation = '💰 *Recomendação:* Realize 10% da posição e mova o stop para o Alvo 2';
-          break;
-        case 5:
-          targetMessage = '🎯 *QUINTO ALVO ATINGIDO*';
-          recommendation = '💰 *Recomendação:* Realize 10% da posição e mova o stop para o Alvo 3';
-          break;
-        case 6:
-          targetMessage = '🌕 *ALVO FINAL ATINGIDO!*';
-          recommendation = '💰 *Recomendação:* Realize o restante da posição. Operação concluída com sucesso!';
-          break;
-        default:
-          targetMessage = `🎯 ALVO ${targetNumber} ATINGIDO`;
-          recommendation = '💰 Continue monitorando os próximos alvos';
-      }
-      
-      // Adiciona informação sobre o tipo de stop se foi proteção
-      let stopInfo = '';
-      if (monitor.stopType !== 'INITIAL') {
-        const stopDescriptions = {
-          'BREAKEVEN': 'no ponto de entrada',
-          'TARGET_1': 'no Alvo 1',
-          'TARGET_2': 'no Alvo 2', 
-          'TARGET_3': 'no Alvo 3',
-          'TARGET_4': 'no Alvo 4'
-        };
-        stopInfo = `\n🛡️ *Stop ativado:* ${stopDescriptions[monitor.stopType] || 'proteção de lucro'}`;
-      }
-      
-      // Constrói a mensagem
-      const message = `${targetMessage} #${baseSymbol}\n\n` +
-                     `🔍 Alvo ${targetNumber} atingido no par #${baseSymbol}\n` +
-                     `💰 Lucro atual: +${leveragedPnL.toFixed(2)}% (Alv. 15×)\n` +
-                     `⚡️ Posição parcial realizada\n` +
-                     `📊 Entrada: ${this.formatPrice(monitor.entry)}\n` +
-                     `💵 Preço do alvo: ${this.formatPrice(targetPrice)}\n` +
-                     `⏱️ Tempo até o alvo: ${days} dia${days > 1 ? 's' : ''} ${hours}h ${minutes}m\n` +
-                     `${stopInfo}\n\n` +
-                     `${recommendation}\n\n` +
-                     `👑 Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin`;
-      
+🔍 *Alvo ${targetNumber} atingido no par #${symbol.split('/')[0]}*
+💰 *Lucro atual:* +${leveragedPnL.toFixed(1)}% (Alv. 15×)
+⚡️ *Posição parcial realizada*
+📊 *Entrada:* ${targetPrice.toFixed(2).replace('.', '․')}
+💵 *Preço do alvo:* ${targetPrice.toFixed(2).replace('.', '․')}
+⏱️ *Tempo até o alvo:* ${this.calculateDuration(new Date())}
+🛡️ *Stop ativado:* ${targetNumber === 1 ? 'no ponto de entrada' : 'stop móvel'}
+
+💰 *Recomendação:* ${this.getTargetRecommendation(targetNumber)}
+
+👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*`;
+
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
-        console.log(`✅ NOTIFICAÇÃO ENVIADA: Alvo ${targetNumber} para ${symbol}`);
-      } else {
-        console.log(`🎯 [SIMULADO] Alvo ${targetNumber} atingido: ${symbol} +${leveragedPnL.toFixed(2)}%`);
-        console.log(`   📝 Mensagem: ${message.replace(/\n/g, ' ')}`);
       }
       
-      // Atualiza stop loss
-      this.updateStopLoss(symbol, targetNumber);
-      
+      console.log(`✅ Notificação alvo ${targetNumber} enviada: ${symbol}`);
     } catch (error) {
-      console.error(`❌ ERRO ao enviar notificação de alvo ${symbol}:`, error.message);
+      console.error(`❌ Erro ao enviar notificação alvo:`, error.message);
     }
   }
 
   /**
-   * Envia notificação de conclusão
+   * Envia notificação de stop loss
    */
-  async sendCompletionNotification(symbol, reason, finalPnL, leveragedPnL, monitor) {
+  async sendStopLossNotification(symbol, currentPrice, monitor, pnlPercent) {
     try {
-      const baseSymbol = symbol.split('/')[0];
-      let emoji = '✅';
-      let reasonText = '';
-      let message = '';
+      const leveragedPnL = pnlPercent * 15;
+      const duration = this.calculateDuration(monitor.startTime);
       
-      // Formata a diferença de tempo
-      const duration = monitor ? Math.floor((new Date() - monitor.timestamp) / 60000) : 0; // em minutos
-      const hours = Math.floor(duration / 60);
-      const minutes = duration % 60;
+      let message;
       
-      // Formata o P&L com emoji
-      const pnlEmoji = finalPnL >= 0 ? '🟢' : '🔴';
-      const leveragedPnlEmoji = leveragedPnL >= 0 ? '🟢' : '🔴';
-      
-      switch (reason) {
-        case 'ALL_TARGETS':
-          emoji = '🌕';
-          reasonText = 'TODOS OS ALVOS ATINGIDOS - LUA!';
-          message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
-                   `📊 Resultado: ${pnlEmoji} +${finalPnL.toFixed(2)}%\n` +
-                   `⚡ Alavancado (15x): ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
-                   `📌 Motivo: ${reasonText}\n\n` +
-                   `📈 Alvos atingidos: ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
-                   `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                   `📅 Duração: ${hours}h ${minutes}m\n\n` +
-                   `👑 Sinais Lobo Cripto\n` +
-                   `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
-          break;
-          
-        case 'STOP_LOSS':
-          emoji = '❌';
-          reasonText = 'STOP LOSS ATIVADO';
-          
-          // Verifica se algum alvo foi atingido
-          const targetsHit = monitor?.targetsHit || 0;
-          
-          if (targetsHit === 0) {
-            // Mensagem quando NENHUM alvo foi atingido
-            message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
-                     `📊 Resultado: ${pnlEmoji}\n` +
-                     `⚡ Alavancado (15x): ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
-                     `📌 Motivo: ${reasonText}\n\n` +
-                     `📈 Alvos atingidos: Nenhum\n` +
-                     `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                     `📅 Duração: ${hours}h ${minutes}m\n\n` +
-                     `💡 GERENCIAMENTO DE RISCO:\n` +
-                     `- Stop loss ativado sem alvos atingidos\n` +
-                     `- Perda limitada conforme estratégia\n` +
-                     `- Gestão de risco protegeu o capital total\n` +
-                     `- Aguarde próxima oportunidade\n` +
-                     `- Mantenha disciplina!\n\n` +
-                     `📊 ANÁLISE:\n` +
-                     `- Mercado se moveu contra nossa operação\n` +
-                     `- Stop loss protegeu de perdas maiores\n` +
-                     `- Próxima operação pode ser mais favorável\n\n` +
-                     `👑 Sinais Lobo Cripto\n` +
-                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
-          } else if (targetsHit === 1) {
-            // Mensagem quando o Alvo 1 foi atingido e depois ativou stop loss
-            message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
-                     `📊 Resultado: ${pnlEmoji}\n` +
-                     `⚡ Alavancado (15x): ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
-                     `📌 Motivo: ${reasonText} APÓS ALVO 1\n\n` +
-                     `📈 Alvos atingidos: 1\n` +
-                     `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                     `📅 Duração: ${hours}h ${minutes}m\n\n` +
-                     `💡 GERENCIAMENTO DE RISCO:\n` +
-                     `- Stop loss ativado após realização parcial no Alvo 1\n` +
-                     `- 50% da posição foi realizada com lucro\n` +
-                     `- Perda reduzida na posição restante\n` +
-                     `- Estratégia de proteção funcionou\n` +
-                     `- Aguarde próxima oportunidade\n\n` +
-                     `📊 ANÁLISE:\n` +
-                     `- Mercado reverteu após atingir o primeiro alvo\n` +
-                     `- Realização parcial garantiu lucro na operação\n` +
-                     `- Stop móvel protegeu os ganhos parciais\n\n` +
-                     `👑 Sinais Lobo Cripto\n` +
-                     `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
-          }
-          break;
-          
-        case 'PROFIT_PROTECTION':
-          emoji = '🛡️';
-          reasonText = 'STOP DE PROTEÇÃO ATIVADO';
-          message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
-                   `📊 Resultado: ${pnlEmoji} ${finalPnL >= 0 ? '+' : ''}${finalPnL.toFixed(2)}%\n` +
-                   `⚡ Alavancado (15x): ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
-                   `📌 Motivo: ${reasonText}\n\n` +
-                   `📈 Alvos atingidos: ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
-                   `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                   `📅 Duração: ${hours}h ${minutes}m\n\n` +
-                   `👑 Sinais Lobo Cripto\n` +
-                   `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
-          break;
-          
-        case 'PROFIT_STOP':
-          emoji = '✅';
-          reasonText = 'STOP DE LUCRO ATIVADO';
-          message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
-                   `📊 Resultado: ${pnlEmoji} +${finalPnL.toFixed(2)}%\n` +
-                   `⚡ Alavancado (15x): ${leveragedPnlEmoji} +${leveragedPnL.toFixed(2)}%\n\n` +
-                   `📌 Motivo: ${reasonText}\n\n` +
-                   `📈 Alvos atingidos: ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
-                   `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                   `📅 Duração: ${hours}h ${minutes}m\n\n` +
-                   `👑 Sinais Lobo Cripto\n` +
-                   `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
-          break;
-          
-        case 'MANUAL':
-          emoji = '✋';
-          reasonText = 'FECHAMENTO MANUAL';
-          break;
-          
-        default:
-          reasonText = reason.toUpperCase();
-      }
-      
-      // Se a mensagem não foi definida no switch, usa o formato padrão
-      if (!message) {
-        message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
-                 `📊 Resultado: ${pnlEmoji} ${finalPnL >= 0 ? '+' : ''}${finalPnL.toFixed(2)}%\n` +
-                 `⚡ Alavancado (15x): ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
-                 `📌 Motivo: ${reasonText}\n\n` +
-                 `📈 Alvos atingidos: ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
-                 `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                 `📅 Duração: ${hours}h ${minutes}m\n\n` +
-                 `👑 Sinais Lobo Cripto\n` +
-                 `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
+      if (monitor.targetsHit === 0) {
+        // Stop loss sem alvos atingidos
+        message = `❌ *#${symbol.split('/')[0]} - OPERAÇÃO FINALIZADA* ❌
+
+📊 *Resultado:* 🔴
+⚡ *Alavancado (15x):* 🔴 ${leveragedPnL.toFixed(1)}%
+
+📌 *Motivo:* STOP LOSS ATIVADO
+
+📈 *Alvos atingidos:* Nenhum
+🛑 *Stop loss:* ${currentPrice.toFixed(2).replace('.', '․')}
+📅 *Duração:* ${duration}
+
+💡 *GERENCIAMENTO DE RISCO:*
+- Stop loss ativado sem alvos atingidos
+- Perda limitada conforme estratégia
+- Gestão de risco protegeu o capital total
+- Aguarde próxima oportunidade
+- Mantenha disciplina!
+
+📊 *ANÁLISE:*
+- Mercado se moveu contra nossa operação
+- Stop loss protegeu de perdas maiores
+- Próxima operação pode ser mais favorável
+
+👑 Sinais Lobo Cripto
+⏰ ${new Date().toLocaleString('pt-BR')}`;
+      } else {
+        // Stop loss após alguns alvos
+        message = `❌ *#${symbol.split('/')[0]} - OPERAÇÃO FINALIZADA* ❌
+
+📊 *Resultado:* 🔴
+⚡ *Alavancado (15x):* 🔴 ${leveragedPnL.toFixed(1)}%
+
+📌 *Motivo:* STOP LOSS ATIVADO APÓS ALVO ${monitor.targetsHit}
+
+📈 *Alvos atingidos:* ${monitor.targetsHit}
+🛑 *Stop loss:* ${currentPrice.toFixed(2).replace('.', '․')}
+📅 *Duração:* ${duration}
+
+💡 *GERENCIAMENTO DE RISCO:*
+- Stop loss ativado após realização parcial no Alvo ${monitor.targetsHit}
+- ${monitor.targetsHit > 0 ? '50% da posição foi realizada com lucro' : 'Perda limitada conforme estratégia'}
+- Perda reduzida na posição restante
+- Estratégia de proteção funcionou
+- Aguarde próxima oportunidade
+
+📊 *ANÁLISE:*
+- Mercado reverteu após atingir o${monitor.targetsHit > 1 ? 's' : ''} primeiro${monitor.targetsHit > 1 ? 's' : ''} alvo${monitor.targetsHit > 1 ? 's' : ''}
+- Realização parcial garantiu lucro na operação
+- Stop móvel protegeu os ganhos parciais
+
+👑 Sinais Lobo Cripto
+⏰ ${new Date().toLocaleString('pt-BR')}`;
       }
 
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
-      } else {
-        console.log(`${emoji} [SIMULADO] Operação finalizada ${symbol}: ${leveragedPnL > 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%`);
-        console.log(`   📝 Mensagem: ${message.replace(/\n/g, ' ')}`);
       }
-    } catch (error) {
-      console.error(`Erro ao enviar notificação de conclusão para ${symbol}:`, error.message);
-    }
-  }
-
-  /**
-   * Para WebSocket para um símbolo
-   */
-  stopWebSocketForSymbol(symbol) {
-    const connectionKey = `${symbol}_1m`;
-    if (this.wsConnections.has(symbol)) {
-      try {
-        const ws = this.wsConnections.get(symbol);
-        // Marca como fechamento intencional
-        ws._intentionalClose = true; // Marca como fechamento intencional
-        ws.close();
-        this.wsConnections.delete(symbol);
-        console.log(`🔌 WebSocket intencionalmente fechado para ${symbol}`);
-        return true;
-      } catch (error) {
-        console.error(`Erro ao parar WebSocket ${symbol}:`, error.message);
-        // Force remove da lista mesmo com erro
-        this.wsConnections.delete(symbol);
-        return false;
-      }
-    }
-    
-    // Verifica também por connectionKey
-    if (this.wsConnections.has(connectionKey)) {
-      try {
-        const ws = this.wsConnections.get(connectionKey);
-        ws._intentionalClose = true;
-        ws.close();
-        this.wsConnections.delete(connectionKey);
-        console.log(`🔌 WebSocket parado para ${symbol}`);
-        return true;
-      } catch (error) {
-        console.error(`Erro ao parar WebSocket ${symbol}:`, error.message);
-        // Force remove da lista mesmo com erro
-        this.wsConnections.delete(connectionKey);
-        return false;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Formata volume
-   */
-  formatVolume(volume) {
-    if (!volume || isNaN(volume)) return '0';
-    if (volume >= 1e9) return `${(volume / 1e9).toFixed(1)}B`;
-    if (volume >= 1e6) return `${(volume / 1e6).toFixed(1)}M`;
-    if (volume >= 1e3) return `${(volume / 1e3).toFixed(1)}K`;
-    return volume.toFixed(0);
-  }
-
-  /**
-   * Calcula score geral de sentimento (0-100)
-   */
-  calculateGeneralSentimentScore(sentiment) {
-    let score = 50; // Base neutra
-    
-    // Fear & Greed Index (peso 30%)
-    const fgWeight = 0.3;
-    score += ((sentiment.fearGreedIndex || 50) - 50) * fgWeight;
-    
-    // Proporção de ativos em alta (peso 25%)
-    const totalAssets = (sentiment.assetsUp || 0) + (sentiment.assetsDown || 0);
-    if (totalAssets > 0) {
-      const bullishRatio = sentiment.assetsUp / totalAssets;
-      score += (bullishRatio - 0.5) * 50 * 0.25;
-    }
-    
-    // Volume vs média (peso 20%)
-    const volumeWeight = 0.2;
-    if (sentiment.volumeVsAverage) {
-      score += ((sentiment.volumeVsAverage - 1) * 25) * volumeWeight;
-    }
-    
-    // Market cap crypto (peso 15%)
-    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.change24h !== undefined) {
-      score += (sentiment.cryptoMarketCap.change24h * 2) * 0.15;
-    }
-    
-    // Volatilidade (peso 10% - inverso)
-    if (sentiment.volatility) {
-      const volImpact = Math.min(sentiment.volatility, 10) / 10; // Normaliza 0-1
-      score -= volImpact * 10 * 0.1; // Alta volatilidade reduz score
-    }
-    
-    return Math.max(0, Math.min(100, score));
-  }
-  
-  /**
-   * Calcula score de notícias
-   */
-  calculateNewsScore(sentiment) {
-    let newsScore = 50; // Base neutra
-    
-    // Baseado no sentimento geral
-    if (sentiment.overall === 'OTIMISTA') {
-      newsScore = 65 + Math.random() * 20; // 65-85
-    } else if (sentiment.overall === 'PESSIMISTA') {
-      newsScore = 15 + Math.random() * 20; // 15-35
-    } else {
-      newsScore = 40 + Math.random() * 20; // 40-60
-    }
-    
-    // Ajusta o limiar baseado se é contra-tendência
-    const threshold = sentiment.isCounterTrend ? 75 : 65;
-    
-    if (newsScore >= 85) {
-      newsScore = 85;
-    } else if (newsScore >= threshold) {
-      newsScore = threshold;
-    } else if (newsScore >= 50) {
-      newsScore = 50;
-    } else {
-      newsScore = 15;
-    }
-    
-    return Math.max(0, Math.min(100, newsScore));
-  }
-  
-  /**
-   * Calcula sentimento do Bitcoin
-   */
-  calculateBitcoinSentimentScore(sentiment) {
-    // Usa o sentimento calculado com dados reais se disponível
-    if (sentiment.bitcoinSentiment && sentiment.bitcoinSentiment.score) {
-      return sentiment.bitcoinSentiment.score;
-    }
-    
-    // Fallback para cálculo básico
-    let btcScore = 50;
-    
-    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
-      const dominance = sentiment.cryptoMarketCap.btcDominance;
-      if (dominance > 60) {
-        btcScore = 60 + (dominance - 60) * 0.8;
-      } else if (dominance < 40) {
-        btcScore = 40 + (dominance - 40) * 0.5;
-      }
-    }
-    
-    return Math.max(0, Math.min(100, btcScore));
-  }
-  
-  /**
-   * Calcula sentimento do Ethereum
-   */
-  calculateEthereumSentimentScore(sentiment) {
-    // Usa o sentimento calculado com dados reais se disponível
-    if (sentiment.ethereumSentiment && sentiment.ethereumSentiment.score) {
-      return sentiment.ethereumSentiment.score;
-    }
-    
-    // Fallback para cálculo básico
-    let ethScore = 50;
-    
-    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
-      const dominance = sentiment.cryptoMarketCap.btcDominance;
-      if (dominance < 45) {
-        ethScore = 55 + (45 - dominance) * 0.8;
-      } else if (dominance > 65) {
-        ethScore = 45 - (dominance - 65) * 0.6;
-      }
-    }
-    
-    return Math.max(0, Math.min(100, ethScore));
-  }
-  
-  /**
-   * Gera interpretação inteligente
-   */
-  generateSmartInterpretation(sentiment, generalScore) {
-    const interpretation = [];
-    
-    // Análise específica baseada em dados reais
-    const btcScore = sentiment.bitcoinSentiment?.score || 50;
-    const ethScore = sentiment.ethereumSentiment?.score || 50;
-    const newsScore = sentiment.newsAnalysis?.score || 50;
-    const fgIndex = sentiment.fearGreedIndex || 50;
-    
-    // Interpretação baseada em Bitcoin (maior peso)
-    if (btcScore >= 70) {
-      interpretation.push(`Bitcoin muito otimista (${btcScore}/100) - lidera o mercado`);
-      if (sentiment.bitcoinSentiment?.factors?.length > 0) {
-        interpretation.push(`Fatores BTC: ${sentiment.bitcoinSentiment.factors.slice(0, 2).join(', ')}`);
-      }
-    } else if (btcScore <= 35) {
-      interpretation.push(`Bitcoin pessimista (${btcScore}/100) - pressiona altcoins`);
-      if (sentiment.bitcoinSentiment?.factors?.length > 0) {
-        interpretation.push(`Fatores BTC: ${sentiment.bitcoinSentiment.factors.slice(0, 2).join(', ')}`);
-      }
-    } else if (btcScore >= 55) {
-      interpretation.push(`Bitcoin levemente otimista (${btcScore}/100) - ambiente favorável`);
-    } else if (btcScore <= 45) {
-      interpretation.push(`Bitcoin levemente pessimista (${btcScore}/100) - cautela`);
-    } else {
-      interpretation.push(`Bitcoin neutro (${btcScore}/100) - sem direção clara`);
-    }
-    
-    // Interpretação baseada em Ethereum
-    if (ethScore >= 70) {
-      interpretation.push(`Ethereum muito forte (${ethScore}/100) - altcoin season`);
-      if (sentiment.ethereumSentiment?.factors?.length > 0) {
-        interpretation.push(`Fatores ETH: ${sentiment.ethereumSentiment.factors.slice(0, 2).join(', ')}`);
-      }
-    } else if (ethScore <= 35) {
-      interpretation.push(`Ethereum fraco (${ethScore}/100) - evite altcoins`);
-    } else if (Math.abs(ethScore - btcScore) > 15) {
-      if (ethScore > btcScore) {
-        interpretation.push(`Ethereum superando Bitcoin (+${(ethScore - btcScore).toFixed(0)} pontos)`);
-      } else {
-        interpretation.push(`Bitcoin dominando Ethereum (+${(btcScore - ethScore).toFixed(0)} pontos)`);
-      }
-    }
-    
-    // Análise de Fear & Greed com contexto
-    if (fgIndex > 80) {
-      interpretation.push(`Ganância extrema (${fgIndex}/100) - risco de correção iminente`);
-    } else if (fgIndex < 20) {
-      interpretation.push(`Medo extremo (${fgIndex}/100) - oportunidades históricas de compra`);
-    } else if (fgIndex > 70) {
-      interpretation.push(`Alta ganância (${fgIndex}/100) - realize lucros gradualmente`);
-    } else if (fgIndex < 30) {
-      interpretation.push(`Alto medo (${fgIndex}/100) - considere acumulação`);
-    }
-    
-    // Análise de notícias com contexto específico
-    if (newsScore >= 70) {
-      interpretation.push(`Notícias muito positivas (${newsScore}/100) - momentum midiático`);
-    } else if (newsScore <= 35) {
-      interpretation.push(`Notícias negativas (${newsScore}/100) - sentimento pessimista`);
-    }
-    
-    // Análise de dominância BTC com recomendações específicas
-    if (sentiment.cryptoMarketCap && sentiment.cryptoMarketCap.btcDominance) {
-      const dominance = sentiment.cryptoMarketCap.btcDominance;
-      if (dominance > 70) {
-        interpretation.push(`Dominância BTC extrema (${dominance.toFixed(1)}%) - apenas Bitcoin`);
-      } else if (dominance > 60) {
-        interpretation.push(`Alta dominância BTC (${dominance.toFixed(1)}%) - foque em BTC e top 5`);
-      } else if (dominance < 35) {
-        interpretation.push(`Baixa dominância BTC (${dominance.toFixed(1)}%) - altcoin season ativa`);
-      } else if (dominance < 45) {
-        interpretation.push(`Dominância BTC moderada (${dominance.toFixed(1)}%) - altcoins favorecidas`);
-      }
-    }
-    
-    // Recomendação final baseada no contexto geral
-    if (generalScore >= 70 && btcScore >= 65) {
-      interpretation.push('🟢 Ambiente muito favorável para posições de compra');
-    } else if (generalScore <= 30 && btcScore <= 35) {
-      interpretation.push('🔴 Ambiente desfavorável - evite compras, considere vendas');
-    } else if (Math.abs(generalScore - 50) <= 10) {
-      interpretation.push('🟡 Mercado neutro - opere com base em análise técnica');
-    } else if (generalScore > 50) {
-      interpretation.push('🟢 Leve viés de alta - prefira compras em correções');
-    } else {
-      interpretation.push('🟡 Leve viés de baixa - cautela com compras');
-    }
-    
-    // Adiciona aviso se for contra-tendência
-    if (sentiment.isCounterTrend) {
-      interpretation.push('⚠️ ATENÇÃO: Operação contra a tendência - risco elevado');
-    }
-    
-    return interpretation.slice(0, 5); // Máximo 5 pontos mais específicos
-  }
-
-  /**
-   * Formata preço sem gerar links automáticos
-   */
-  formatPrice(price) {
-    if (!price || isNaN(price)) return '0.00';
-    
-    // Formata preço evitando links automáticos do Telegram
-    const formattedPrice = price.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: price >= 1 ? 2 : 8,
-      useGrouping: false
-    });
-    
-    // Adiciona espaços invisíveis para quebrar detecção de links
-    return formattedPrice.replace(/\./g, '․'); // Usa ponto médio Unicode U+2024
-  }
-
-  /**
-   * Lista operações ativas (para debugging)
-   */
-  listActiveOperations() {
-    console.log(`📊 Operações ativas (${this.activeMonitors.size}):`);
-    
-    if (this.activeMonitors.size === 0) {
-      console.log('   Nenhuma operação ativa');
-      return;
-    }
-    
-    this.activeMonitors.forEach((monitor, symbol) => {
-      const targetsHit = monitor.targetsHit || 0;
-      const totalTargets = monitor.targets?.length || 0;
       
-      console.log(`🔍 Operação ativa encontrada para ${symbol}:`);
-      console.log(`   • Entrada: $${monitor.entry.toFixed(4)}`);
-      console.log(`   • Alvos atingidos: ${targetsHit}/${totalTargets}`);
-      console.log(`   • Status: ${monitor.status || 'ACTIVE'}`);
-      console.log(`   • Timestamp: ${monitor.timestamp}`);
-    });
+      console.log(`❌ Stop loss enviado: ${symbol}`);
+    } catch (error) {
+      console.error(`❌ Erro ao enviar stop loss:`, error.message);
+    }
   }
 
   /**
-   * Atualiza o stop loss baseado no alvo atingido
+   * Envia notificação de todos alvos atingidos
    */
-  updateStopLoss(symbol, targetNumber) {
+  async sendAllTargetsHitNotification(symbol, monitor, totalPnlPercent) {
     try {
-      const monitor = this.activeMonitors.get(symbol);
-      if (!monitor) {
-        console.error(`❌ Monitor não encontrado para ${symbol}`);
-        return;
-      }
+      const leveragedPnL = totalPnlPercent * 15;
+      const duration = this.calculateDuration(monitor.startTime);
+      
+      const message = `🌕 *#${symbol.split('/')[0]} - OPERAÇÃO FINALIZADA* 🌕
 
-      let newStopLoss = null;
-      let stopType = null;
+📊 *Resultado:* 🟢 +${totalPnlPercent.toFixed(1)}%
+⚡ *Alavancado (15x):* 🟢 +${leveragedPnL.toFixed(1)}%
 
-      // Determina novo stop loss baseado no alvo
-      switch (targetNumber) {
-        case 1:
-          // Alvo 1: Mantém stop original (não move ainda)
-          console.log(`🎯 ALVO 1: ${symbol} - Stop mantido no original`);
-          return;
-        case 2:
-          // Alvo 2: Move stop para entrada
-          newStopLoss = monitor.entry;
-          stopType = 'BREAKEVEN';
-          break;
-        case 3:
-          // Alvo 3: Move stop para alvo 1
-          newStopLoss = monitor.targets[0];
-          stopType = 'TARGET_1';
-          break;
-        case 4:
-          // Alvo 4: Move stop para alvo 2
-          newStopLoss = monitor.targets[1];
-          stopType = 'TARGET_2';
-          break;
-        case 5:
-          // Alvo 5: Move stop para alvo 3
-          newStopLoss = monitor.targets[2];
-          stopType = 'TARGET_3';
-          break;
-        case 6:
-          // Alvo 6: Operação finalizada
-          console.log(`🌕 ALVO FINAL: ${symbol} - Operação será finalizada`);
-          return;
-        default:
-          console.log(`⚠️ Alvo ${targetNumber} não reconhecido para ${symbol}`);
-          return;
-      }
+📌 *Motivo:* TODOS OS ALVOS ATINGIDOS - LUA!
 
-      if (newStopLoss !== null) {
-        // Para LONG: novo stop deve ser maior que o atual (mais proteção)
-        if (!monitor.isShort && newStopLoss > monitor.currentStopLoss) {
-          monitor.currentStopLoss = newStopLoss;
-          monitor.stopType = stopType;
-          console.log(`🛡️ STOP MOVIDO: ${symbol} - Novo stop: $${newStopLoss.toFixed(8)} (${stopType})`);
-        }
-        // Para SHORT: novo stop deve ser menor que o atual (mais proteção)
-        else if (monitor.isShort && newStopLoss < monitor.currentStopLoss) {
-          monitor.currentStopLoss = newStopLoss;
-          monitor.stopType = stopType;
-          console.log(`🛡️ STOP MOVIDO: ${symbol} - Novo stop: $${newStopLoss.toFixed(8)} (${stopType})`);
-        }
-        else {
-          console.log(`ℹ️ STOP NÃO MOVIDO: ${symbol} - Novo stop ($${newStopLoss.toFixed(8)}) não é mais favorável que atual ($${monitor.currentStopLoss.toFixed(8)})`);
-        }
+📈 *Alvos atingidos:* 6/6
+🛑 *Stop loss:* ${monitor.stopLoss.toFixed(2).replace('.', '․')}
+📅 *Duração:* ${duration}
+
+👑 *Sinais Lobo Cripto*
+⏰ ${new Date().toLocaleString('pt-BR')}`;
+
+      if (this.isEnabled) {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
       }
+      
+      console.log(`🌕 Lua enviada: ${symbol}`);
     } catch (error) {
-      console.error(`❌ Erro ao atualizar stop loss para ${symbol}:`, error.message);
+      console.error(`❌ Erro ao enviar lua:`, error.message);
     }
   }
 
   /**
-   * Atualiza o gerenciamento de risco baseado no alvo atingido
+   * Envia notificação de stop móvel
    */
-  updateRiskManagement(symbol, targetNumber) {
+  async sendStopMovedNotification(symbol, newStopPrice) {
     try {
-      const monitor = this.activeMonitors.get(symbol);
-      if (!monitor) {
-        console.error(`❌ Monitor não encontrado para ${symbol}`);
-        return;
+      const message = `🛡️ *STOP MÓVEL ATIVADO #${symbol.split('/')[0]}*
+
+✅ *Stop loss movido para ponto de entrada*
+🛡️ *Novo stop:* ${newStopPrice.toFixed(2).replace('.', '․')}
+💰 *Operação protegida contra perdas*
+
+👑 *Gestão de risco ativa*`;
+
+      if (this.isEnabled) {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
       }
-
-      // Define as configurações de risco para cada alvo
-      const riskConfig = {
-        1: {
-          stopType: 'INITIAL', // Mantém stop original
-          positionSize: 0.5, // 50% da posição  
-          message: 'Realize 50% da posição'
-        },
-        2: {
-          stopType: 'BREAKEVEN',
-          positionSize: 0.15, // 15% da posição
-          message: 'Realize 15% da posição e mova o stop para o ponto de entrada'
-        },
-        3: {
-          stopType: 'TARGET_1',
-          positionSize: 0.1, // 10% da posição
-          message: 'Realize 10% da posição e mova o stop para o Alvo 1'
-        },
-        4: {
-          stopType: 'TARGET_2',
-          positionSize: 0.1, // 10% da posição
-          message: 'Realize 10% da posição e mova o stop para o Alvo 2'
-        },
-        5: {
-          stopType: 'TARGET_3',
-          positionSize: 0.1, // 10% da posição
-          message: 'Realize 10% da posição e mova o stop para o Alvo 3'
-        },
-        6: {
-          stopType: 'COMPLETE',
-          positionSize: 0.15, // 15% da posição (restante)
-          message: 'Realize o restante da posição. Operação concluída com sucesso!'
-        }
-      };
-
-      const config = riskConfig[targetNumber];
-      if (!config) return;
-
-      // Atualiza o monitor com as configurações de risco
-      monitor.riskConfig = config;
       
-      console.log(`🔄 Gerenciamento de risco atualizado para ${symbol}:`);
-      console.log(`   • Alvo ${targetNumber}: ${config.message}`);
-      console.log(`   • Tipo de stop: ${config.stopType}`);
-      console.log(`   • Tamanho da posição: ${(config.positionSize * 100).toFixed(0)}%`);
-
+      console.log(`🛡️ Stop móvel enviado: ${symbol}`);
     } catch (error) {
-      console.error(`❌ Erro ao atualizar gerenciamento de risco para ${symbol}:`, error.message);
+      console.error(`❌ Erro ao enviar stop móvel:`, error.message);
     }
   }
 
   /**
-   * Analisa o RSI considerando a tendência atual
+   * Calcula duração da operação
    */
-  analyzeRSI(indicators, isBullish, isWithTrend, analysis) {
-    if (indicators.rsi === undefined) return;
+  calculateDuration(startTime) {
+    const now = new Date();
+    const diff = now - startTime;
     
-    // Fatores de pontuação mais altos para contra-tendência
-    const trendFactor = isWithTrend ? 1 : 1.5;
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     
-    if (indicators.rsi <= 25) {
-      // RSI em sobrevenda
-      const points = isWithTrend ? 25 : 35;
-      analysis.score += isBullish ? points * trendFactor : -10;
-      analysis.factors.push('RSI em forte sobrevenda (≤25)');
-      
-      if (!isBullish && !isWithTrend) {
-        analysis.factors.push('⚠️ Cuidado: Venda com RSI baixo requer confirmação extra');
-      }
-    } 
-    else if (indicators.rsi >= 85) {
-      // RSI em sobrecompra
-      const points = isWithTrend ? 25 : 35;
-      analysis.score += !isBullish ? points * trendFactor : -10;
-      analysis.factors.push('RSI em forte sobrecompra (≥85)');
-      
-      if (isBullish && !isWithTrend) {
-        analysis.factors.push('⚠️ Cuidado: Compra com RSI alto requer confirmação extra');
-      }
-    }
-    else if (indicators.rsi < 40) {
-      // RSI próximo à sobrevenda
-      analysis.score += isBullish ? 10 * trendFactor : -5;
-      if (isWithTrend || indicators.rsi < 30) {
-        analysis.factors.push('RSI próximo à sobrevenda');
-      }
-    }
-    else if (indicators.rsi > 60) {
-      // RSI próximo à sobrecompra
-      analysis.score += !isBullish ? 10 * trendFactor : -5;
-      if (isWithTrend || indicators.rsi > 70) {
-        analysis.factors.push('RSI próximo à sobrecompra');
-      }
-    }
-  }
-
-  /**
-   * Analisa o MACD considerando a tendência atual
-   */
-  analyzeMACD(indicators, isBullish, isWithTrend, analysis) {
-    if (!indicators.macd) return;
-    
-    const macdBullish = indicators.macd.MACD > indicators.macd.signal;
-    const histogramRising = indicators.macd.histogram > 0 && 
-                           indicators.macd.histogram > indicators.macd.prevHistogram;
-    
-    // Fatores de pontuação
-    const trendFactor = isWithTrend ? 1 : 1.2;
-    const directionMatch = (isBullish && macdBullish) || (!isBullish && !macdBullish);
-    
-    if (directionMatch) {
-      // Sinal na mesma direção
-      let points = 10;
-      if (histogramRising) points += 5;
-      
-      analysis.score += points * trendFactor;
-      analysis.factors.push(`MACD ${macdBullish ? 'bullish' : 'bearish'}`);
-      
-      if (histogramRising) {
-        analysis.factors.push('Impulso do histograma aumentando');
-      }
+    if (days > 0) {
+      return `${days} dias ${hours}h ${minutes}m`;
     } else {
-      // Sinal contrário - penaliza menos se for com a tendência
-      analysis.score -= isWithTrend ? 5 : 15;
-      analysis.factors.push(`⚠️ Alerta: MACD ${macdBullish ? 'bullish' : 'bearish'} contra o sinal`);
+      return `${hours}h ${minutes}m`;
     }
   }
 
   /**
-   * Determina o sentimento final baseado na pontuação
+   * Obtém recomendação por alvo
    */
-  determineSentiment(analysis, isBullish) {
-    // Ajusta o limiar baseado se é contra-tendência
-    const threshold = analysis.isCounterTrend ? 75 : 65;
-    
-    if (analysis.score >= 85) {
-      analysis.sentiment = isBullish ? 'MUITO BULLISH' : 'MUITO BEARISH';
-      analysis.interpretation = analysis.isCounterTrend 
-        ? `Forte sinal de ${isBullish ? 'compra' : 'venda'} mesmo contra a tendência`
-        : `Forte viés de ${isBullish ? 'alta' : 'baixa'}, entrada recomendada`;
-    } 
-    else if (analysis.score >= threshold) {
-      analysis.sentiment = isBullish ? 'BULLISH' : 'BEARISH';
-      analysis.interpretation = analysis.isCounterTrend
-        ? `Sinal de ${isBullish ? 'compra' : 'venda'} contra-tendência, confirmação necessária`
-        : `Viés de ${isBullish ? 'alta' : 'baixa'}, condições favoráveis`;
-    } 
-    else if (analysis.score >= 50) {
-      analysis.sentiment = isBullish ? 'LEVEMENTE BULLISH' : 'LEVEMENTE BEARISH';
-      analysis.interpretation = analysis.isCounterTrend
-        ? `Fraca confirmação para operação contra-tendência, aguarde melhores condições`
-        : 'Sinais mistos, aguarde confirmação';
-    } 
-    else {
-      analysis.sentiment = 'NEUTRO';
-      analysis.interpretation = analysis.isCounterTrend
-        ? '❌ Contra-tendência sem confirmação suficiente, evite operar'
-        : 'Sem direção clara, aguardar melhores condições';
+  getTargetRecommendation(targetNumber) {
+    switch (targetNumber) {
+      case 1: return 'Realize 50% da posição e mova o stop para o ponto de entrada';
+      case 2: return 'Mantenha posição e monitore próximo alvo';
+      case 3: return 'Considere realizar mais 25% da posição';
+      case 4: return 'Posição em excelente lucro - mantenha disciplina';
+      case 5: return 'Próximo do alvo final - prepare-se para realização total';
+      case 6: return 'PARABÉNS! Todos os alvos atingidos!';
+      default: return 'Continue seguindo a estratégia';
     }
-    
-    // Adiciona aviso se for contra-tendência
-    if (analysis.isCounterTrend) {
-      analysis.interpretation += '\n⚠️ ATENÇÃO: Operação contra a tendência - risco elevado';
-    }
-  }
-
-  /**
-   * Escapa caracteres especiais do Markdown do Telegram
-   */
-  escapeMarkdown(text) {
-    if (!text) return '';
-    return String(text).replace(/[\_*\[\]()~`>#+\-=\|{}.!]/g, '\\$&');
-  }
-
-  /**
-   * Obtém emoji do regime
-   */
-  getRegimeEmoji(regime) {
-    switch(regime) {
-      case 'BULL': return '🐂';
-      case 'BEAR': return '🐻';
-      case 'VOLATILE': return '⚡';
-      default: return '⚖️';
-    }
-  }
-
-  /**
-   * Obtém descrição do regime
-   */
-  getRegimeDescription(regime) {
-    switch(regime) {
-      case 'BULL': return 'Mercado em alta';
-      case 'BEAR': return 'Mercado em baixa';
-      case 'VOLATILE': return 'Mercado volátil';
-      default: return 'Mercado neutro';
-    }
-  }
-
-  /**
-   * Gera fatores consistentes com o sinal
-   */
-  generateConsistentFactors(signal, isLong) {
-    const factors = [];
-    
-    // Adiciona fatores baseados nos indicadores
-    if (signal.indicators) {
-      if (signal.indicators.rsi !== undefined) {
-        if (isLong && signal.indicators.rsi < 50) {
-          factors.push('RSI favorável para compra');
-        } else if (!isLong && signal.indicators.rsi > 50) {
-          factors.push('RSI favorável para venda');
-        }
-      }
-      
-      if (signal.indicators.macd) {
-        const macdBullish = signal.indicators.macd.MACD > signal.indicators.macd.signal;
-        if ((isLong && macdBullish) || (!isLong && !macdBullish)) {
-          factors.push(`MACD ${macdBullish ? 'bullish' : 'bearish'}`);
-        }
-      }
-    }
-    
-    // Adiciona fatores padrão se necessário
-    while (factors.length < 3) {
-      factors.push('Análise técnica favorável');
-    }
-    
-    return factors.slice(0, 3).map(f => `   • ${f}`).join('\n');
   }
 }
 
