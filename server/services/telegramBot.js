@@ -389,6 +389,19 @@ ${bitcoinWarning}
       console.log(`   🎯 Próximo alvo: $${monitor.targets[0] || 'N/A'}`);
       console.log(`   📊 Direção: ${isLong ? 'LONG' : 'SHORT'}`);
       
+      // Verifica se o stop móvel foi acionado (preço voltou ao stop após alvos)
+      if (monitor.targetsHit > 0) {
+        const stopHit = isLong ? 
+          currentPrice <= monitor.stopLoss :
+          currentPrice >= monitor.stopLoss;
+          
+        if (stopHit) {
+          console.log(`🛡️ [${symbol}] STOP MÓVEL ACIONADO! Preço: $${currentPrice}, Stop: $${monitor.stopLoss}`);
+          await this.handleStopMobile(symbol, currentPrice, monitor, app);
+          return;
+        }
+      }
+      
       // Verifica se atingiu o próximo alvo
       const targetHit = isLong ? 
         currentPrice >= monitor.targets[0] :
