@@ -479,7 +479,7 @@ class SignalScoringService {
    * Detecta a tendência do mercado com base nos indicadores e padrões
    * @param {Object} indicators - Objeto contendo os indicadores técnicos
    * @param {Object} patterns - Objeto contendo os padrões detectados
-   * @returns {string} - 'bullish', 'bearish' ou 'neutral'
+   * @returns {string} - 'BULLISH', 'BEARISH' ou 'NEUTRAL'
    */
   detectSignalTrend(indicators, patterns = {}) {
     if (!indicators) return 'neutral';
@@ -488,58 +488,129 @@ class SignalScoringService {
     let bearishScore = 0;
     let totalFactors = 0;
     
-    // Análise de tendência com base no RSI
+    console.log('🔍 Detectando tendência do sinal...');
+    
+    // Análise de tendência com base no RSI - AJUSTADO PARA VENDA
     if (indicators.rsi !== undefined) {
       totalFactors++;
-      if (indicators.rsi < 25) {
+      if (indicators.rsi < 20) {
+        bullishScore += 2; // Sobrevenda extrema = forte oportunidade de compra
+      } else if (indicators.rsi < 30) {
         bullishScore++; // Sobrevenda = oportunidade de compra
-      } else if (indicators.rsi > 85) {
+      } else if (indicators.rsi > 80) {
+        bearishScore += 2; // Sobrecompra extrema = forte oportunidade de venda
+      } else if (indicators.rsi > 70) {
         bearishScore++; // Sobrecompra = oportunidade de venda
       }
+      console.log(`  RSI: ${indicators.rsi.toFixed(2)} → ${indicators.rsi < 30 ? 'BULLISH' : indicators.rsi > 70 ? 'BEARISH' : 'NEUTRAL'}`);
     }
     
-    // Análise de tendência com base no MACD
+    // Análise de tendência com base no MACD - MELHORADO
     if (indicators.macd && indicators.macd.histogram !== undefined) {
       totalFactors++;
+      const histogramStrength = Math.abs(indicators.macd.histogram) * 1000000;
+      
       if (indicators.macd.histogram > 0) {
-        bullishScore++; // Histograma positivo = momentum de alta
+        if (histogramStrength > 5) {
+          bullishScore += 2; // MACD muito forte
+        } else {
+          bullishScore++; // MACD moderado
+        }
       } else if (indicators.macd.histogram < 0) {
-        bearishScore++; // Histograma negativo = momentum de baixa
+        if (histogramStrength > 5) {
+          bearishScore += 2; // MACD muito forte para baixo
+        } else {
+          bearishScore++; // MACD moderado para baixo
+        }
       }
+      console.log(`  MACD: ${indicators.macd.histogram.toFixed(8)} → ${indicators.macd.histogram > 0 ? 'BULLISH' : 'BEARISH'} (força: ${histogramStrength.toFixed(2)})`);
     }
     
-    // Análise de tendência com base nas Médias Móveis
+    // Análise de tendência com base nas Médias Móveis - MELHORADO
     if (indicators.ma21 !== undefined && indicators.ma200 !== undefined) {
       totalFactors++;
-      if (indicators.ma21 > indicators.ma200) {
-        bullishScore++; // MA curta > MA longa = tendência de alta
-      } else if (indicators.ma21 < indicators.ma200) {
-        bearishScore++; // MA curta < MA longa = tendência de baixa
+      const maDiff = ((indicators.ma21 - indicators.ma200) / indicators.ma200) * 100;
+      
+      if (maDiff > 2) {
+        bullishScore += 2; // Forte tendência de alta
+      } else if (maDiff > 0.5) {
+        bullishScore++; // Tendência de alta moderada
+      } else if (maDiff < -2) {
+        bearishScore += 2; // Forte tendência de baixa
+      } else if (maDiff < -0.5) {
+        bearishScore++; // Tendência de baixa moderada
+      }
+      console.log(`  MA: ${maDiff.toFixed(2)}% → ${maDiff > 0.5 ? 'BULLISH' : maDiff < -0.5 ? 'BEARISH' : 'NEUTRAL'}`);
+    }
+    
+    // Análise de padrões - EXPANDIDO
+    if (patterns.breakout) {
+      totalFactors++;
+      if (patterns.breakout.type === 'BULLISH_BREAKOUT') {
+        bullishScore += 2;
+        console.log(`  Breakout: BULLISH_BREAKOUT`);
+      } else if (patterns.breakout.type === 'BEARISH_BREAKOUT') {
+        bearishScore += 2;
+        console.log(`  Breakout: BEARISH_BREAKOUT`);
       }
     }
     
-    // Análise de padrões
-    const bullishPatterns = ['bullish_engulfing', 'morning_star', 'hammer', 'piercing_line'];
-    const bearishPatterns = ['bearish_engulfing', 'evening_star', 'shooting_star', 'hanging_man'];
-    
-    Object.entries(patterns).forEach(([pattern, data]) => {
-      if (data && data.confidence > 60) {
+    if (patterns.candlestick && Array.isArray(patterns.candlestick)) {
+      patterns.candlestick.forEach(pattern => {
         totalFactors++;
-        if (bullishPatterns.includes(pattern)) bullishScore++;
-        if (bearishPatterns.includes(pattern)) bearishScore++;
+        if (pattern.bias === 'BULLISH') {
+          bullishScore++;
+          console.log(`  Candlestick: ${pattern.type} (BULLISH)`);
+        } else if (pattern.bias === 'BEARISH') {
+          bearishScore++;
+          console.log(`  Candlestick: ${pattern.type} (BEARISH)`);
+        }
+      });
+    }
+    
+    // Volume como confirmação
+    if (indicators.volume && indicators.volume.volumeRatio > 1.5) {
+      // Volume alto confirma a direção predominante
+      if (bullishScore > bearishScore) {
+        bullishScore++;
+        console.log(`  Volume: Alto volume confirmando tendência BULLISH`);
+      } else if (bearishScore > bullishScore) {
+        bearishScore++;
+        console.log(`  Volume: Alto volume confirmando tendência BEARISH`);
       }
-    });
+    }
     
     // Evita divisão por zero
-    if (totalFactors === 0) return 'neutral';
+    if (totalFactors === 0) {
+      console.log('  ⚠️ Nenhum fator de tendência detectado');
+      return 'NEUTRAL';
+    }
     
     const bullishRatio = bullishScore / totalFactors;
     const bearishRatio = bearishScore / totalFactors;
     
-    // Threshold de 50% para maior sensibilidade
-    if (bullishRatio >= 0.5) return 'BULLISH';
-    if (bearishRatio >= 0.5) return 'BEARISH';
+    console.log(`🎯 Pontuação de tendência: BULLISH=${bullishScore}/${totalFactors} (${(bullishRatio*100).toFixed(1)}%), BEARISH=${bearishScore}/${totalFactors} (${(bearishRatio*100).toFixed(1)}%)`);
     
+    // Threshold ajustado para detectar melhor as tendências
+    if (bullishRatio >= 0.6) {
+      console.log('✅ Tendência BULLISH detectada');
+      return 'BULLISH';
+    }
+    if (bearishRatio >= 0.6) {
+      console.log('✅ Tendência BEARISH detectada');
+      return 'BEARISH';
+    }
+    
+    // Se há empate ou diferença pequena, considera o mais forte
+    if (bullishScore > bearishScore) {
+      console.log('⚖️ Leve tendência BULLISH');
+      return 'BULLISH';
+    } else if (bearishScore > bullishScore) {
+      console.log('⚖️ Leve tendência BEARISH');
+      return 'BEARISH';
+    }
+    
+    console.log('⚖️ Tendência NEUTRAL');
     return 'NEUTRAL';
   }
 

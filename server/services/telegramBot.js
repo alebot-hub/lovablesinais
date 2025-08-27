@@ -68,8 +68,7 @@ class TelegramBotService {
       return `${emoji} *${label}:* ${target.toFixed(2).replace('.', '․')}`;
     }).join('\n');
 
-    // Determina regime visual
-    const regimeEmoji = this.getRegimeEmoji(signal.regime);
+    // Remove linha duplicada do regime - já está no cabeçalho
     
     // Aviso de correlação Bitcoin se necessário
     let bitcoinWarning = '';
@@ -82,7 +81,6 @@ class TelegramBotService {
     return `🚨 *LOBO PREMIUM #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*
 
 💰 *#${signal.symbol.split('/')[0]} Futures*
-📊 *TEMPO GRÁFICO:* ${signal.timeframe}
 📈 *Alavancagem sugerida:* 15x
 🎯 *Probabilidade:* ${signal.probability.toFixed(3)}%
 
@@ -94,8 +92,6 @@ ${factorsText}
 
 🎯 *ALVOS (15x):*
 ${targets}
-
-🛑 *Stop Loss:* ${signal.stopLoss.toFixed(2).replace('.', '․')}
 
 ${bitcoinWarning}
 

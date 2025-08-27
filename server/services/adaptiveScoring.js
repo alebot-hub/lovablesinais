@@ -425,27 +425,40 @@ class AdaptiveScoringService {
 
     switch (this.marketRegime) {
       case 'BULL':
-        // Em mercado de alta, favorece sinais de compra
+        // Em mercado de alta, favorece sinais de compra E penaliza vendas
         if (adjustedScore > 0) {
-          bonus = adjustedScore * 0.15; // +15% para sinais bullish
+          // Verifica se é sinal de compra ou venda baseado no contexto
+          const isBullishSignal = this.isCurrentSignalBullish();
+          if (isBullishSignal) {
+            bonus = adjustedScore * 0.20; // +20% para sinais de compra em bull market
+            details.bullMarketBonus = bonus;
+          } else {
+            bonus = -adjustedScore * 0.15; // -15% para sinais de venda em bull market
+            details.bullMarketPenalty = bonus;
+          }
           adjustedScore += bonus;
-          details.bullMarketBonus = bonus;
         }
         break;
 
       case 'BEAR':
-        // Em mercado de baixa, favorece sinais de venda
+        // Em mercado de baixa, favorece sinais de venda E penaliza compras
         if (adjustedScore > 0) {
-          bonus = adjustedScore * 0.15; // +15% para sinais em mercado bear
+          const isBearishSignal = this.isCurrentSignalBearish();
+          if (isBearishSignal) {
+            bonus = adjustedScore * 0.25; // +25% para sinais de venda em bear market
+            details.bearMarketBonus = bonus;
+          } else {
+            bonus = -adjustedScore * 0.20; // -20% para sinais de compra em bear market
+            details.bearMarketPenalty = bonus;
+          }
           adjustedScore += bonus;
-          details.bearMarketBonus = bonus;
         }
         break;
 
       case 'VOLATILE':
-        // Em mercado volátil, reduz threshold
+        // Em mercado volátil, favorece ambos os tipos de sinal
         if (adjustedScore >= 30) {
-          bonus = 10;
+          bonus = 12; // Ligeiramente aumentado
           adjustedScore += bonus;
           details.volatileMarketBonus = bonus;
         }
@@ -453,9 +466,9 @@ class AdaptiveScoringService {
 
       case 'NORMAL':
       default:
-        // Pequeno bônus para manter sinais fluindo
+        // Bônus equilibrado para ambos os tipos
         if (adjustedScore > 20) {
-          bonus = 5;
+          bonus = 8; // Aumentado para manter fluxo de sinais
           adjustedScore += bonus;
           details.normalMarketBonus = bonus;
         }
@@ -467,6 +480,29 @@ class AdaptiveScoringService {
       bonus,
       details
     };
+  }
+
+  /**
+   * Verifica se o sinal atual é bullish (baseado no contexto)
+   */
+  isCurrentSignalBullish() {
+    // Esta função será chamada durante o cálculo do score
+    // Precisamos verificar os indicadores do contexto atual
+    return this.currentSignalTrend === 'BULLISH';
+  }
+
+  /**
+   * Verifica se o sinal atual é bearish
+   */
+  isCurrentSignalBearish() {
+    return this.currentSignalTrend === 'BEARISH';
+  }
+
+  /**
+   * Define a tendência do sinal atual (para uso nos ajustes de regime)
+   */
+  setCurrentSignalTrend(trend) {
+    this.currentSignalTrend = trend;
   }
 
   /**

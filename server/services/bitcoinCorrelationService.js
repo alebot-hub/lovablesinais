@@ -309,37 +309,43 @@ class BitcoinCorrelationService {
    * Analisa alinhamento de tendências
    */
   analyzeTrendAlignment(assetTrend, btcTrend, btcStrength) {
-    // Bitcoin muito forte (>80) tem mais influência
-    const isStrongBtc = btcStrength > 80;
-    const isModerateBtc = btcStrength > 60;
-    const isWeakBtc = btcStrength <= 60;
+    console.log(`🔗 Analisando alinhamento: Asset=${assetTrend} vs BTC=${btcTrend} (força: ${btcStrength})`);
+    
+    // Bitcoin forte (>70) tem mais influência
+    const isStrongBtc = btcStrength > 70;
+    const isModerateBtc = btcStrength > 50;
+    const isWeakBtc = btcStrength <= 50;
 
     // Se a tendência do ativo estiver alinhada com o Bitcoin
     if (assetTrend === btcTrend) {
+      console.log(`✅ Tendências ALINHADAS: ${assetTrend} = ${btcTrend}`);
+      
       const alignment = {
         type: `ALIGNED_${btcTrend}`,
-        bonus: 10, // Damos um pequeno bônus por estar alinhado
+        bonus: 15, // AUMENTADO: Bônus maior para alinhamento
         penalty: 0,
-        recommendation: `Tendência alinhada com Bitcoin ${btcTrend.toLowerCase()}`,
+        recommendation: `Sinal a favor da tendência do Bitcoin (${btcTrend})`,
         alignment: 'ALIGNED'
       };
 
       // Bônus maior para tendências fortes
       if (isStrongBtc) {
-        alignment.bonus = 15;
-        alignment.recommendation = `Forte tendência ${btcTrend.toLowerCase()} do Bitcoin favorece a operação`;
+        alignment.bonus = 25; // AUMENTADO para Bitcoin forte
+        alignment.recommendation = `Bitcoin com forte tendência ${btcTrend} - sinal altamente favorável`;
       } else if (isModerateBtc) {
-        alignment.bonus = 10;
-        alignment.recommendation = `Tendência ${btcTrend.toLowerCase()} do Bitcoin favorece a operação`;
+        alignment.bonus = 15;
+        alignment.recommendation = `Bitcoin em tendência ${btcTrend} - sinal favorável`;
       } else if (isWeakBtc) {
-        alignment.bonus = 5;
-        alignment.recommendation = `Tendência fraca do Bitcoin, mas alinhada`;
+        alignment.bonus = 8;
+        alignment.recommendation = `Tendência fraca do Bitcoin, mas alinhada com o sinal`;
       }
 
+      console.log(`🎯 Bônus de alinhamento: +${alignment.bonus} pontos`);
       return alignment;
     } 
     // Se o ativo estiver neutro
     else if (assetTrend === 'NEUTRAL') {
+      console.log(`⚖️ Tendência NEUTRAL - sem correlação`);
       return {
         type: 'NEUTRAL',
         bonus: 0,
@@ -350,28 +356,31 @@ class BitcoinCorrelationService {
     }
     // Se o ativo estiver contra a tendência do Bitcoin
     else {
+      console.log(`⚠️ Tendências OPOSTAS: ${assetTrend} vs ${btcTrend}`);
+      
       const alignment = {
         type: `AGAINST_${btcTrend}`,
         bonus: 0,
-        penalty: 0, 
-        recommendation: `Cuidado: operação contra tendência do Bitcoin`,
+        penalty: 0,
+        recommendation: `Operação contra tendência do Bitcoin (${btcTrend})`,
         alignment: 'AGAINST'
       };
 
       // Apenas penalizamos se o Bitcoin estiver muito forte
       if (isStrongBtc) {
-        alignment.penalty = -10;  // Reduzido de -20 para -10
-        alignment.recommendation = `Atenção: Bitcoin com forte tendência ${btcTrend.toLowerCase()} - operação de risco`;
+        alignment.penalty = -15; // AUMENTADO: Penalidade maior para Bitcoin forte
+        alignment.recommendation = `RISCO ALTO: Bitcoin com forte tendência ${btcTrend} oposta ao sinal`;
       } else if (isModerateBtc) {
-        alignment.penalty = -5;  // Reduzido de -10 para -5
-        alignment.recommendation = `Bitcoin em tendência ${btcTrend.toLowerCase()} - avalie o risco`;
+        alignment.penalty = -8;
+        alignment.recommendation = `RISCO MODERADO: Bitcoin em tendência ${btcTrend} oposta`;
       }
       // Se o Bitcoin estiver fraco, não penalizamos e até damos um pequeno bônus
       else if (isWeakBtc) {
-        alignment.bonus = 5;
-        alignment.recommendation = `Tendência do Bitcoin fraca - operação pode ter oportunidade`;
+        alignment.bonus = 3;
+        alignment.recommendation = `Bitcoin com tendência fraca - sinal independente viável`;
       }
 
+      console.log(`⚠️ Penalidade por oposição: ${alignment.penalty} pontos`);
       return alignment;
     }
   }

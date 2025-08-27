@@ -115,8 +115,15 @@ export async function analyzeSignals() {
         const logPrefix = `[${symbol} ${timeframe}]`;
         totalAnalyzed++;
         
-        try {
+        console.log(`${logPrefix} 📊 Detectando tendência do sinal...`);
           console.log(`🔍 ${logPrefix} Iniciando análise...`);
+        
+        // Log da correlação com Bitcoin
+        if (btcCorrelation.btcTrend) {
+          console.log(`${logPrefix} ₿ Bitcoin: ${btcCorrelation.btcTrend} (força: ${btcCorrelation.btcStrength || 0})`);
+          console.log(`${logPrefix} 🔗 Alinhamento: ${btcCorrelation.alignment || 'NEUTRAL'}`);
+        }
+        console.log(`${logPrefix} 🎯 Tendência detectada: ${signalTrend}`);
           
           // Timeout para evitar travamentos
           const analysisPromise = analyzeSymbolTimeframe(symbol, timeframe, logPrefix);
