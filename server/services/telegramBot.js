@@ -378,9 +378,9 @@ class TelegramBotService {
         }
       } else {
         // Para LONG: alvos são atingidos quando preço sobe
-        for (let i = 0; i < monitor.targets.length; i++) {
+        for (let i = monitor.targetsHit; i < monitor.targets.length; i++) {
           if (currentPrice >= monitor.targets[i]) {
-            newTargetsHit = i + 1;
+            newTargetsHit = Math.max(newTargetsHit, i + 1);
           } else {
             break;
           }
@@ -389,15 +389,25 @@ class TelegramBotService {
 
       // Se atingiu novo alvo
       if (newTargetsHit > monitor.targetsHit) {
-        monitor.targetsHit = newTargetsHit;
-        monitor.maxTargetsHit = Math.max(monitor.maxTargetsHit, newTargetsHit);
+        // Processa apenas o próximo alvo (um por vez)
+        const nextTarget = monitor.targetsHit + 1;
         
-        this.sendTargetHitNotification(symbol, newTargetsHit, monitor.targets[newTargetsHit - 1], currentPnL);
-        
-        // Se atingiu todos os alvos
-        if (newTargetsHit >= monitor.targets.length) {
-          this.completeMonitor(symbol, 'ALL_TARGETS', currentPnL, app, adaptiveScoring);
-          return;
+        if (nextTarget <= newTargetsHit) {
+          monitor.targetsHit = nextTarget;
+          monitor.maxTargetsHit = Math.max(monitor.maxTargetsHit, nextTarget);
+          
+          console.log(`🎯 ALVO ${nextTarget} ATINGIDO: ${symbol} - $${monitor.targets[nextTarget - 1].toFixed(8)}`);
+          
+          this.sendTargetHitNotification(symbol, nextTarget, monitor.targets[nextTarget - 1], currentPnL);
+          
+          // Se atingiu todos os alvos
+          if (nextTarget >= monitor.targets.length) {
+            this.completeMonitor(symbol, 'ALL_TARGETS', currentPnL, app, adaptiveScoring);
+            return;
+          }
+          
+          // Atualiza stop loss para este alvo
+          this.updateStopLoss(symbol, nextTarget);
         }
       }
 
@@ -1033,30 +1043,103 @@ class TelegramBotService {
 
       // Determina novo stop loss baseado no alvo
       switch (targetNumber) {
+        case 1:
+          // Alvo 1: Mantém stop original (não move ainda)
+          console.log(`🎯 ALVO 1: ${symbol} - Stop mantido no original`);
+          return;
         case 2:
-          // Alvo 2: Mover stop para entrada
+          // Alvo 2: Move stop para entrada
           newStopLoss = monitor.entry;
           stopType = 'BREAKEVEN';
           break;
         case 3:
-          // Alvo 3: Mover stop para alvo 1
+          // Alvo 3: Move stop para alvo 1
           newStopLoss = monitor.targets[0];
           stopType = 'TARGET_1';
           break;
         case 4:
-          // Alvo 4: Mover stop para alvo 2
+          // Alvo 4: Move stop para alvo 2
           newStopLoss = monitor.targets[1];
           stopType = 'TARGET_2';
           break;
         case 5:
-          // Alvo 5: Mover stop para alvo 3
+          // Alvo 5: Move stop para alvo 3
           newStopLoss = monitor.targets[2];
           stopType = 'TARGET_3';
           break;
         case 6:
-          // Alvo 6: Mover stop para alvo 4
-          newStopLoss = monitor.targets[3];
-          stopType = 'TARGET_4';
+          // Alvo 6: Operação finalizada
+          console.log(`🌕 ALVO FINAL: ${symbol} - Operação será finalizada`);
+          return;
+        default:
+          console.log(`⚠️ Alvo ${targetNumber} não reconhecido para ${symbol}`);
+          return;
+      }
+
+      if (newStopLoss !== null) {
+        // Para LONG: novo stop deve ser maior que o atual (mais proteção)
+        if (!monitor.isShort && newStopLoss > monitor.currentStopLoss) {
+          monitor.currentStopLoss = newStopLoss;
+          monitor.stopType = stopType;
+          console.log(`🛡️ STOP MOVIDO: ${symbol} - Novo stop: $${newStopLoss.toFixed(8)} (${stopType})`);
+        }
+        // Para SHORT: novo stop deve ser menor que o atual (mais proteção)
+        else if (monitor.isShort && newStopLoss < monitor.currentStopLoss) {
+          monitor.currentStopLoss = newStopLoss;
+          monitor.stopType = stopType;
+          console.log(`🛡️ STOP MOVIDO: ${symbol} - Novo stop: $${newStopLoss.toFixed(8)} (${stopType})`);
+        }
+        else {
+          console.log(`ℹ️ STOP NÃO MOVIDO: ${symbol} - Novo stop ($${newStopLoss.toFixed(8)}) não é mais favorável que atual ($${monitor.currentStopLoss.toFixed(8)})`);
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Erro ao atualizar stop loss para ${symbol}:`, error.message);
+    }
+  }
+
+  /**
+   * Atualiza o gerenciamento de risco baseado no alvo atingido
+   */
+  updateRiskManagement(symbol, targetNumber) {
+    try {
+      const monitor = this.activeMonitors.get(symbol);
+      if (!monitor) {
+        console.error(`❌ Monitor não encontrado para ${symbol}`);
+        return;
+      }
+
+      // Define as configurações de risco para cada alvo
+      const riskConfig = {
+        1: {
+          stopType: 'INITIAL', // Mantém stop original
+          positionSize: 0.5, // 50% da posição  
+          message: 'Realize 50% da posição'
+        },
+        2: {
+          stopType: 'BREAKEVEN',
+          positionSize: 0.15, // 15% da posição
+          message: 'Realize 15% da posição e mova o stop para o ponto de entrada'
+        },
+        3: {
+          stopType: 'TARGET_1',
+          positionSize: 0.1, // 10% da posição
+          message: 'Realize 10% da posição e mova o stop para o Alvo 1'
+        },
+        4: {
+          stopType: 'TARGET_2',
+          positionSize: 0.1, // 10% da posição
+          message: 'Realize 10% da posição e mova o stop para o Alvo 2'
+        },
+        5: {
+          stopType: 'TARGET_3',
+          positionSize: 0.1, // 10% da posição
+          message: 'Realize 10% da posição e mova o stop para o Alvo 3'
+        },
+        6: {
+          stopType: 'COMPLETE',
+          positionSize: 0.15, // 15% da posição (restante)
+          message: 'Realize o restante da posição. Operação concluída com sucesso!'
           break;
       }
 
@@ -1077,7 +1160,7 @@ class TelegramBotService {
             console.log(`🛡️ STOP MOVIDO: ${symbol} - Novo stop: $${newStopLoss.toFixed(8)} (${stopType})`);
           }
         }
-      }
+      };
     } catch (error) {
       console.error(`❌ Erro ao atualizar stop loss para ${symbol}:`, error.message);
     }
@@ -1109,23 +1192,21 @@ class TelegramBotService {
         3: {
           stopType: 'TARGET_1',
           positionSize: 0.1, // 10% da posição
-          message: 'Realize 10% da posição e mova o stop para o Alvo 1'
-        },
-        4: {
-          stopType: 'TARGET_2',
-          positionSize: 0.1, // 10% da posição
-          message: 'Realize 10% da posição e mova o stop para o Alvo 2'
-        },
-        5: {
-          stopType: 'TARGET_3',
-          positionSize: 0.1, // 10% da posição
-          message: 'Realize 10% da posição e mova o stop para o Alvo 3'
-        },
-        6: {
-          stopType: 'COMPLETE',
-          positionSize: 0.15, // 15% da posição (restante)
-          message: 'Realize o restante da posição. Operação concluída com sucesso!'
-        }
+      const config = riskConfig[targetNumber];
+      if (!config) return;
+
+      // Atualiza o monitor com as configurações de risco
+      monitor.riskConfig = config;
+      
+      console.log(`🔄 Gerenciamento de risco atualizado para ${symbol}:`);
+      console.log(`   • Alvo ${targetNumber}: ${config.message}`);
+      console.log(`   • Tipo de stop: ${config.stopType}`);
+      console.log(`   • Tamanho da posição: ${(config.positionSize * 100).toFixed(0)}%`);
+
+    } catch (error) {
+      console.error(`❌ Erro ao atualizar gerenciamento de risco para ${symbol}:`, error.message);
+    }
+  }
       };
 
       const config = riskConfig[targetNumber];
