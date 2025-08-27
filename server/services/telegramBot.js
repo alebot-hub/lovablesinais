@@ -180,7 +180,7 @@ class TelegramBotService {
     if (signal.btcCorrelation && signal.btcCorrelation.btcTrend) {
       const btcTrendUp = signal.btcCorrelation.btcTrend === 'BULLISH';
       if ((isLong && !btcTrendUp) || (!isLong && btcTrendUp)) {
-        riskWarning = `\n⚠️ *ATENÇÃO:* O Bitcoin está em tendência de ${btcTrendUp ? 'ALTA' : 'BAIXA'}. `;
+        riskWarning = `\n⚠️ ATENÇÃO: O Bitcoin está em tendência de ${btcTrendUp ? 'ALTA' : 'BAIXA'}. `;
         riskWarning += `Operações ${isLong ? 'COMPRA' : 'VENDA'} podem ter risco elevado.`;
       }
     }
@@ -190,26 +190,26 @@ class TelegramBotService {
     
     // Informações básicas
     message += `💰 #${baseSymbol} Futures\n`;
-    message += `📊 *TEMPO GRÁFICO:* ${this.escapeMarkdown(timeframe)}\n`;
-    message += `🌐 *REGIME:* ${this.escapeMarkdown(regime)} ${regimeEmoji}\n`;
-    message += `📈 *Alavancagem sugerida:* 15x\n`;
-    message += `🎯 *Probabilidade:* ${signal.probability || 'N/A'}%\n\n`;
+    message += `📊 TEMPO GRÁFICO: ${timeframe}\n`;
+    message += `🌐 REGIME: ${regime} ${regimeEmoji}\n`;
+    message += `📈 Alavancagem sugerida: 15x\n`;
+    message += `🎯 Probabilidade: ${signal.probability || 'N/A'}%\n\n`;
     
     // Análise de sentimento
-    message += `📊 *ANÁLISE DE SENTIMENTO:*\n`;
-    message += `${sentimentEmoji} *Sentimento:* ${this.escapeMarkdown(sentimentText)} (${sentimentScore}/100)\n`;
-    message += `💡 *Interpretação:* ${this.escapeMarkdown(signal.interpretation || 'Análise técnica favorável')}\n`;
-    message += `🔍 *Fatores-chave:*\n`;
+    message += `📊 ANÁLISE DE SENTIMENTO:\n`;
+    message += `${sentimentEmoji} Sentimento: ${sentimentText} (${sentimentScore}/100)\n`;
+    message += `💡 Interpretação: ${signal.interpretation || 'Análise técnica favorável'}\n`;
+    message += `🔍 Fatores-chave:\n`;
     keyFactors.forEach((factor, index) => {
-      message += `   • ${this.escapeMarkdown(factor)}${index < keyFactors.length - 1 ? '\n' : ''}`;
+      message += `   • ${factor}${index < keyFactors.length - 1 ? '\n' : ''}`;
     });
     
     message += '\n\n';
     
     // Entrada e alvos
-    message += `⚡️ *Entrada:* ${this.escapeMarkdown(this.formatPrice(signal.entry))}\n\n`;
+    message += `⚡️ Entrada: ${this.formatPrice(signal.entry)}\n\n`;
     
-    message += `🎯 *ALVOS (15x):*\n`;
+    message += `🎯 ALVOS (15x):\n`;
     signal.targets.forEach((target, index) => {
       const targetNumber = index + 1;
       const isFinalTarget = targetNumber === signal.targets.length;
@@ -221,18 +221,18 @@ class TelegramBotService {
       }
       
       const targetEmoji = isFinalTarget ? '🌕' : `${targetNumber}️⃣`;
-      message += `${targetEmoji} *Alvo ${targetNumber}${targetLabel}:* ${this.escapeMarkdown(this.formatPrice(target))}\n`;
+      message += `${targetEmoji} Alvo ${targetNumber}${targetLabel}: ${this.formatPrice(target)}\n`;
     });
     
     message += '\n';
     
     // Stop Loss
-    message += `🛑 *Stop Loss:* ${this.escapeMarkdown(this.formatPrice(signal.stopLoss))}\n\n`;
+    message += `🛑 Stop Loss: ${this.formatPrice(signal.stopLoss)}\n\n`;
     
     // Regime de operação
     const operationMode = signal.operationMode || 'NORMAL';
     const modeEmoji = operationMode === 'AGGRESSIVE' ? '⚡️' : operationMode === 'CONSERVATIVE' ? '🛡️' : '⚖️';
-    message += `🎛️ *Regime:* ${modeEmoji} MODO ${this.escapeMarkdown(operationMode)} - ${this.escapeMarkdown(operationMode === 'AGGRESSIVE' ? 'Maior risco/recompensa' : operationMode === 'CONSERVATIVE' ? 'Menor risco' : 'Configuração padrão')}\n`;
+    message += `🎛️ Regime: ${modeEmoji} MODO ${operationMode} - ${operationMode === 'AGGRESSIVE' ? 'Maior risco/recompensa' : operationMode === 'CONSERVATIVE' ? 'Menor risco' : 'Configuração padrão'}\n`;
     
     // Aviso de risco se aplicável
     if (riskWarning) {
@@ -240,7 +240,7 @@ class TelegramBotService {
     }
     
     // Rodapé
-    message += `\n👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*\n`;
+    message += `\n👑 Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin\n`;
     message += `⏰ ${new Date().toLocaleString('pt-BR', { 
       day: '2-digit', 
       month: '2-digit', 
@@ -536,15 +536,15 @@ class TelegramBotService {
       
       // Constrói a mensagem
       const message = `${targetMessage} #${baseSymbol}\n\n` +
-                     `🔍 *Alvo ${targetNumber} atingido no par #${baseSymbol}*\n` +
-                     `💰 *Lucro atual:* +${leveragedPnL.toFixed(2)}% (Alv. 15×)\n` +
-                     `⚡️ *Posição parcial realizada*\n` +
-                     `📊 *Entrada:* ${this.formatPrice(monitor.entry)}\n` +
-                     `💵 *Preço do alvo:* ${this.formatPrice(targetPrice)}\n` +
-                     `⏱️ *Tempo até o alvo:* ${days} dia${days > 1 ? 's' : ''} ${hours}h ${minutes}m\n` +
+                     `🔍 Alvo ${targetNumber} atingido no par #${baseSymbol}\n` +
+                     `💰 Lucro atual: +${leveragedPnL.toFixed(2)}% (Alv. 15×)\n` +
+                     `⚡️ Posição parcial realizada\n` +
+                     `📊 Entrada: ${this.formatPrice(monitor.entry)}\n` +
+                     `💵 Preço do alvo: ${this.formatPrice(targetPrice)}\n` +
+                     `⏱️ Tempo até o alvo: ${days} dia${days > 1 ? 's' : ''} ${hours}h ${minutes}m\n` +
                      `${stopInfo}\n\n` +
                      `${recommendation}\n\n` +
-                     `👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*`;
+                     `👑 Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin`;
       
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
@@ -585,13 +585,13 @@ class TelegramBotService {
         case 'ALL_TARGETS':
           emoji = '🌕';
           reasonText = 'TODOS OS ALVOS ATINGIDOS - LUA!';
-          message = `${emoji} *#${baseSymbol} - OPERAÇÃO FINALIZADA* ${emoji}\n\n` +
-                   `📊 *Resultado:* ${pnlEmoji} +${finalPnL.toFixed(2)}%\n` +
-                   `⚡ *Alavancado (15x):* ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
-                   `📌 *Motivo:* ${reasonText}\n\n` +
-                   `📈 *Alvos atingidos:* ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
-                   `🛑 *Stop loss:* ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                   `📅 *Duração:* ${hours}h ${minutes}m\n\n` +
+          message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
+                   `📊 Resultado: ${pnlEmoji} +${finalPnL.toFixed(2)}%\n` +
+                   `⚡ Alavancado (15x): ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
+                   `📌 Motivo: ${reasonText}\n\n` +
+                   `📈 Alvos atingidos: ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
+                   `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
+                   `📅 Duração: ${hours}h ${minutes}m\n\n` +
                    `👑 Sinais Lobo Cripto\n` +
                    `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
           break;
@@ -605,20 +605,20 @@ class TelegramBotService {
           
           if (targetsHit === 0) {
             // Mensagem quando NENHUM alvo foi atingido
-            message = `${emoji} *#${baseSymbol} - OPERAÇÃO FINALIZADA* ${emoji}\n\n` +
-                     `📊 *Resultado:* ${pnlEmoji}\n` +
-                     `⚡ *Alavancado (15x):* ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
-                     `📌 *Motivo:* ${reasonText}\n\n` +
-                     `📈 *Alvos atingidos:* Nenhum\n` +
-                     `🛑 *Stop loss:* ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                     `📅 *Duração:* ${hours}h ${minutes}m\n\n` +
-                     `💡 *GERENCIAMENTO DE RISCO:*\n` +
+            message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
+                     `📊 Resultado: ${pnlEmoji}\n` +
+                     `⚡ Alavancado (15x): ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
+                     `📌 Motivo: ${reasonText}\n\n` +
+                     `📈 Alvos atingidos: Nenhum\n` +
+                     `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
+                     `📅 Duração: ${hours}h ${minutes}m\n\n` +
+                     `💡 GERENCIAMENTO DE RISCO:\n` +
                      `- Stop loss ativado sem alvos atingidos\n` +
                      `- Perda limitada conforme estratégia\n` +
                      `- Gestão de risco protegeu o capital total\n` +
                      `- Aguarde próxima oportunidade\n` +
                      `- Mantenha disciplina!\n\n` +
-                     `📊 *ANÁLISE:*\n` +
+                     `📊 ANÁLISE:\n` +
                      `- Mercado se moveu contra nossa operação\n` +
                      `- Stop loss protegeu de perdas maiores\n` +
                      `- Próxima operação pode ser mais favorável\n\n` +
@@ -626,20 +626,20 @@ class TelegramBotService {
                      `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
           } else if (targetsHit === 1) {
             // Mensagem quando o Alvo 1 foi atingido e depois ativou stop loss
-            message = `${emoji} *#${baseSymbol} - OPERAÇÃO FINALIZADA* ${emoji}\n\n` +
-                     `📊 *Resultado:* ${pnlEmoji}\n` +
-                     `⚡ *Alavancado (15x):* ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
-                     `📌 *Motivo:* ${reasonText} APÓS ALVO 1\n\n` +
-                     `📈 *Alvos atingidos:* 1\n` +
-                     `🛑 *Stop loss:* ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                     `📅 *Duração:* ${hours}h ${minutes}m\n\n` +
-                     `💡 *GERENCIAMENTO DE RISCO:*\n` +
+            message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
+                     `📊 Resultado: ${pnlEmoji}\n` +
+                     `⚡ Alavancado (15x): ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
+                     `📌 Motivo: ${reasonText} APÓS ALVO 1\n\n` +
+                     `📈 Alvos atingidos: 1\n` +
+                     `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
+                     `📅 Duração: ${hours}h ${minutes}m\n\n` +
+                     `💡 GERENCIAMENTO DE RISCO:\n` +
                      `- Stop loss ativado após realização parcial no Alvo 1\n` +
                      `- 50% da posição foi realizada com lucro\n` +
                      `- Perda reduzida na posição restante\n` +
                      `- Estratégia de proteção funcionou\n` +
                      `- Aguarde próxima oportunidade\n\n` +
-                     `📊 *ANÁLISE:*\n` +
+                     `📊 ANÁLISE:\n` +
                      `- Mercado reverteu após atingir o primeiro alvo\n` +
                      `- Realização parcial garantiu lucro na operação\n` +
                      `- Stop móvel protegeu os ganhos parciais\n\n` +
@@ -651,13 +651,13 @@ class TelegramBotService {
         case 'PROFIT_PROTECTION':
           emoji = '🛡️';
           reasonText = 'STOP DE PROTEÇÃO ATIVADO';
-          message = `${emoji} *#${baseSymbol} - OPERAÇÃO FINALIZADA* ${emoji}\n\n` +
-                   `📊 *Resultado:* ${pnlEmoji} ${finalPnL >= 0 ? '+' : ''}${finalPnL.toFixed(2)}%\n` +
-                   `⚡ *Alavancado (15x):* ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
-                   `📌 *Motivo:* ${reasonText}\n\n` +
-                   `📈 *Alvos atingidos:* ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
-                   `🛑 *Stop loss:* ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                   `📅 *Duração:* ${hours}h ${minutes}m\n\n` +
+          message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
+                   `📊 Resultado: ${pnlEmoji} ${finalPnL >= 0 ? '+' : ''}${finalPnL.toFixed(2)}%\n` +
+                   `⚡ Alavancado (15x): ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
+                   `📌 Motivo: ${reasonText}\n\n` +
+                   `📈 Alvos atingidos: ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
+                   `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
+                   `📅 Duração: ${hours}h ${minutes}m\n\n` +
                    `👑 Sinais Lobo Cripto\n` +
                    `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
           break;
@@ -665,13 +665,13 @@ class TelegramBotService {
         case 'PROFIT_STOP':
           emoji = '✅';
           reasonText = 'STOP DE LUCRO ATIVADO';
-          message = `${emoji} *#${baseSymbol} - OPERAÇÃO FINALIZADA* ${emoji}\n\n` +
-                   `📊 *Resultado:* ${pnlEmoji} +${finalPnL.toFixed(2)}%\n` +
-                   `⚡ *Alavancado (15x):* ${leveragedPnlEmoji} +${leveragedPnL.toFixed(2)}%\n\n` +
-                   `📌 *Motivo:* ${reasonText}\n\n` +
-                   `📈 *Alvos atingidos:* ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
-                   `🛑 *Stop loss:* ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                   `📅 *Duração:* ${hours}h ${minutes}m\n\n` +
+          message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
+                   `📊 Resultado: ${pnlEmoji} +${finalPnL.toFixed(2)}%\n` +
+                   `⚡ Alavancado (15x): ${leveragedPnlEmoji} +${leveragedPnL.toFixed(2)}%\n\n` +
+                   `📌 Motivo: ${reasonText}\n\n` +
+                   `📈 Alvos atingidos: ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
+                   `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
+                   `📅 Duração: ${hours}h ${minutes}m\n\n` +
                    `👑 Sinais Lobo Cripto\n` +
                    `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
           break;
@@ -687,14 +687,14 @@ class TelegramBotService {
       
       // Se a mensagem não foi definida no switch, usa o formato padrão
       if (!message) {
-        message = `${emoji} *#${baseSymbol} - OPERAÇÃO FINALIZADA* ${emoji}\n\n` +
-                 `📊 *Resultado:* ${pnlEmoji} ${finalPnL >= 0 ? '+' : ''}${finalPnL.toFixed(2)}%\n` +
-                 `⚡ *Alavancado (15x):* ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
-                 `📌 *Motivo:* ${reasonText}\n\n` +
-                 `📈 *Alvos atingidos:* ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
-                 `🛑 *Stop loss:* ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
-                 `📅 *Duração:* ${hours}h ${minutes}m\n\n` +
-                 `� Sinais Lobo Cripto\n` +
+        message = `${emoji} #${baseSymbol} - OPERAÇÃO FINALIZADA ${emoji}\n\n` +
+                 `📊 Resultado: ${pnlEmoji} ${finalPnL >= 0 ? '+' : ''}${finalPnL.toFixed(2)}%\n` +
+                 `⚡ Alavancado (15x): ${leveragedPnlEmoji} ${leveragedPnL >= 0 ? '+' : ''}${leveragedPnL.toFixed(2)}%\n\n` +
+                 `📌 Motivo: ${reasonText}\n\n` +
+                 `📈 Alvos atingidos: ${monitor?.targetsHit || 0}/${monitor?.targets?.length || 0}\n` +
+                 `🛑 Stop loss: ${monitor?.stopLoss ? this.formatPrice(monitor.stopLoss) : 'N/A'}\n` +
+                 `📅 Duração: ${hours}h ${minutes}m\n\n` +
+                 `👑 Sinais Lobo Cripto\n` +
                  `⏰ ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
       }
 
