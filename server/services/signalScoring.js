@@ -391,9 +391,9 @@ class SignalScoringService {
     // Análise de tendência com base no RSI
     if (indicators.rsi !== undefined) {
       totalFactors++;
-      if (indicators.rsi < 30) {
+      if (indicators.rsi < 25) {
         bullishScore++; // Sobrevenda = oportunidade de compra
-      } else if (indicators.rsi > 70) {
+      } else if (indicators.rsi > 85) {
         bearishScore++; // Sobrecompra = oportunidade de venda
       }
     }

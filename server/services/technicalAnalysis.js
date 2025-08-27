@@ -102,8 +102,10 @@ class TechnicalAnalysisService {
       // RSI - Limiares ajustados para maior sensibilidade
       if (indicators.rsi !== undefined && indicators.rsi !== null) {
         totalIndicators++;
-        if (indicators.rsi > 55) bullishScore++;      // Reduzido de 60 para 55
-        else if (indicators.rsi < 45) bearishScore++; // Aumentado de 40 para 45
+        if (indicators.rsi > 85) bearishScore++;      // Sobrecompra extrema para cripto
+        else if (indicators.rsi < 25) bullishScore++; // Sobrevenda extrema para cripto
+        else if (indicators.rsi > 60) bullishScore++; // Tendência de alta moderada
+        else if (indicators.rsi < 40) bearishScore++; // Tendência de baixa moderada
       }
 
       // MACD - Mais sensível a cruzamentos
