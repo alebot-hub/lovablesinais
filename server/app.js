@@ -529,7 +529,7 @@ schedule.scheduleJob('0 23 * * 0', async () => {
 function formatWeeklyReportMessage(report) {
   const { summary, performance, insights } = report;
   
-  return `📊 *RELATÓRIO SEMANAL LOBO CRIPTO*
+  return `📊 *RELATÓRIO SEMANAL SINAIS LOBO PREMIUM*
 
 📅 *Período:* ${new Date(report.period.start).toLocaleDateString('pt-BR')} - ${new Date(report.period.end).toLocaleDateString('pt-BR')}
 
@@ -551,7 +551,7 @@ ${performance.bestTrade ? `• ${performance.bestTrade.symbol}: ${performance.be
 💡 *INSIGHTS:*
 ${insights.map(insight => `• ${insight}`).join('\n')}
 
-👑 *Bot Lobo Cripto - Relatório Automático*
+👑 *Sinais Lobo Cripto - Relatório Automático*
 ⏰ ${new Date().toLocaleString('pt-BR')}`;
 }
 
