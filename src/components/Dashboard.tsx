@@ -334,7 +334,6 @@ const Dashboard: React.FC = () => {
             {activeTab === 'sentiment' && <MarketSentiment />}
             {activeTab === 'performance' && <TradingPerformance />}
             {activeTab === 'health' && <SystemHealth />}
-            {activeTab === 'macro' && <MacroEconomicData />}
             {activeTab === 'backtest' && <BacktestResults />}
             {activeTab === 'volatility' && <VolatilityAlerts />}
           </div>
