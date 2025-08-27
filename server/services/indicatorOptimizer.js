@@ -19,13 +19,13 @@ class IndicatorOptimizer {
    */
   async optimizeIndicators(historicalData, symbol, timeframe) {
     const cacheKey = `${symbol}:${timeframe}`;
-    logger.info(`Iniciando otimização para ${cacheKey}...`);
+    console.log(`[${cacheKey}] 🔧 Iniciando otimização de indicadores...`);
     
     try {
       // Validação robusta dos dados de entrada
       if (!historicalData?.close?.length || historicalData.close.length < 50) {
         const errorMsg = `Dados insuficientes para ${cacheKey}: ${historicalData?.close?.length || 0} candles`;
-        logger.warn(errorMsg);
+        console.warn(`[${cacheKey}] ⚠️ ${errorMsg}`);
         throw new Error(errorMsg);
       }
 
@@ -34,7 +34,7 @@ class IndicatorOptimizer {
       for (const prop of requiredProps) {
         if (!Array.isArray(historicalData[prop]) || historicalData[prop].length !== historicalData.close.length) {
           const errorMsg = `Dados inválidos para ${cacheKey}: propriedade ${prop} inválida`;
-          logger.error(errorMsg);
+          console.error(`[${cacheKey}] ❌ ${errorMsg}`);
           throw new Error(errorMsg);
         }
       }
@@ -44,11 +44,11 @@ class IndicatorOptimizer {
       const CACHE_TIMEOUT = 30 * 60 * 1000; // 30 minutos
       
       if (cached && (Date.now() - new Date(cached.lastUpdated).getTime() < CACHE_TIMEOUT)) {
-        logger.info(`Usando parâmetros em cache para ${cacheKey}`);
+        console.log(`[${cacheKey}] 📦 Usando parâmetros em cache`);
         return cached;
       }
 
-      logger.info(`Otimizando indicadores para ${cacheKey}...`);
+      console.log(`[${cacheKey}] ⚙️ Otimizando indicadores...`);
       
       // Cálculo de volatilidade com tratamento de erro
       let volatility;
@@ -58,40 +58,42 @@ class IndicatorOptimizer {
           throw new Error('Volatilidade inválida');
         }
       } catch (error) {
-        logger.error(`Erro ao calcular volatilidade para ${cacheKey}:`, error);
+        console.error(`[${cacheKey}] ❌ Erro ao calcular volatilidade:`, error.message);
         volatility = 1.0; // Valor padrão seguro
       }
       
       // Timeout para evitar travamentos
-      const OPTIMIZATION_TIMEOUT = 10000; // 10 segundos
+      const OPTIMIZATION_TIMEOUT = 5000; // 5 segundos (reduzido)
       
       // Função com timeout para evitar travamentos
       const withTimeout = (promise, ms) => {
         return Promise.race([
           promise,
           new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Tempo limite excedido')), ms)
+            setTimeout(() => reject(new Error(`Timeout de ${ms}ms excedido`)), ms)
           )
         ]);
       };
+      
+      console.log(`[${cacheKey}] 🔧 Otimizando RSI, MACD e MA...`);
       
       // Otimização com timeout
       const optimizationPromises = {
         RSI: withTimeout(this.optimizeRSI(historicalData, volatility), OPTIMIZATION_TIMEOUT)
           .catch(err => {
-            logger.error(`Erro ao otimizar RSI para ${cacheKey}:`, err);
+            console.error(`[${cacheKey}] ❌ Erro ao otimizar RSI:`, err.message);
             return this.getDefaultParams().RSI;
           }),
           
         MACD: withTimeout(this.optimizeMACD(historicalData, volatility), OPTIMIZATION_TIMEOUT)
           .catch(err => {
-            logger.error(`Erro ao otimizar MACD para ${cacheKey}:`, err);
+            console.error(`[${cacheKey}] ❌ Erro ao otimizar MACD:`, err.message);
             return this.getDefaultParams().MACD;
           }),
           
         MA: withTimeout(this.optimizeMovingAverages(historicalData, volatility), OPTIMIZATION_TIMEOUT)
           .catch(err => {
-            logger.error(`Erro ao otimizar Médias Móveis para ${cacheKey}:`, err);
+            console.error(`[${cacheKey}] ❌ Erro ao otimizar MA:`, err.message);
             return this.getDefaultParams().MA;
           })
       };
@@ -117,24 +119,19 @@ class IndicatorOptimizer {
 
       // Valida os resultados
       if (!optimized.RSI || !optimized.MACD || !optimized.MA) {
-        logger.warn(`Falha na otimização para ${cacheKey}, usando parâmetros padrão`);
+        console.warn(`[${cacheKey}] ⚠️ Falha na otimização, usando parâmetros padrão`);
         return this.getDefaultParams();
       }
 
       // Atualiza cache
       this.optimizedParams.set(cacheKey, optimized);
       
-      logger.info(`Parâmetros otimizados para ${cacheKey}:`, {
-        RSI: optimized.RSI.period,
-        MACD: `${optimized.MACD.fastPeriod}/${optimized.MACD.slowPeriod}/${optimized.MACD.signalPeriod}`,
-        MA: `${optimized.MA.shortPeriod}/${optimized.MA.longPeriod}`,
-        volatility: `${volatility.toFixed(2)}% (${this.getVolatilityLevel(volatility)})`
-      });
+      console.log(`[${cacheKey}] ✅ Otimização concluída: RSI=${optimized.RSI.period}, MACD=${optimized.MACD.fastPeriod}/${optimized.MACD.slowPeriod}/${optimized.MACD.signalPeriod}`);
       
       return optimized;
       
     } catch (error) {
-      logger.error(`Erro crítico na otimização para ${cacheKey}:`, error);
+      console.error(`[${cacheKey}] ❌ Erro crítico na otimização:`, error.message);
       // Retorna parâmetros padrão em caso de erro
       return this.getDefaultParams();
     }

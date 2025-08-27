@@ -68,6 +68,9 @@ class AdaptiveScoringService {
    * Calcula score adaptativo baseado na performance histórica
    */
   calculateAdaptiveScore(data, indicators, patterns, mlProbability, marketTrend = null, symbol, bitcoinCorrelation = null) {
+    const logPrefix = `[${symbol}]`;
+    console.log(`${logPrefix} 🎯 Iniciando cálculo de score adaptativo...`);
+    
     // Reset contador diário se mudou o dia
     const today = new Date().toDateString();
     if (this.todayDate !== today) {
@@ -78,7 +81,7 @@ class AdaptiveScoringService {
     
     // Verifica blacklist
     if (this.isSymbolBlacklisted(symbol)) {
-      console.log(`🚫 ${symbol} está na blacklist`);
+      console.log(`${logPrefix} 🚫 Símbolo está na blacklist`);
       return {
         totalScore: 0,
         details: { blacklisted: true },
@@ -87,20 +90,24 @@ class AdaptiveScoringService {
       };
     }
 
+    console.log(`${logPrefix} 📊 Detectando regime de mercado...`);
     // Detecta regime de mercado atual
     this.updateMarketRegime(indicators, patterns);
 
+    console.log(`${logPrefix} 🧮 Calculando score base...`);
     // Calcula score base
     const baseScore = this.calculateBaseScore(data, indicators, patterns, mlProbability, bitcoinCorrelation);
-    console.log(`📊 [${symbol}] Score base: ${baseScore.total}`);
+    console.log(`${logPrefix} 📊 Score base: ${baseScore.total.toFixed(2)}`);
 
+    console.log(`${logPrefix} 🔄 Aplicando ajustes adaptativos...`);
     // Aplica ajustes adaptativos
     const adaptiveAdjustments = this.applyAdaptiveAdjustments(baseScore, symbol);
-    console.log(`🔄 [${symbol}] Ajustes adaptativos:`, adaptiveAdjustments);
+    console.log(`${logPrefix} 🔄 Ajustes adaptativos: ${adaptiveAdjustments.adjustedScore.toFixed(2)}`);
 
+    console.log(`${logPrefix} 📈 Aplicando ajustes de regime...`);
     // Aplica ajustes por regime de mercado
     const regimeAdjustments = this.applyMarketRegimeAdjustments(adaptiveAdjustments);
-    console.log(`📈 [${symbol}] Ajustes de regime:`, regimeAdjustments);
+    console.log(`${logPrefix} 📈 Ajustes de regime: ${regimeAdjustments.adjustedScore.toFixed(2)}`);
 
     // Score final com limites
     const finalScore = Math.min(Math.max(regimeAdjustments.adjustedScore, 0), 100);
@@ -111,13 +118,12 @@ class AdaptiveScoringService {
     const isValid = finalScore >= minScore;
 
     // Log detalhado
-    console.log(`🎯 [${symbol}] Score final: ${finalScore.toFixed(1)}% (${isValid ? 'VÁLIDO' : 'INVÁLIDO'})`, {
-      baseScore: baseScore.total,
-      adaptiveAdjustments: adaptiveAdjustments.adjustedScore - baseScore.total,
-      regimeAdjustments: regimeAdjustments.adjustedScore - adaptiveAdjustments.adjustedScore,
-      finalScore,
-      minRequired: minScore
-    });
+    console.log(`${logPrefix} 🎯 Score final: ${finalScore.toFixed(1)}% (${isValid ? 'VÁLIDO' : 'INVÁLIDO'})`);
+    console.log(`${logPrefix} 📊 Detalhes: Base=${baseScore.total.toFixed(1)}, Min=${minScore}, Regime=${this.marketRegime}`);
+    
+    if (!isValid) {
+      console.log(`${logPrefix} ❌ Rejeitado: Score ${finalScore.toFixed(1)} < ${minScore} (regime: ${this.marketRegime})`);
+    }
 
     return {
       totalScore: finalScore,

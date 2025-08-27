@@ -119,52 +119,41 @@ export async function analyzeSignals() {
         totalAnalyzed++;
         
         try {
-          const data = await binanceService.getOHLCVData(symbol, timeframe, 200);
-          if (!data?.close?.length || data.close.length < 50) {
-            throw new Error(`Dados insuficientes (${data?.close?.length || 0})`);
-          }
-
-          const indicators = await technicalAnalysis.calculateIndicators(data, symbol, timeframe);
-          if (!indicators || Object.keys(indicators).length === 0) {
-            throw new Error('Falha nos indicadores');
-          }
-
-          const patterns = patternDetection.detectPatterns(data);
-          const mlProbability = await machineLearning.predict(symbol, data, indicators).catch(() => 0);
+          console.log(`🔍 ${logPrefix} Iniciando análise...`);
           
-          const signalTrend = signalScoring.detectSignalTrend(indicators, patterns);
-          const btcCorrelation = await bitcoinCorrelation.analyzeCorrelation(symbol, signalTrend, data).catch(() => ({}));
-          
-          signalScoring.setCurrentTimeframe(timeframe);
-          const scoring = adaptiveScoring.calculateAdaptiveScore(
-            data, indicators, patterns, mlProbability, signalTrend, symbol, btcCorrelation
+          // Timeout para evitar travamentos
+          const analysisPromise = analyzeSymbolTimeframe(symbol, timeframe, logPrefix);
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout na análise')), 30000)
           );
-
-          console.log(`📊 ${logPrefix} Score: ${scoring.totalScore.toFixed(1)}% (${scoring.isValid ? '✅ VÁLIDO' : '❌ INVÁLIDO'})`);
-
-          if (scoring.isValid) {
+          
+          const result = await Promise.race([analysisPromise, timeoutPromise]);
+          
+          if (result && result.isValid) {
             validSignals++;
-            if (scoring.totalScore > bestScore) {
+            if (result.totalScore > bestScore) {
               const riskCheck = riskManagement.canOpenTrade(symbol, telegramBot.activeMonitors);
               if (riskCheck.allowed) {
                 bestSignal = {
                   symbol,
                   timeframe,
-                  entry: data.close[data.close.length - 1],
-                  probability: scoring.totalScore,
-                  trend: signalTrend,
-                  indicators,
-                  patterns,
-                  btcCorrelation,
+                  entry: result.entry,
+                  probability: result.totalScore,
+                  trend: result.trend,
+                  indicators: result.indicators,
+                  patterns: result.patterns,
+                  btcCorrelation: result.btcCorrelation,
                   regime: adaptiveScoring.marketRegime,
                   riskCheck,
                   timestamp: new Date()
                 };
-                bestScore = scoring.totalScore;
+                bestScore = result.totalScore;
                 console.log(`✅ ${logPrefix} NOVO MELHOR SINAL (${bestScore.toFixed(1)}%)`);
               }
             }
           }
+          
+          console.log(`✅ ${logPrefix} Análise concluída`);
           
         } catch (error) {
           errors.push(`${symbol} ${timeframe}: ${error.message}`);
@@ -189,6 +178,57 @@ export async function analyzeSignals() {
   } finally {
     isAnalyzing = false;
     console.log(`\n🏁 Análise #${analysisCount} concluída`);
+  }
+}
+
+async function analyzeSymbolTimeframe(symbol, timeframe, logPrefix) {
+  try {
+    console.log(`${logPrefix} 📊 Obtendo dados...`);
+    const data = await binanceService.getOHLCVData(symbol, timeframe, 200);
+    
+    if (!data?.close?.length || data.close.length < 50) {
+      throw new Error(`Dados insuficientes (${data?.close?.length || 0})`);
+    }
+    
+    console.log(`${logPrefix} 📈 Calculando indicadores...`);
+    const indicators = await technicalAnalysis.calculateIndicators(data, symbol, timeframe);
+    
+    if (!indicators || Object.keys(indicators).length === 0) {
+      throw new Error('Falha nos indicadores');
+    }
+    
+    console.log(`${logPrefix} 🔍 Detectando padrões...`);
+    const patterns = patternDetection.detectPatterns(data);
+    
+    console.log(`${logPrefix} 🤖 Previsão ML...`);
+    const mlProbability = await machineLearning.predict(symbol, data, indicators).catch(() => 0);
+    
+    console.log(`${logPrefix} 📊 Detectando tendência...`);
+    const signalTrend = signalScoring.detectSignalTrend(indicators, patterns);
+    
+    console.log(`${logPrefix} ₿ Analisando correlação BTC...`);
+    const btcCorrelation = await bitcoinCorrelation.analyzeCorrelation(symbol, signalTrend, data).catch(() => ({}));
+    
+    console.log(`${logPrefix} 🎯 Calculando score...`);
+    signalScoring.setCurrentTimeframe(timeframe);
+    const scoring = adaptiveScoring.calculateAdaptiveScore(
+      data, indicators, patterns, mlProbability, signalTrend, symbol, btcCorrelation
+    );
+
+    console.log(`${logPrefix} Score: ${scoring.totalScore.toFixed(1)}% (${scoring.isValid ? '✅ VÁLIDO' : '❌ INVÁLIDO'})`);
+    
+    return {
+      ...scoring,
+      entry: data.close[data.close.length - 1],
+      trend: signalTrend,
+      indicators,
+      patterns,
+      btcCorrelation
+    };
+    
+  } catch (error) {
+    console.error(`${logPrefix} ❌ Erro na análise: ${error.message}`);
+    throw error;
   }
 }
 
