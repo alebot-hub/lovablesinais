@@ -64,7 +64,9 @@ class TelegramBotService {
     const targets = signal.targets.map((target, index) => {
       const targetNum = index + 1;
       const emoji = targetNum === 6 ? '🌕' : `${targetNum}️⃣`;
-      const label = targetNum === 6 ? 'Alvo 6 - Lua!' : `Alvo ${targetNum}`;
+      const label = targetNum === 6 ? 
+        (isLong ? 'Alvo 6 - Lua!' : 'Alvo 6 - Queda Infinita!') : 
+        `Alvo ${targetNum}`;
       return `${emoji} *${label}:* ${target.toFixed(2).replace('.', '․')}`;
     }).join('\n');
 
