@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import schedule from 'node-schedule';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createServer } from 'http';
 
 dotenv.config();
 
@@ -59,6 +60,12 @@ signalScoring.adaptiveScoring = adaptiveScoring;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Middleware de logging para debug
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
+  next();
+});
 
 app.use(cors());
 app.use(express.json());
@@ -559,8 +566,26 @@ process.on('SIGTERM', () => {
   }
 });
 
-app.listen(PORT, () => {
+// Cria servidor HTTP com tratamento de erro
+const server = createServer(app);
+
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Porta ${PORT} já está em uso. Tentando porta alternativa...`);
+    const alternativePort = PORT + 1;
+    server.listen(alternativePort, () => {
+      console.log(`🌐 Servidor rodando na porta alternativa ${alternativePort}`);
+      startBot();
+    });
+  } else {
+    console.error('❌ Erro no servidor:', error);
+    process.exit(1);
+  }
+});
+
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 Servidor rodando na porta ${PORT}`);
+  console.log(`🔗 Acesse: http://localhost:${PORT}`);
   startBot();
 });
 

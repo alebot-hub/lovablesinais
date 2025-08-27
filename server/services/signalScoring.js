@@ -490,72 +490,80 @@ class SignalScoringService {
     
     console.log('🔍 Detectando tendência do sinal...');
     
-    // Análise de tendência com base no RSI - BALANCEADO PARA COMPRA E VENDA
+    // Análise RSI - BALANCEADO para compra E venda
     if (indicators.rsi !== undefined) {
       totalFactors++;
-      if (indicators.rsi < 25) {
-        bullishScore += 2; // Sobrevenda extrema
+      if (indicators.rsi <= 25) {
+        bullishScore += 2; // Sobrevenda extrema - COMPRA
         console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BULLISH EXTREMO (sobrevenda)`);
-      } else if (indicators.rsi < 35) {
-        bullishScore++; // Sobrevenda
+      } else if (indicators.rsi <= 35) {
+        bullishScore++; // Sobrevenda - COMPRA
         console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BULLISH (sobrevenda)`);
-      } else if (indicators.rsi > 75) {
-        bearishScore += 2; // Sobrecompra extrema
+      } else if (indicators.rsi >= 75) {
+        bearishScore += 2; // Sobrecompra extrema - VENDA
         console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BEARISH EXTREMO (sobrecompra)`);
-      } else if (indicators.rsi > 65) {
-        bearishScore++; // Sobrecompra
+      } else if (indicators.rsi >= 65) {
+        bearishScore++; // Sobrecompra - VENDA
         console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BEARISH (sobrecompra)`);
       } else {
         console.log(`  RSI: ${indicators.rsi.toFixed(2)} → NEUTRAL`);
       }
     }
     
-    // Análise de tendência com base no MACD - MELHORADO
+    // Análise MACD - BALANCEADO para compra E venda
     if (indicators.macd && indicators.macd.histogram !== undefined) {
       totalFactors++;
       const histogramStrength = Math.abs(indicators.macd.histogram) * 1000000;
       
-      if (indicators.macd.histogram > 0) {
+      if (indicators.macd.histogram > 0.000001) {
         if (histogramStrength > 5) {
-          bullishScore += 2; // MACD muito forte
+          bullishScore += 2; // MACD muito forte - COMPRA
         } else {
-          bullishScore++; // MACD moderado
+          bullishScore++; // MACD moderado - COMPRA
         }
-      } else if (indicators.macd.histogram < 0) {
+        console.log(`  MACD: ${indicators.macd.histogram.toFixed(8)} → BULLISH (força: ${histogramStrength.toFixed(2)})`);
+      } else if (indicators.macd.histogram < -0.000001) {
         if (histogramStrength > 5) {
-          bearishScore += 2; // MACD muito forte para baixo
+          bearishScore += 2; // MACD muito forte - VENDA
         } else {
-          bearishScore++; // MACD moderado para baixo
+          bearishScore++; // MACD moderado - VENDA
         }
+        console.log(`  MACD: ${indicators.macd.histogram.toFixed(8)} → BEARISH (força: ${histogramStrength.toFixed(2)})`);
+      } else {
+        console.log(`  MACD: ${indicators.macd.histogram.toFixed(8)} → NEUTRAL (muito fraco)`);
       }
-      console.log(`  MACD: ${indicators.macd.histogram.toFixed(8)} → ${indicators.macd.histogram > 0 ? 'BULLISH' : 'BEARISH'} (força: ${histogramStrength.toFixed(2)})`);
     }
     
-    // Análise de tendência com base nas Médias Móveis - MELHORADO
+    // Análise Médias Móveis - BALANCEADO para compra E venda
     if (indicators.ma21 !== undefined && indicators.ma200 !== undefined) {
       totalFactors++;
       const maDiff = ((indicators.ma21 - indicators.ma200) / indicators.ma200) * 100;
       
-      if (maDiff > 2) {
-        bullishScore += 2; // Forte tendência de alta
-      } else if (maDiff > 0.5) {
-        bullishScore++; // Tendência de alta moderada
-      } else if (maDiff < -2) {
-        bearishScore += 2; // Forte tendência de baixa
-      } else if (maDiff < -0.5) {
-        bearishScore++; // Tendência de baixa moderada
+      if (maDiff >= 2) {
+        bullishScore += 2; // Forte tendência de alta - COMPRA
+        console.log(`  MA: ${maDiff.toFixed(2)}% → BULLISH FORTE`);
+      } else if (maDiff >= 0.5) {
+        bullishScore++; // Tendência de alta moderada - COMPRA
+        console.log(`  MA: ${maDiff.toFixed(2)}% → BULLISH`);
+      } else if (maDiff <= -2) {
+        bearishScore += 2; // Forte tendência de baixa - VENDA
+        console.log(`  MA: ${maDiff.toFixed(2)}% → BEARISH FORTE`);
+      } else if (maDiff <= -0.5) {
+        bearishScore++; // Tendência de baixa moderada - VENDA
+        console.log(`  MA: ${maDiff.toFixed(2)}% → BEARISH`);
+      } else {
+        console.log(`  MA: ${maDiff.toFixed(2)}% → NEUTRAL`);
       }
-      console.log(`  MA: ${maDiff.toFixed(2)}% → ${maDiff > 0.5 ? 'BULLISH' : maDiff < -0.5 ? 'BEARISH' : 'NEUTRAL'}`);
     }
     
-    // Análise de padrões - EXPANDIDO
+    // Análise de padrões - BALANCEADO para compra E venda
     if (patterns.breakout) {
       totalFactors++;
       if (patterns.breakout.type === 'BULLISH_BREAKOUT') {
-        bullishScore += 2;
+        bullishScore += 2; // Rompimento de alta - COMPRA
         console.log(`  Breakout: BULLISH_BREAKOUT`);
       } else if (patterns.breakout.type === 'BEARISH_BREAKOUT') {
-        bearishScore += 2;
+        bearishScore += 2; // Rompimento de baixa - VENDA
         console.log(`  Breakout: BEARISH_BREAKOUT`);
       }
     }
@@ -564,16 +572,16 @@ class SignalScoringService {
       patterns.candlestick.forEach(pattern => {
         totalFactors++;
         if (pattern.bias === 'BULLISH') {
-          bullishScore++;
+          bullishScore++; // Padrão de alta - COMPRA
           console.log(`  Candlestick: ${pattern.type} (BULLISH)`);
         } else if (pattern.bias === 'BEARISH') {
-          bearishScore++;
+          bearishScore++; // Padrão de baixa - VENDA
           console.log(`  Candlestick: ${pattern.type} (BEARISH)`);
         }
       });
     }
     
-    // Volume como confirmação
+    // Volume como confirmação - BALANCEADO
     if (indicators.volume && indicators.volume.volumeRatio > 1.5) {
       // Volume alto confirma a direção predominante
       if (bullishScore > bearishScore) {
@@ -596,21 +604,21 @@ class SignalScoringService {
     
     console.log(`🎯 Pontuação de tendência: BULLISH=${bullishScore}/${totalFactors} (${(bullishRatio*100).toFixed(1)}%), BEARISH=${bearishScore}/${totalFactors} (${(bearishRatio*100).toFixed(1)}%)`);
     
-    // Threshold ajustado para detectar melhor as tendências
-    if (bullishRatio >= 0.6) {
+    // Threshold balanceado para detectar COMPRA E VENDA
+    if (bullishRatio >= 0.55) {
       console.log('✅ Tendência BULLISH detectada');
       return 'BULLISH';
     }
-    if (bearishRatio >= 0.6) {
+    if (bearishRatio >= 0.55) {
       console.log('✅ Tendência BEARISH detectada');
       return 'BEARISH';
     }
     
-    // Se há empate ou diferença pequena, considera o mais forte
-    if (bullishScore > bearishScore) {
+    // Se há diferença pequena, considera o mais forte
+    if (bullishScore > bearishScore && bullishRatio >= 0.4) {
       console.log('⚖️ Leve tendência BULLISH');
       return 'BULLISH';
-    } else if (bearishScore > bullishScore) {
+    } else if (bearishScore > bullishScore && bearishRatio >= 0.4) {
       console.log('⚖️ Leve tendência BEARISH');
       return 'BEARISH';
     }
