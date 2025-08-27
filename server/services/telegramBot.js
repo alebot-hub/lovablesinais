@@ -506,15 +506,6 @@ ${bitcoinWarning}
       console.error(`❌ Erro ao enviar stop móvel:`, error.message);
     }
   }
-          }
-        }
-      } else {
-        console.log(`⏳ [${symbol}] Aguardando movimento para alvo...`);
-      }
-    } catch (error) {
-      console.error(`❌ Erro ao verificar alvos ${symbol}:`, error.message);
-    }
-  }
 
   /**
    * Trata stop loss atingido
@@ -767,7 +758,7 @@ ${bitcoinWarning}
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     
     if (days > 0) {
-      return `${days} dias ${hours}h`;
+      return `${days} dias ${hours}h ${minutes}m`;
     } else {
       return `${hours}h ${minutes}m`;
     }
