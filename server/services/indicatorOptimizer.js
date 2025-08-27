@@ -412,8 +412,8 @@ class IndicatorOptimizer {
     return {
       RSI: { 
         period: 10,  // Período mais curto para maior sensibilidade
-        overbought: 70,  // Limiares ajustados
-        oversold: 30
+        overbought: 85,  // Limiares ajustados para cripto
+        oversold: 25
       },
       MACD: {
         fastPeriod: 10,

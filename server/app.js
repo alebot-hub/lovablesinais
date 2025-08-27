@@ -505,7 +505,7 @@ async function startBot() {
     }
     
     console.log(`📊 Monitorando ${CRYPTO_SYMBOLS.length} símbolos`);
-    console.log(`⏰ Análise automática a cada 2 horas`);
+    console.log(`⏰ Análise automática a cada 1 hora`);
     console.log(`🎯 Threshold mínimo: ${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY}%`);
     
     setTimeout(() => {
