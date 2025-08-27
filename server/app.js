@@ -157,7 +157,7 @@ export async function analyzeSignals() {
             data, indicators, patterns, mlProbability, signalTrend, symbol, btcCorrelation
           );
 
-          console.log(`📊 ${logPrefix} Score: ${scoring.totalScore.toFixed(1)}%`);
+          console.log(`📊 ${logPrefix} Score: ${scoring.totalScore.toFixed(1)}% (min: ${scoring.isValid ? 'PASSOU' : 'FALHOU'})`);
 
           if (scoring.isValid) {
             validSignals++;
@@ -169,6 +169,9 @@ export async function analyzeSignals() {
                   timeframe,
                   entry: data.close[data.close.length - 1],
                   probability: scoring.totalScore,
+                  trend: signalTrend,
+                  indicators,
+                  patterns,
                   riskCheck,
                   timestamp: new Date()
                 };
@@ -176,6 +179,8 @@ export async function analyzeSignals() {
                 console.log(`✅ ${logPrefix} NOVO MELHOR SINAL (${bestScore.toFixed(1)}%)`);
               }
             }
+              btcCorrelation,
+              regime: adaptiveScoring.marketRegime,
           }
           
         } catch (error) {
@@ -280,7 +285,7 @@ async function processBestSignal(signal) {
         adaptiveScoring
       );
       
-      console.log(`📤 Sinal enviado e monitoramento iniciado para ${signal.symbol}`);
+      console.log(`📊 ${logPrefix} Score: ${scoring.totalScore.toFixed(1)}% (${scoring.isValid ? '✅ VÁLIDO' : '❌ INVÁLIDO'}) - Regime: ${adaptiveScoring.marketRegime}`);
       console.log(`✅ Sinal enviado: ${signal.symbol} ${signal.timeframe} (${signal.probability.toFixed(1)}%)`);
     } else {
       // Remove monitor se envio falhou
@@ -423,11 +428,32 @@ app.get('/api/signals/latest', (req, res) => {
 // Sentimento do mercado
 app.get('/api/market/sentiment', async (req, res) => {
   try {
-    const sentiment = await marketAnalysis.analyzeMarketSentiment();
+    const sentiment = await Promise.race([
+      marketAnalysis.analyzeMarketSentiment(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout na análise de sentimento')), 15000)
+      )
+    ]);
     res.json(sentiment);
   } catch (error) {
     console.error('Erro na rota /api/market/sentiment:', error.message);
-    res.status(500).json({ error: 'Erro ao obter sentimento do mercado' });
+    
+    // Retorna dados de fallback ao invés de erro 500
+    const fallbackSentiment = {
+      overall: 'NEUTRO',
+      fearGreedIndex: 50,
+      fearGreedLabel: 'Neutro',
+      isRealFearGreed: false,
+      totalVolume: 0,
+      volatility: 2,
+      assetsUp: 35,
+      assetsDown: 35,
+      volumeVsAverage: 1,
+      analysis: ['Dados temporariamente indisponíveis - usando fallback'],
+      timestamp: new Date().toISOString()
+    };
+    
+    res.json(fallbackSentiment);
   }
 });
 

@@ -391,6 +391,37 @@ class SignalScoringService {
   }
 
   /**
+   * Calcula níveis de trading (entrada, alvos, stop loss)
+   */
+  calculateTradingLevels(entryPrice, trend = 'BULLISH') {
+    const entry = entryPrice;
+    const isLong = trend === 'BULLISH';
+    
+    // Alvos ajustados para maior sensibilidade
+    const targetPercentages = [1.2, 2.4, 3.6, 4.8, 6.0, 7.2]; // Reduzido de [1.5, 3.0, ...]
+    const stopLossPercentage = 2.5; // Reduzido de 3.0
+    
+    let targets, stopLoss;
+    
+    if (isLong) {
+      targets = targetPercentages.map(pct => entry * (1 + pct / 100));
+      stopLoss = entry * (1 - stopLossPercentage / 100);
+    } else {
+      targets = targetPercentages.map(pct => entry * (1 - pct / 100));
+      stopLoss = entry * (1 + stopLossPercentage / 100);
+    }
+    
+    const riskRewardRatio = targetPercentages[0] / stopLossPercentage;
+    
+    return {
+      entry,
+      targets,
+      stopLoss,
+      riskRewardRatio
+    };
+  }
+
+  /**
    * Aplica filtros de qualidade ao sinal
    */
   applyQualityFilters(data, indicators, patterns, confirmations) {

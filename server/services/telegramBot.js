@@ -132,6 +132,10 @@ class TelegramBotService {
     const trendEmoji = isLong ? '🟢 COMPRA' : '🔴 VENDA';
     const timeframe = signal.timeframe || '4h'; // Default para 4h se não especificado
     
+    // Adiciona informação do regime de mercado
+    const regime = signal.regime || 'NORMAL';
+    const regimeEmoji = regime === 'BEAR' ? '🐻' : regime === 'BULL' ? '🐂' : regime === 'VOLATILE' ? '⚡' : '⚖️';
+    
     // Determina o sentimento e interpretação
     const sentimentScore = signal.sentimentScore || 50;
     let sentimentEmoji = '🟡';
@@ -161,6 +165,11 @@ class TelegramBotService {
       }
     }
     
+    // Adiciona correlação com Bitcoin se disponível
+    if (signal.btcCorrelation && signal.btcCorrelation.btcTrend) {
+      keyFactors.push(`Bitcoin ${signal.btcCorrelation.btcTrend.toLowerCase()} (força: ${signal.btcCorrelation.btcStrength || 0})`);
+    }
+    
     // Adiciona fatores padrão se não houver suficientes
     while (keyFactors.length < 3) {
       keyFactors.push('Análise de volume e preço favorável');
@@ -168,8 +177,8 @@ class TelegramBotService {
     
     // Verifica se há conflito com a tendência do Bitcoin
     let riskWarning = '';
-    if (signal.btcTrend) {
-      const btcTrendUp = signal.btcTrend === 'up' || signal.btcTrend === 'BULLISH';
+    if (signal.btcCorrelation && signal.btcCorrelation.btcTrend) {
+      const btcTrendUp = signal.btcCorrelation.btcTrend === 'BULLISH';
       if ((isLong && !btcTrendUp) || (!isLong && btcTrendUp)) {
         riskWarning = `\n⚠️ *ATENÇÃO:* O Bitcoin está em tendência de ${btcTrendUp ? 'ALTA' : 'BAIXA'}. `;
         riskWarning += `Operações ${isLong ? 'COMPRA' : 'VENDA'} podem ter risco elevado.`;
@@ -177,11 +186,12 @@ class TelegramBotService {
     }
 
     // Monta a mensagem
-    let message = `🚨 LOBO PREMIUM #${this.escapeMarkdown(baseSymbol)} ${trendEmoji} (Futures)\n\n`;
+    let message = `🚨 LOBO PREMIUM #${this.escapeMarkdown(baseSymbol)} ${trendEmoji} ${regimeEmoji}\n\n`;
     
     // Informações básicas
     message += `💰 *${this.escapeMarkdown(signal.symbol)}* (tg://search_hashtag?hashtag=${encodeURIComponent(baseSymbol)}) Futures\n`;
     message += `📊 *TEMPO GRÁFICO:* ${this.escapeMarkdown(timeframe)}\n`;
+    message += `🌐 *REGIME:* ${this.escapeMarkdown(regime)} ${regimeEmoji}\n`;
     message += `📈 *Alavancagem sugerida:* 15x\n`;
     message += `🎯 *Probabilidade:* ${signal.probability || 'N/A'}%\n\n`;
     

@@ -105,8 +105,9 @@ class AdaptiveScoringService {
     // Score final com limites
     const finalScore = Math.min(Math.max(regimeAdjustments.adjustedScore, 0), 100);
     
-    // Determina se é válido (threshold mais baixo para permitir mais sinais)
-    const minScore = marketTrend === 'NEUTRAL' ? 50 : 60; // Ajusta o mínimo baseado na tendência
+    // Determina se é válido (threshold ajustado para mercado bear)
+    const minScore = this.marketRegime === 'BEAR' ? 40 : 
+                    this.marketRegime === 'VOLATILE' ? 45 : 50; // Mais sensível
     const isValid = finalScore >= minScore;
 
     // Log detalhado
