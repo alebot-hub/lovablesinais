@@ -494,27 +494,27 @@ class TelegramBotService {
       switch(targetNumber) {
         case 1:
           targetMessage = '✅ *PRIMEIRO ALVO ATINGIDO*';
-          recommendation = '💰 *Recomendação:* Realize 50% da posição e mova o stop para o ponto de entrada';
+          recommendation = '💰 *Recomendação:* Realize 50% da posição';
           break;
         case 2:
           targetMessage = '🎯 *SEGUNDO ALVO ATINGIDO*';
-          recommendation = '💰 *Recomendação:* Realize 15% da posição e mova o stop para o Alvo 1';
+          recommendation = '💰 *Recomendação:* Realize 15% da posição e mova o stop para o ponto de entrada';
           break;
         case 3:
           targetMessage = '🎯 *TERCEIRO ALVO ATINGIDO*';
-          recommendation = '💰 *Recomendação:* Realize 15% da posição e mova o stop para o Alvo 2';
+          recommendation = '💰 *Recomendação:* Realize 10% da posição e mova o stop para o Alvo 1';
           break;
         case 4:
           targetMessage = '🎯 *QUARTO ALVO ATINGIDO*';
-          recommendation = '💰 *Recomendação:* Realize 10% da posição e mova o stop para o Alvo 3';
+          recommendation = '💰 *Recomendação:* Realize 10% da posição e mova o stop para o Alvo 2';
           break;
         case 5:
           targetMessage = '🎯 *QUINTO ALVO ATINGIDO*';
-          recommendation = '💰 *Recomendação:* Realize 5% da posição e mova o stop para o Alvo 4';
+          recommendation = '💰 *Recomendação:* Realize 10% da posição e mova o stop para o Alvo 3';
           break;
         case 6:
           targetMessage = '🌕 *ALVO FINAL ATINGIDO!*';
-          recommendation = '💰 *Recomendação:* Operação concluída com sucesso! Todos os alvos foram atingidos.';
+          recommendation = '💰 *Recomendação:* Realize o restante da posição. Operação concluída com sucesso!';
           break;
         default:
           targetMessage = `🎯 ALVO ${targetNumber} ATINGIDO`;
@@ -1098,33 +1098,33 @@ class TelegramBotService {
       const riskConfig = {
         1: {
           stopType: 'BREAKEVEN',
-          positionSize: 0.5, // 50% da posição
-          message: 'Realize 50% da posição e mova o stop para o ponto de entrada'
+          positionSize: 0.5, // 50% da posição  
+          message: 'Realize 50% da posição'
         },
         2: {
-          stopType: 'TARGET_1',
+          stopType: 'BREAKEVEN',
           positionSize: 0.15, // 15% da posição
-          message: 'Realize 15% da posição e mova o stop para o Alvo 1'
+          message: 'Realize 15% da posição e mova o stop para o ponto de entrada'
         },
         3: {
-          stopType: 'TARGET_2',
-          positionSize: 0.15, // 15% da posição
-          message: 'Realize 15% da posição e mova o stop para o Alvo 2'
+          stopType: 'TARGET_1',
+          positionSize: 0.1, // 10% da posição
+          message: 'Realize 10% da posição e mova o stop para o Alvo 1'
         },
         4: {
+          stopType: 'TARGET_2',
+          positionSize: 0.1, // 10% da posição
+          message: 'Realize 10% da posição e mova o stop para o Alvo 2'
+        },
+        5: {
           stopType: 'TARGET_3',
           positionSize: 0.1, // 10% da posição
           message: 'Realize 10% da posição e mova o stop para o Alvo 3'
         },
-        5: {
-          stopType: 'TARGET_4',
-          positionSize: 0.05, // 5% da posição
-          message: 'Realize 5% da posição e mova o stop para o Alvo 4'
-        },
         6: {
-          stopType: 'TARGET_5',
-          positionSize: 0.05, // 5% da posição (restante)
-          message: 'Operação concluída com sucesso! Todos os alvos foram atingidos.'
+          stopType: 'COMPLETE',
+          positionSize: 0.15, // 15% da posição (restante)
+          message: 'Realize o restante da posição. Operação concluída com sucesso!'
         }
       };
 
