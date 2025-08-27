@@ -215,6 +215,12 @@ async function analyzeSymbolTimeframe(symbol, timeframe, logPrefix) {
     
     console.log(`${logPrefix} 🎯 Calculando score...`);
     signalScoring.setCurrentTimeframe(timeframe);
+    
+    // Define a tendência do sinal para os ajustes de regime
+    if (app.adaptiveScoring) {
+      app.adaptiveScoring.setCurrentSignalTrend(signalTrend);
+    }
+    
     const scoring = adaptiveScoring.calculateAdaptiveScore(
       data, indicators, patterns, mlProbability, signalTrend, symbol, btcCorrelation
     );
