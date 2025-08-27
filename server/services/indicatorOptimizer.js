@@ -201,8 +201,30 @@ class IndicatorOptimizer {
   }
 
   calculateRSIScore(currentRsi, period, volatility) {
-    // Implementação simplificada
-    return currentRsi / period * volatility;
+    try {
+      // Score baseado na efetividade do RSI para detectar reversões
+      let score = 0;
+      
+      // RSI em zonas extremas tem maior valor
+      if (currentRsi <= 30) {
+        score = 100 - currentRsi; // Quanto menor, melhor para compra
+      } else if (currentRsi >= 70) {
+        score = currentRsi - 30; // Quanto maior, melhor para venda
+      } else {
+        score = 50 - Math.abs(currentRsi - 50); // Penaliza zona neutra
+      }
+      
+      // Ajusta por volatilidade
+      score *= (1 + volatility * 0.1);
+      
+      // Ajusta por período (períodos menores são mais sensíveis)
+      score *= (20 / period);
+      
+      return Math.max(0, score);
+    } catch (error) {
+      console.error('Erro ao calcular score RSI:', error);
+      return 0;
+    }
   }
 
   async optimizeMACD(data, volatility = 1.0) {
@@ -260,13 +282,129 @@ class IndicatorOptimizer {
   }
 
   calculateMACDScore(current, volatility) {
-    // Implementação simplificada
-    return current.histogram / volatility;
+    try {
+      if (!current || typeof current.histogram !== 'number') {
+        return 0;
+      }
+      
+      // Score baseado na força do histograma e cruzamentos
+      let score = 0;
+      
+      // Força do histograma
+      const histogramStrength = Math.abs(current.histogram) * 1000000; // Amplifica valores pequenos
+      score += histogramStrength * 10;
+      
+      // Cruzamento MACD vs Signal
+      if (current.MACD && current.signal) {
+        const crossover = current.MACD - current.signal;
+        if (Math.abs(crossover) > 0.000001) {
+          score += Math.abs(crossover) * 1000000 * 5;
+        }
+      }
+      
+      // Ajusta por volatilidade
+      score *= (1 + volatility * 0.2);
+      
+      return Math.max(0, Math.min(100, score));
+    } catch (error) {
+      console.error('Erro ao calcular score MACD:', error);
+      return 0;
+    }
   }
 
   async optimizeMovingAverages(historicalData, volatility) {
-    // Implementação simplificada
-    return { shortPeriod: 14, longPeriod: 180, minDiffPercent: 0.5 };
+    try {
+      console.log('🔧 Otimizando Médias Móveis...');
+      
+      // Testa diferentes combinações de períodos
+      const shortPeriods = [10, 14, 18, 21];
+      const longPeriods = [150, 180, 200];
+      
+      let bestScore = -1;
+      let bestShort = 14;
+      let bestLong = 180;
+      
+      for (const shortPeriod of shortPeriods) {
+        for (const longPeriod of longPeriods) {
+          if (longPeriod <= shortPeriod || historicalData.close.length < longPeriod) continue;
+          
+          try {
+            const shortMA = technicalindicators.SMA.calculate({
+              values: historicalData.close,
+              period: shortPeriod
+            });
+            
+            const longMA = technicalindicators.SMA.calculate({
+              values: historicalData.close,
+              period: longPeriod
+            });
+            
+            if (shortMA.length > 0 && longMA.length > 0) {
+              const score = this.calculateMAScore(shortMA, longMA, volatility);
+              
+              if (score > bestScore) {
+                bestScore = score;
+                bestShort = shortPeriod;
+                bestLong = longPeriod;
+              }
+            }
+          } catch (error) {
+            console.warn(`Erro ao testar MA ${shortPeriod}/${longPeriod}:`, error.message);
+          }
+        }
+      }
+      
+      // Ajusta diferença mínima baseada na volatilidade
+      const minDiffPercent = volatility > 2 ? 1.0 : volatility > 1 ? 0.7 : 0.5;
+      
+      console.log(`✅ MA otimizada: ${bestShort}/${bestLong} (score: ${bestScore.toFixed(2)})`);
+      
+      return {
+        shortPeriod: bestShort,
+        longPeriod: bestLong,
+        minDiffPercent: minDiffPercent
+      };
+    } catch (error) {
+      console.error('❌ Erro ao otimizar MA:', error);
+      return { shortPeriod: 14, longPeriod: 180, minDiffPercent: 0.5 };
+    }
+  }
+
+  /**
+   * Calcula score das médias móveis
+   */
+  calculateMAScore(shortMA, longMA, volatility) {
+    try {
+      if (!shortMA.length || !longMA.length) return 0;
+      
+      const currentShort = shortMA[shortMA.length - 1];
+      const currentLong = longMA[longMA.length - 1];
+      
+      // Score baseado na separação das médias
+      const separation = Math.abs(currentShort - currentLong) / currentLong * 100;
+      let score = separation * 10;
+      
+      // Bônus para cruzamentos recentes
+      if (shortMA.length >= 2 && longMA.length >= 2) {
+        const prevShort = shortMA[shortMA.length - 2];
+        const prevLong = longMA[longMA.length - 2];
+        
+        const currentCross = currentShort > currentLong;
+        const prevCross = prevShort > prevLong;
+        
+        if (currentCross !== prevCross) {
+          score += 20; // Bônus para cruzamento
+        }
+      }
+      
+      // Ajusta por volatilidade
+      score *= (1 + volatility * 0.1);
+      
+      return Math.max(0, Math.min(100, score));
+    } catch (error) {
+      console.error('Erro ao calcular score MA:', error);
+      return 0;
+    }
   }
 
   getDefaultParams() {

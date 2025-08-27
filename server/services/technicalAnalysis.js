@@ -396,7 +396,7 @@ class TechnicalAnalysisService {
       
       // Define um timeout para garantir que a otimização não trave o sistema
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Tempo limite de otimização excedido')), 30000)
+        setTimeout(() => reject(new Error('Tempo limite de otimização excedido')), 10000)
       );
       
       // Executa a otimização com timeout
@@ -405,7 +405,12 @@ class TechnicalAnalysisService {
       
       // Atualiza os parâmetros otimizados
       if (optimizedParams) {
-        console.log(`[${optimizationKey}] Parâmetros otimizados com sucesso`);
+        console.log(`[${optimizationKey}] ✅ Parâmetros otimizados:`, {
+          RSI: optimizedParams.RSI?.period,
+          MACD: `${optimizedParams.MACD?.fastPeriod}/${optimizedParams.MACD?.slowPeriod}/${optimizedParams.MACD?.signalPeriod}`,
+          MA: `${optimizedParams.MA?.shortPeriod}/${optimizedParams.MA?.longPeriod}`,
+          volatility: optimizedParams.VOLATILITY?.level
+        });
         
         // Atualiza o cache de indicadores com os novos parâmetros
         const cacheKey = `${symbol}:${timeframe}`;
@@ -422,7 +427,9 @@ class TechnicalAnalysisService {
           timestamp: Date.now()
         });
         
-        console.log(`[${optimizationKey}] Cache de indicadores atualizado com sucesso`);
+        console.log(`[${optimizationKey}] ✅ Cache atualizado com parâmetros otimizados`);
+      } else {
+        console.log(`[${optimizationKey}] ⚠️ Otimização retornou null - usando parâmetros padrão`);
       }
       
       return optimizedParams;
