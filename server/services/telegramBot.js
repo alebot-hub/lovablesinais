@@ -83,7 +83,6 @@ class TelegramBotService {
 
 💰 *#${signal.symbol.split('/')[0]} Futures*
 📊 *TEMPO GRÁFICO:* ${signal.timeframe}
-🌐 *REGIME:* ${signal.regime} ${regimeEmoji}
 📈 *Alavancagem sugerida:* 15x
 🎯 *Probabilidade:* ${signal.probability.toFixed(3)}%
 
