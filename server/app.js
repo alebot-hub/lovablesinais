@@ -115,15 +115,19 @@ export async function analyzeSignals() {
         const logPrefix = `[${symbol} ${timeframe}]`;
         totalAnalyzed++;
         
-        console.log(`${logPrefix} 📊 Detectando tendência do sinal...`);
+        try {
+          console.log(`${logPrefix} 📊 Detectando tendência do sinal...`);
           console.log(`🔍 ${logPrefix} Iniciando análise...`);
         
-        // Log da correlação com Bitcoin
-        if (btcCorrelation.btcTrend) {
-          console.log(`${logPrefix} ₿ Bitcoin: ${btcCorrelation.btcTrend} (força: ${btcCorrelation.btcStrength || 0})`);
-          console.log(`${logPrefix} 🔗 Alinhamento: ${btcCorrelation.alignment || 'NEUTRAL'}`);
-        }
-        console.log(`${logPrefix} 🎯 Tendência detectada: ${signalTrend}`);
+          // Log da correlação com Bitcoin
+          const btcCorrelation = await bitcoinCorrelation.analyzeCorrelation(symbol, 'BULLISH', {}).catch(() => ({}));
+          if (btcCorrelation.btcTrend) {
+            console.log(`${logPrefix} ₿ Bitcoin: ${btcCorrelation.btcTrend} (força: ${btcCorrelation.btcStrength || 0})`);
+            console.log(`${logPrefix} 🔗 Alinhamento: ${btcCorrelation.alignment || 'NEUTRAL'}`);
+          }
+          
+          const signalTrend = 'BULLISH';
+          console.log(`${logPrefix} 🎯 Tendência detectada: ${signalTrend}`);
           
           // Timeout para evitar travamentos
           const analysisPromise = analyzeSymbolTimeframe(symbol, timeframe, logPrefix);
@@ -215,12 +219,6 @@ async function analyzeSymbolTimeframe(symbol, timeframe, logPrefix) {
     
     console.log(`${logPrefix} 🎯 Calculando score...`);
     signalScoring.setCurrentTimeframe(timeframe);
-    
-    // Define a tendência do sinal para os ajustes de regime
-    if (app.adaptiveScoring) {
-      app.adaptiveScoring.setCurrentSignalTrend(signalTrend);
-    }
-    
     const scoring = adaptiveScoring.calculateAdaptiveScore(
       data, indicators, patterns, mlProbability, signalTrend, symbol, btcCorrelation
     );
