@@ -137,16 +137,16 @@
 ## 🌕 **6. TODOS OS ALVOS ATINGIDOS**
 
 ```
-🌕 *#SOL - OPERAÇÃO FINALIZADA* 🌕
+🌕 #SOL - OPERAÇÃO FINALIZADA 🌕
 
-📊 *Resultado:* 🟢 +135.0%
-⚡ *Alavancado (15x):* 🟢 +2025.0%
+📊 Resultado: 🟢 +135.0%
+⚡ Alavancado (15x): 🟢 +2025.0%
 
-📌 *Motivo:* TODOS OS ALVOS ATINGIDOS - LUA!
+📌 Motivo: TODOS OS ALVOS ATINGIDOS - LUA!
 
-📈 *Alvos atingidos:* 6/6
-🛑 *Stop loss:* 238․64
-📅 *Duração:* 1 dias 8h 45m
+📈 Alvos atingidos: 6/6
+🛑 Stop loss: 238․64
+📅 Duração: 1 dias 8h 45m
 
 👑 Sinais Lobo Cripto
 ⏰ 28/08/2025, 11:00:20
