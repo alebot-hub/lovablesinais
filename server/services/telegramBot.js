@@ -509,7 +509,7 @@ ${bitcoinWarning}
       if (!monitor) {
         console.error(`❌ Monitor não encontrado para ${symbol}`);
         return;
-  async handleStopMobile(symbol, currentPrice, monitor, app) {
+      }
       
       const isLong = monitor.trend === 'BULLISH';
       const direction = isLong ? 'COMPRA' : 'VENDA';
@@ -630,8 +630,10 @@ ${bitcoinWarning}
       const leveragedPnL = pnlPercent * 15; // Alavancagem 15x
       
       // Calcula lucro total realizado de todos os alvos atingidos
-      const totalRealizedPnL = this.calculateTotalRealizedPnL(monitor, targetsHit);
+      const totalRealizedPnL = this.calculateTotalRealizedPnL(monitor, monitor.targetsHit);
       const leveragedTotalPnL = totalRealizedPnL * 15;
+      const timeElapsed = this.calculateDuration(monitor.startTime);
+      
       const message = `✅ *ALVO ${targetNumber} ATINGIDO #${symbol.split('/')[0]} ${direction}*
 
 🔍 *Alvo ${targetNumber} atingido no par #${symbol.split('/')[0]}*
@@ -765,25 +767,58 @@ ${bitcoinWarning}
   }
 
   /**
-   * Envia notificação de stop móvel
+   * Trata stop móvel acionado
    */
-  async sendStopMovedNotification(symbol, newStopPrice) {
+  async handleStopMobile(symbol, currentPrice, monitor, app) {
     try {
-      const message = `🛡️ *STOP MÓVEL ATIVADO #${symbol.split('/')[0]}*
+      const isLong = monitor.trend === 'BULLISH';
+      const direction = isLong ? 'COMPRA' : 'VENDA';
+      const duration = this.calculateDuration(monitor.startTime);
+      
+      // Calcula lucro parcial realizado até agora
+      const totalRealizedPnL = this.calculateTotalRealizedPnL(monitor, monitor.targetsHit);
+      const leveragedTotalPnL = totalRealizedPnL * 15;
+      
+      const message = `✅ *STOP DE LUCRO ATIVADO #${symbol.split('/')[0]} ${direction}*
 
-✅ *Stop loss movido para ponto de entrada*
-🛡️ *Novo stop:* ${newStopPrice.toFixed(2).replace('.', '․')}
-💰 *Operação protegida contra perdas*
+🔍 *Preço retornou ao ponto de proteção*
+💰 *Lucro realizado:* +${leveragedTotalPnL.toFixed(1)}% (${this.getRealizationBreakdown(monitor.targetsHit)})
+📈 *Alvos atingidos:* ${monitor.targetsHit}/6
+📊 *Entrada:* ${monitor.entry.toFixed(2).replace('.', '․')}
+💵 *Preço atual:* ${currentPrice.toFixed(2).replace('.', '․')}
+⏱️ *Duração:* ${duration}
 
-👑 *Gestão de risco ativa*`;
+🎉 *EXCELENTE RESULTADO!*
+• Operação finalizada sem perdas
+• Stop de lucro protegeu os ganhos
+• Gestão de risco funcionou perfeitamente
+• Parabéns pela disciplina!
+
+👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*`;
 
       if (this.isEnabled) {
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
       }
       
-      console.log(`🛡️ Stop móvel enviado: ${symbol}`);
+      console.log(`🛡️ Stop de lucro enviado: ${symbol}`);
+      
+      // Registra resultado positivo
+      if (app.performanceTracker) {
+        const realizedPnL = this.calculateTotalRealizedPnL(monitor, monitor.targetsHit);
+        app.performanceTracker.updateSignalResult(symbol, monitor.targetsHit, realizedPnL, 'STOP_MOBILE', realizedPnL);
+      }
+
+      // Registra no sistema adaptativo como sucesso
+      if (app.adaptiveScoring) {
+        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, true, totalRealizedPnL);
+      }
+
+      // Remove monitor e para WebSocket
+      this.removeMonitor(symbol, 'STOP_MOBILE');
+      app.binanceService.stopWebSocketForSymbol(symbol, '1m');
+      
     } catch (error) {
-      console.error(`❌ Erro ao enviar stop móvel:`, error.message);
+      console.error(`❌ Erro ao tratar stop móvel ${symbol}:`, error.message);
     }
   }
 
@@ -830,50 +865,8 @@ ${bitcoinWarning}
       case 3: return 'Mova o stop para o alvo 1';
       case 4: return 'Mova o stop para o alvo 2';
       case 5: return 'Mova o stop para o alvo 3';
-      
-      // Calcula duração da operação
-      const duration = this.calculateDuration(monitor.startTime);
-      
-      const message = `✅ *STOP DE LUCRO ATIVADO #${symbol.split('/')[0]} ${direction}*
-
-🔍 *Preço retornou ao ponto de proteção*
-💰 *Lucro realizado:* +${leveragedTotalPnL.toFixed(1)}% (${this.getRealizationBreakdown(targetsHit)})
-📈 *Alvos atingidos:* ${targetsHit}/6
-📊 *Entrada:* ${monitor.entry.toFixed(2).replace('.', '․')}
-💵 *Preço atual:* ${currentPrice.toFixed(2).replace('.', '․')}
-⏱️ *Duração:* ${duration}
-
-🎉 *EXCELENTE RESULTADO!*
-• Operação finalizada sem perdas
-• Stop de lucro protegeu os ganhos
-• Gestão de risco funcionou perfeitamente
-• Parabéns pela disciplina!
-
-👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*`;
-
-      if (this.isEnabled) {
-        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
-      }
-      
-      console.log(`🛡️ Stop de lucro enviado: ${symbol}`);
-      
-      // Registra resultado positivo
-      if (app.performanceTracker) {
-        const realizedPnL = this.calculateTotalRealizedPnL(monitor, targetsHit);
-        app.performanceTracker.updateSignalResult(symbol, targetsHit, realizedPnL, 'STOP_MOBILE', realizedPnL);
-      }
-
-      // Registra no sistema adaptativo como sucesso
-      if (app.adaptiveScoring) {
-        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, true, totalRealizedPnL);
-      }
-
-      // Remove monitor e para WebSocket
-      this.removeMonitor(symbol, 'STOP_MOBILE');
-      app.binanceService.stopWebSocketForSymbol(symbol, '1m');
-      
-    } catch (error) {
-      console.error(`❌ Erro ao tratar stop móvel ${symbol}:`, error.message);
+      case 6: return 'PARABÉNS! Todos os alvos atingidos!';
+      default: return 'Continue seguindo a estratégia';
     }
   }
 
@@ -917,12 +910,6 @@ ${bitcoinWarning}
     }
     
     return breakdown.join(' + ');
-  }
-
-  /**
-      case 6: return 'PARABÉNS! Todos os alvos atingidos!';
-      default: return 'Continue seguindo a estratégia';
-    }
   }
 
   /**
