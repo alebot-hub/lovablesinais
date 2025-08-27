@@ -759,10 +759,36 @@ class AdaptiveScoringService {
     if (bitcoinCorrelation && bitcoinCorrelation.alignment === 'AGAINST') {
       const btcStrength = bitcoinCorrelation.btcStrength || 0;
       const btcTrend = bitcoinCorrelation.btcTrend;
+      const currentSignalTrend = this.currentSignalTrend || 'NEUTRAL';
       
       console.log(`⚡ [${symbol}] SINAL CONTRA-TENDÊNCIA detectado:`);
       console.log(`   ₿ Bitcoin: ${btcTrend} (força: ${btcStrength})`);
-      console.log(`   🎯 Sinal: ${this.currentSignalTrend}`);
+      console.log(`   🎯 Sinal: ${currentSignalTrend}`);
+      
+      // Verifica se realmente é contra-tendência
+      const isActuallyCounterTrend = (
+        (btcTrend === 'BULLISH' && currentSignalTrend === 'BEARISH') ||
+        (btcTrend === 'BEARISH' && currentSignalTrend === 'BULLISH')
+      );
+      
+      if (!isActuallyCounterTrend) {
+        console.log(`✅ [${symbol}] Na verdade está ALINHADO com Bitcoin (${btcTrend} = ${currentSignalTrend})`);
+        isCounterTrend = false;
+        details.type = 'aligned';
+        details.actualAlignment = 'ALIGNED';
+        
+        // Aplica bônus de alinhamento ao invés de penalidade
+        bonus = adjustedScore * 0.15; // +15% para alinhamento
+        adjustedScore += bonus;
+        details.alignmentBonus = bonus;
+        
+        return {
+          adjustedScore,
+          bonus,
+          isCounterTrend: false,
+          details
+        };
+      }
       
       // Verifica limite diário de sinais contra-tendência
       if (this.counterTrendToday >= TRADING_CONFIG.COUNTER_TREND.MAX_COUNTER_TREND_PER_DAY) {

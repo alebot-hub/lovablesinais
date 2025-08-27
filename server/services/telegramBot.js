@@ -142,11 +142,11 @@ ${counterTrendWarning}
       if (isLong && indicators.rsi < 30) {
         factors.push('RSI em sobrevenda favorável para compra');
       } else if (!isLong && indicators.rsi > 70) {
-        factors.push('RSI em sobrecompra extrema (oportunidade de venda)');
+        factors.push('RSI em sobrecompra favorável para venda');
       } else if (indicators.rsi < 40) {
-        factors.push('RSI em zona de compra');
+        factors.push(isLong ? 'RSI em zona de compra' : 'RSI em sobrevenda');
       } else if (indicators.rsi > 60) {
-        factors.push('RSI em zona de venda');
+        factors.push(isLong ? 'RSI em sobrecompra' : 'RSI em zona de venda');
       }
     }
 
@@ -989,6 +989,19 @@ ${counterTrendWarning}
   getCounterTrendWarning(signal, isLong) {
     if (!signal.btcCorrelation || signal.btcCorrelation.alignment !== 'AGAINST') {
       return '';
+    }
+    
+    const currentSignalTrend = signal.trend || 'NEUTRAL';
+    const btcTrend = signal.btcCorrelation.btcTrend;
+    
+    // Verifica se realmente é contra-tendência
+    const isActuallyCounterTrend = (
+      (btcTrend === 'BULLISH' && currentSignalTrend === 'BEARISH') ||
+      (btcTrend === 'BEARISH' && currentSignalTrend === 'BULLISH')
+    );
+    
+    if (!isActuallyCounterTrend) {
+      return ''; // Não mostra aviso se não for realmente contra-tendência
     }
     
     const btcTrend = signal.btcCorrelation.btcTrend === 'BULLISH' ? 'ALTA' : 'BAIXA';
