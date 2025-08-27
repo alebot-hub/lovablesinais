@@ -179,6 +179,8 @@ export async function analyzeSignals() {
                 console.log(`✅ ${logPrefix} NOVO MELHOR SINAL (${bestScore.toFixed(1)}%)`);
               }
             }
+              btcCorrelation,
+              regime: adaptiveScoring.marketRegime,
           }
           
         } catch (error) {
@@ -283,7 +285,7 @@ async function processBestSignal(signal) {
         adaptiveScoring
       );
       
-      console.log(`📤 Sinal enviado e monitoramento iniciado para ${signal.symbol}`);
+      console.log(`📊 ${logPrefix} Score: ${scoring.totalScore.toFixed(1)}% (${scoring.isValid ? '✅ VÁLIDO' : '❌ INVÁLIDO'}) - Regime: ${adaptiveScoring.marketRegime}`);
       console.log(`✅ Sinal enviado: ${signal.symbol} ${signal.timeframe} (${signal.probability.toFixed(1)}%)`);
     } else {
       // Remove monitor se envio falhou
