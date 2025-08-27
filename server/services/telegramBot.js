@@ -101,17 +101,12 @@ class TelegramBotService {
       return `${emoji} *${label}:* ${this.formatPrice(target).replace('.', '․')}`;
     }).join('\n');
 
-    // Remove linha duplicada do regime - já está no cabeçalho
+    // Determina se é sinal contra-tendência
+    const isCounterTrend = signal.btcCorrelation && signal.btcCorrelation.alignment === 'AGAINST';
+    const counterTrendWarning = isCounterTrend ? this.getCounterTrendWarning(signal, isLong) : '';
     
-    // Aviso de correlação Bitcoin se necessário
-    let bitcoinWarning = '';
-    if (signal.btcCorrelation && signal.btcCorrelation.alignment === 'AGAINST') {
-      const btcTrend = signal.btcCorrelation.btcTrend === 'BULLISH' ? 'ALTA' : 'BAIXA';
-      const operationType = isLong ? 'COMPRA' : 'VENDA';
-      bitcoinWarning = `\n\n⚠️ *ATENÇÃO:* O Bitcoin está em tendência de *${btcTrend}*. Operações *${operationType}* podem ter risco elevado.`;
-    }
 
-    return `🚨 *LOBO PREMIUM #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*
+    return `🚨 *LOBO PREMIUM #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*${isCounterTrend ? ' ⚡' : ''}
 
 💰 *#${signal.symbol.split('/')[0]} Futures*
 📈 *Alavancagem sugerida:* 15x
@@ -126,7 +121,7 @@ ${factorsText}
 🎯 *ALVOS (15x):*
 ${targets}
 
-${bitcoinWarning}
+${counterTrendWarning}
 
 👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*
 ⏰ ${new Date().toLocaleString('pt-BR')}`;
@@ -985,6 +980,51 @@ ${bitcoinWarning}
     // Probabilidades muito baixas (<75%) → 55-62%
     const adjustedScore = Math.max(45, rawProbability * 0.85); // Reduz 15%
     return Math.max(55, Math.min(62, adjustedScore));
+  }
+
+  /**
+   * Gera aviso específico para sinais contra-tendência
+   */
+  getCounterTrendWarning(signal, isLong) {
+    if (!signal.btcCorrelation || signal.btcCorrelation.alignment !== 'AGAINST') {
+      return '';
+    }
+    
+    const btcTrend = signal.btcCorrelation.btcTrend === 'BULLISH' ? 'ALTA' : 'BAIXA';
+    const btcStrength = signal.btcCorrelation.btcStrength || 0;
+    const operationType = isLong ? 'COMPRA' : 'VENDA';
+    const reversalType = signal.details?.counterTrendAdjustments?.reversalType || 'MODERATE';
+    
+    let warningLevel = '⚠️';
+    let riskLevel = 'MODERADO';
+    let recommendation = '';
+    
+    // Determina nível de aviso baseado na força da reversão
+    if (reversalType === 'EXTREME') {
+      warningLevel = '🔥';
+      riskLevel = 'CONTROLADO';
+      recommendation = 'Reversão extrema detectada - sinal de alta qualidade';
+    } else if (reversalType === 'STRONG') {
+      warningLevel = '💪';
+      riskLevel = 'BAIXO';
+      recommendation = 'Forte sinal de reversão - boa oportunidade';
+    } else {
+      warningLevel = '⚠️';
+      riskLevel = 'ELEVADO';
+      recommendation = 'Sinal contra-tendência - use gestão de risco rigorosa';
+    }
+    
+    return `\n\n${warningLevel} *SINAL CONTRA-TENDÊNCIA*
+₿ *Bitcoin:* Tendência de *${btcTrend}* (força: ${btcStrength})
+🎯 *Operação:* ${operationType} contra a tendência do BTC
+⚖️ *Risco:* ${riskLevel}
+💡 *Estratégia:* ${recommendation}
+
+🛡️ *GESTÃO DE RISCO REFORÇADA:*
+• Monitore de perto os primeiros alvos
+• Realize lucros parciais rapidamente
+• Mantenha stop loss rigoroso
+• Considere reduzir alavancagem se necessário`;
   }
 }
 

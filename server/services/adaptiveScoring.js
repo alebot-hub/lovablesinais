@@ -241,8 +241,18 @@ class AdaptiveScoringService {
     const regimeAdjustments = this.applyMarketRegimeAdjustments(adaptiveAdjustments);
     console.log(`${logPrefix} 📈 Ajustes de regime: ${regimeAdjustments.adjustedScore.toFixed(2)}`);
 
+    console.log(`${logPrefix} ⚡ Verificando sinais contra-tendência...`);
+    // Verifica e aplica lógica de sinais contra-tendência
+    const counterTrendAdjustments = this.applyCounterTrendLogic(
+      regimeAdjustments, 
+      symbol, 
+      indicators, 
+      patterns, 
+      bitcoinCorrelation
+    );
+    console.log(`${logPrefix} ⚡ Ajustes contra-tendência: ${counterTrendAdjustments.adjustedScore.toFixed(2)}`);
     // Score final com limites
-    const finalScore = Math.min(Math.max(regimeAdjustments.adjustedScore, 0), 100);
+    const finalScore = Math.min(Math.max(counterTrendAdjustments.adjustedScore, 0), 100);
     
     // Determina se é válido (threshold ajustado para mercado bear)
     const minScore = this.marketRegime === 'BEAR' ? 40 : 
@@ -263,14 +273,17 @@ class AdaptiveScoringService {
         baseScore: baseScore.total,
         adaptiveAdjustments: adaptiveAdjustments.details,
         regimeAdjustments: regimeAdjustments.details,
+        counterTrendAdjustments: counterTrendAdjustments.details,
         marketRegime: this.marketRegime,
         symbolPerformance: this.getSymbolStats(symbol)
       },
       isValid: isValid,
+      isCounterTrend: counterTrendAdjustments.isCounterTrend,
       adaptiveAdjustments: {
         applied: true,
         weightAdjustments: adaptiveAdjustments.weightChanges,
-        regimeBonus: regimeAdjustments.bonus
+        regimeBonus: regimeAdjustments.bonus,
+        counterTrendBonus: counterTrendAdjustments.bonus
       }
     };
   }
@@ -732,6 +745,170 @@ class AdaptiveScoringService {
   }
 
   /**
+   * Aplica lógica específica para sinais contra-tendência
+   */
+  applyCounterTrendLogic(scoreData, symbol, indicators, patterns, bitcoinCorrelation) {
+    let adjustedScore = scoreData.adjustedScore;
+    let bonus = 0;
+    let isCounterTrend = false;
+    const details = { type: 'normal' };
+    
+    // Verifica se é sinal contra-tendência do Bitcoin
+    if (bitcoinCorrelation && bitcoinCorrelation.alignment === 'AGAINST') {
+      const btcStrength = bitcoinCorrelation.btcStrength || 0;
+      const btcTrend = bitcoinCorrelation.btcTrend;
+      
+      console.log(`⚡ [${symbol}] SINAL CONTRA-TENDÊNCIA detectado:`);
+      console.log(`   ₿ Bitcoin: ${btcTrend} (força: ${btcStrength})`);
+      console.log(`   🎯 Sinal: ${this.currentSignalTrend}`);
+      
+      // Verifica limite diário de sinais contra-tendência
+      if (this.counterTrendToday >= TRADING_CONFIG.COUNTER_TREND.MAX_COUNTER_TREND_PER_DAY) {
+        console.log(`❌ [${symbol}] Limite diário de sinais contra-tendência atingido (${this.counterTrendToday}/${TRADING_CONFIG.COUNTER_TREND.MAX_COUNTER_TREND_PER_DAY})`);
+        return {
+          adjustedScore: 0,
+          bonus: 0,
+          isCounterTrend: false,
+          details: { rejected: true, reason: 'Limite diário atingido' }
+        };
+      }
+      
+      // Verifica cooldown entre sinais contra-tendência
+      const timeSinceLastCounter = Date.now() - this.lastCounterTrendTime;
+      if (timeSinceLastCounter < TRADING_CONFIG.COUNTER_TREND.COUNTER_TREND_COOLDOWN) {
+        const remainingTime = Math.ceil((TRADING_CONFIG.COUNTER_TREND.COUNTER_TREND_COOLDOWN - timeSinceLastCounter) / (60 * 1000));
+        console.log(`⏳ [${symbol}] Cooldown ativo - aguarde ${remainingTime} minutos`);
+        return {
+          adjustedScore: 0,
+          bonus: 0,
+          isCounterTrend: false,
+          details: { rejected: true, reason: `Cooldown ativo (${remainingTime}m)` }
+        };
+      }
+      
+      isCounterTrend = true;
+      details.type = 'counter_trend';
+      details.btcTrend = btcTrend;
+      details.btcStrength = btcStrength;
+      
+      // Calcula força de reversão necessária
+      const reversalStrength = this.calculateReversalStrength(indicators, patterns);
+      console.log(`🔄 [${symbol}] Força de reversão: ${reversalStrength.toFixed(1)}/100`);
+      
+      // Verifica se a reversão é forte o suficiente
+      if (reversalStrength < TRADING_CONFIG.COUNTER_TREND.MIN_REVERSAL_STRENGTH) {
+        console.log(`❌ [${symbol}] Reversão fraca: ${reversalStrength.toFixed(1)} < ${TRADING_CONFIG.COUNTER_TREND.MIN_REVERSAL_STRENGTH}`);
+        return {
+          adjustedScore: 0,
+          bonus: 0,
+          isCounterTrend: false,
+          details: { rejected: true, reason: `Reversão fraca (${reversalStrength.toFixed(1)})` }
+        };
+      }
+      
+      // Aplica ajustes baseados na força da reversão
+      if (reversalStrength >= TRADING_CONFIG.COUNTER_TREND.EXTREME_REVERSAL_THRESHOLD) {
+        // Reversão extrema (≥65%)
+        adjustedScore *= TRADING_CONFIG.COUNTER_TREND.BONUS_EXTREME_REVERSAL;
+        bonus = adjustedScore * 0.4;
+        details.reversalType = 'EXTREME';
+        console.log(`🔥 [${symbol}] REVERSÃO EXTREMA: ${reversalStrength.toFixed(1)}% - Bônus ${TRADING_CONFIG.COUNTER_TREND.BONUS_EXTREME_REVERSAL}x`);
+      } else if (reversalStrength >= 55) {
+        // Reversão forte (55-64%)
+        adjustedScore *= TRADING_CONFIG.COUNTER_TREND.BONUS_STRONG_REVERSAL;
+        bonus = adjustedScore * 0.3;
+        details.reversalType = 'STRONG';
+        console.log(`💪 [${symbol}] REVERSÃO FORTE: ${reversalStrength.toFixed(1)}% - Bônus ${TRADING_CONFIG.COUNTER_TREND.BONUS_STRONG_REVERSAL}x`);
+      } else {
+        // Reversão moderada (45-54%)
+        adjustedScore *= TRADING_CONFIG.COUNTER_TREND.PENALTY_WEAK_REVERSAL;
+        bonus = -adjustedScore * 0.2;
+        details.reversalType = 'MODERATE';
+        console.log(`⚠️ [${symbol}] REVERSÃO MODERADA: ${reversalStrength.toFixed(1)}% - Penalidade ${TRADING_CONFIG.COUNTER_TREND.PENALTY_WEAK_REVERSAL}x`);
+      }
+      
+      // Bônus para timeframes de curto prazo (mais sensíveis a reversões)
+      if (TRADING_CONFIG.COUNTER_TREND.SHORT_TERM_TIMEFRAMES.includes(this.currentTimeframe)) {
+        const shortTermBonus = adjustedScore * (TRADING_CONFIG.COUNTER_TREND.SHORT_TERM_BONUS - 1);
+        adjustedScore *= TRADING_CONFIG.COUNTER_TREND.SHORT_TERM_BONUS;
+        bonus += shortTermBonus;
+        details.shortTermBonus = shortTermBonus;
+        console.log(`⚡ [${symbol}] Bônus timeframe curto (${this.currentTimeframe}): +${shortTermBonus.toFixed(1)}`);
+      }
+      
+      // Verifica RSI extremo para timeframes curtos
+      if (indicators.rsi && TRADING_CONFIG.COUNTER_TREND.SHORT_TERM_TIMEFRAMES.includes(this.currentTimeframe)) {
+        const isExtremeRSI = indicators.rsi <= TRADING_CONFIG.COUNTER_TREND.MIN_SHORT_TERM_RSI_EXTREME || 
+                            indicators.rsi >= TRADING_CONFIG.COUNTER_TREND.MAX_SHORT_TERM_RSI_EXTREME;
+        
+        if (isExtremeRSI) {
+          const rsiBonus = 15;
+          adjustedScore += rsiBonus;
+          bonus += rsiBonus;
+          details.extremeRSI = { value: indicators.rsi, bonus: rsiBonus };
+          console.log(`🎯 [${symbol}] RSI EXTREMO (${indicators.rsi.toFixed(2)}): +${rsiBonus} pontos`);
+        }
+      }
+      
+      // Verifica volume spike (confirmação importante para contra-tendência)
+      if (TRADING_CONFIG.COUNTER_TREND.REQUIRE_VOLUME_SPIKE && indicators.volume) {
+        const volumeRatio = indicators.volume.volumeRatio || 1;
+        if (volumeRatio >= TRADING_CONFIG.COUNTER_TREND.MIN_VOLUME_SPIKE) {
+          const volumeBonus = 10;
+          adjustedScore += volumeBonus;
+          bonus += volumeBonus;
+          details.volumeSpike = { ratio: volumeRatio, bonus: volumeBonus };
+          console.log(`📊 [${symbol}] VOLUME SPIKE (${volumeRatio.toFixed(2)}x): +${volumeBonus} pontos`);
+        } else {
+          console.log(`❌ [${symbol}] Volume insuficiente para contra-tendência: ${volumeRatio.toFixed(2)}x < ${TRADING_CONFIG.COUNTER_TREND.MIN_VOLUME_SPIKE}x`);
+          return {
+            adjustedScore: 0,
+            bonus: 0,
+            isCounterTrend: false,
+            details: { rejected: true, reason: `Volume insuficiente (${volumeRatio.toFixed(2)}x)` }
+          };
+        }
+      }
+      
+      // Bônus para divergências (muito importante em reversões)
+      if (indicators.rsiDivergence) {
+        const divergenceBonus = TRADING_CONFIG.COUNTER_TREND.DIVERGENCE_BONUS;
+        adjustedScore += divergenceBonus;
+        bonus += divergenceBonus;
+        details.divergenceBonus = divergenceBonus;
+        console.log(`🔄 [${symbol}] DIVERGÊNCIA RSI: +${divergenceBonus} pontos`);
+      }
+      
+      // Bônus para padrões de reversão
+      if (patterns.candlestick && patterns.candlestick.some(p => 
+          ['HAMMER', 'HANGING_MAN', 'BULLISH_ENGULFING', 'BEARISH_ENGULFING', 'DOJI'].includes(p.type))) {
+        const patternBonus = TRADING_CONFIG.COUNTER_TREND.PATTERN_REVERSAL_BONUS;
+        adjustedScore += patternBonus;
+        bonus += patternBonus;
+        details.reversalPatternBonus = patternBonus;
+        console.log(`🕯️ [${symbol}] PADRÃO DE REVERSÃO: +${patternBonus} pontos`);
+      }
+      
+      // Bônus para breakout lateral (rompimento de consolidação)
+      if (patterns.breakout && this.isSidewaysBreakout(patterns, indicators)) {
+        const sidewaysBonus = adjustedScore * (TRADING_CONFIG.COUNTER_TREND.SIDEWAYS_BREAKOUT_BONUS - 1);
+        adjustedScore *= TRADING_CONFIG.COUNTER_TREND.SIDEWAYS_BREAKOUT_BONUS;
+        bonus += sidewaysBonus;
+        details.sidewaysBreakout = sidewaysBonus;
+        console.log(`📈 [${symbol}] BREAKOUT LATERAL: +${sidewaysBonus.toFixed(1)} pontos`);
+      }
+      
+      // Registra sinal contra-tendência se aprovado
+      if (adjustedScore >= TRADING_CONFIG.MIN_SIGNAL_PROBABILITY) {
+        this.counterTrendToday++;
+        this.lastCounterTrendTime = Date.now();
+        console.log(`✅ [${symbol}] SINAL CONTRA-TENDÊNCIA APROVADO (${this.counterTrendToday}/${TRADING_CONFIG.COUNTER_TREND.MAX_COUNTER_TREND_PER_DAY} hoje)`);
+      }
+      
+      details.reversalStrength = reversalStrength;
+      details.counterTrendCount = this.counterTrendToday;
+    }
+  /**
    * Reset completo do sistema adaptativo
    */
   resetAdaptiveSystem() {
@@ -741,6 +918,87 @@ class AdaptiveScoringService {
     this.marketRegime = 'NORMAL';
     console.log('🔄 Sistema adaptativo resetado');
   }
+
+  /**
+   * Calcula força de reversão baseada em múltiplos indicadores
+   */
+  calculateReversalStrength(indicators, patterns) {
+    let strength = 0;
+    const factors = [];
+    
+    // RSI extremo (peso 30%)
+    if (indicators.rsi !== undefined) {
+      if (indicators.rsi <= 20) {
+        strength += 30;
+        factors.push(`RSI sobrevenda extrema (${indicators.rsi.toFixed(2)})`);
+      } else if (indicators.rsi <= 30) {
+        strength += 20;
+        factors.push(`RSI sobrevenda (${indicators.rsi.toFixed(2)})`);
+      } else if (indicators.rsi >= 80) {
+        strength += 30;
+        factors.push(`RSI sobrecompra extrema (${indicators.rsi.toFixed(2)})`);
+      } else if (indicators.rsi >= 70) {
+        strength += 20;
+        factors.push(`RSI sobrecompra (${indicators.rsi.toFixed(2)})`);
+      }
+    }
+    
+    // MACD divergência ou cruzamento forte (peso 25%)
+    if (indicators.macd && indicators.macd.histogram !== undefined) {
+      const macdStrength = Math.abs(indicators.macd.histogram) * 1000000;
+      if (macdStrength > 10) {
+        strength += 25;
+        factors.push(`MACD forte (${macdStrength.toFixed(2)})`);
+      } else if (macdStrength > 5) {
+        strength += 15;
+        factors.push(`MACD moderado (${macdStrength.toFixed(2)})`);
+      }
+    }
+    
+    // Divergência RSI (peso 20%)
+    if (indicators.rsiDivergence) {
+      strength += 20;
+      factors.push('Divergência RSI detectada');
+    }
+    
+    // Padrões de reversão (peso 15%)
+    if (patterns.candlestick) {
+      const reversalPatterns = patterns.candlestick.filter(p => 
+        ['HAMMER', 'HANGING_MAN', 'BULLISH_ENGULFING', 'BEARISH_ENGULFING', 'DOJI'].includes(p.type)
+      );
+      if (reversalPatterns.length > 0) {
+        strength += 15;
+        factors.push(`Padrão de reversão (${reversalPatterns[0].type})`);
+      }
+    }
+    
+    // Volume confirmação (peso 10%)
+    if (indicators.volume && indicators.volume.volumeRatio > 1.5) {
+      strength += 10;
+      factors.push(`Volume alto (${indicators.volume.volumeRatio.toFixed(2)}x)`);
+    }
+    
+    console.log(`🔄 Fatores de reversão: ${factors.join(', ')}`);
+    return Math.min(100, strength);
+  }
+  
+  /**
+   * Verifica se é um breakout lateral (consolidação)
+   */
+  isSidewaysBreakout(patterns, indicators) {
+    // Verifica se o mercado estava em consolidação antes do breakout
+    if (!patterns.breakout) return false;
+    
+    // RSI próximo ao centro indica consolidação
+    const rsiNeutral = indicators.rsi && indicators.rsi > 40 && indicators.rsi < 60;
+    
+    // Médias móveis próximas indicam consolidação
+    const maFlat = indicators.ma21 && indicators.ma200 && 
+                   Math.abs(indicators.ma21 - indicators.ma200) / indicators.ma200 < 0.02;
+    
+    return rsiNeutral || maFlat;
+  }
 }
 
 export default AdaptiveScoringService;
+      isCounterTrend,
