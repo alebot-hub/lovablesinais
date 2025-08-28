@@ -1,11 +1,8 @@
 /**
- * PatternDetectionService — v3.1-proto-safe
- * - Corrige "Método ausente no protótipo: detectHeadShoulders"
- * - Corrige "this.detectCandlestickPatterns is not a function"
- * Estratégias:
- *  1) ensurePrototype(): garante métodos no protótipo (cria stubs se faltar)
- *  2) proto-call: chamadas sempre via PatternDetectionService.prototype.metodo.call(this, ...)
- *  3) getEmptyPatterns() consistente para fallbacks
+ * PatternDetectionService — v3.2 (proto-safe + bind-lock)
+ * Corrige:
+ *  - "Método ausente no protótipo: detectHeadShoulders"
+ *  - "this.detectCandlestickPatterns is not a function"
  */
 
 class PatternDetectionService {
@@ -24,15 +21,35 @@ class PatternDetectionService {
       config || {}
     );
 
-    // Garante que todos os métodos existam no protótipo (sem lançar erro)
+    // 1) Garante que o protótipo tenha todos os métodos (stubs se faltar)
     this.ensurePrototype();
 
+    // 2) Bind + lock na instância (impede sobrescrita acidental)
+    this.lockMethods([
+      'detectPatterns',
+      'detectCandlestickPatterns',
+      'detectBreakout',
+      'detectTriangles',
+      'detectFlags',
+      'detectWedges',
+      'detectDoublePatterns',
+      'detectHeadShoulders',
+      'validateInputData',
+      'calculatePreviousTrend',
+      'calculateDynamicConfidence',
+      'isValidCandle',
+      'calculateLinearRegression',
+      'calculateVolatility',
+      'adjustToleranceForVolatility',
+      'getPatternStats',
+    ]);
+
     if (this.config.debug) {
-      console.log('🔧 PatternDetectionService v3.1-proto-safe');
+      console.log('🔧 PatternDetectionService v3.2 (proto-safe + bind-lock)');
     }
   }
 
-  // --------------- Utils ---------------
+  // ---------- Infra ----------
 
   log(...a) {
     if (this.config.debug) console.log(...a);
@@ -75,9 +92,11 @@ class PatternDetectionService {
 
     for (const name of required) {
       if (typeof proto[name] !== 'function') {
-        // cria um stub seguro que não quebra o fluxo
+        // Stub seguro
         proto[name] = function stub() {
           switch (name) {
+            case 'detectPatterns':
+              return this.getEmptyPatterns();
             case 'detectCandlestickPatterns':
               return [];
             case 'detectBreakout':
@@ -87,8 +106,6 @@ class PatternDetectionService {
             case 'detectDoublePatterns':
             case 'detectHeadShoulders':
               return null;
-            case 'detectPatterns':
-              return this.getEmptyPatterns();
             case 'validateInputData':
               return { isValid: false, reason: 'stub' };
             case 'getPatternStats':
@@ -104,14 +121,25 @@ class PatternDetectionService {
               return null;
           }
         };
-        if (this.config.debug) {
-          console.warn(`⚠️ [PDS] método ausente no protótipo foi criado como stub: ${name}`);
-        }
+        console.warn(`⚠️ [PDS] método ausente no protótipo foi criado como stub: ${name}`);
       }
     }
   }
 
-  // --------------- Pipeline ---------------
+  lockMethods(names) {
+    for (const name of names) {
+      const fn = PatternDetectionService.prototype[name];
+      const bound = fn.bind(this);
+      Object.defineProperty(this, name, {
+        value: bound,
+        writable: false,
+        configurable: false,
+        enumerable: false,
+      });
+    }
+  }
+
+  // ---------- Pipeline ----------
 
   detectPatterns(data) {
     try {
@@ -119,7 +147,7 @@ class PatternDetectionService {
 
       const validation = PatternDetectionService.prototype.validateInputData.call(this, data);
       if (!validation.isValid) {
-        console.warn('⚠️ Dados inválidos para padrões:', validation.reason);
+        console.warn('⚠️ Dados inválidos:', validation.reason);
         return this.getEmptyPatterns();
       }
 
@@ -127,13 +155,13 @@ class PatternDetectionService {
         PatternDetectionService.prototype.adjustToleranceForVolatility.call(this, data);
       }
 
-      const windowSize = this.config.minDataLength;
+      const win = this.config.minDataLength;
       const recentData = {
-        open: data.open.slice(-windowSize),
-        high: data.high.slice(-windowSize),
-        low: data.low.slice(-windowSize),
-        close: data.close.slice(-windowSize),
-        volume: Array.isArray(data.volume) ? data.volume.slice(-windowSize) : Array(windowSize).fill(1),
+        open: data.open.slice(-win),
+        high: data.high.slice(-win),
+        low: data.low.slice(-win),
+        close: data.close.slice(-win),
+        volume: Array.isArray(data.volume) ? data.volume.slice(-win) : Array(win).fill(1),
       };
 
       const resistance = Math.max.apply(null, recentData.high);
@@ -151,8 +179,8 @@ class PatternDetectionService {
         candlestick: [],
       };
 
-      // Candles com proto-call; se algo der ruim, fallback vazio
       try {
+        // proto-call (não depende de this.detectCandlestickPatterns)
         patterns.candlestick =
           PatternDetectionService.prototype.detectCandlestickPatterns.call(this, recentData) || [];
       } catch (e) {
@@ -160,7 +188,7 @@ class PatternDetectionService {
         patterns.candlestick = [];
       }
 
-      this.log('✅ Detecção de padrões concluída');
+      this.log('✅ Detecção concluída');
       return patterns;
     } catch (e) {
       console.error('❌ Erro ao detectar padrões:', e?.message);
@@ -168,18 +196,21 @@ class PatternDetectionService {
     }
   }
 
-  // --------------- Validations & helpers ---------------
+  // ---------- Validações / auxiliares ----------
 
   validateInputData(data) {
     if (!data) return { isValid: false, reason: 'dados ausentes' };
     const req = ['open', 'high', 'low', 'close'];
     const min = this.config.minDataLength;
+
     for (const k of req) {
       if (!Array.isArray(data[k])) return { isValid: false, reason: `${k} não é array` };
       if (data[k].length < min) return { isValid: false, reason: `${k} < ${min}` };
-      const bad = data[k].some((v) => typeof v !== 'number' || !isFinite(v) || v <= 0);
-      if (bad) return { isValid: false, reason: `${k} possui valores inválidos` };
+      if (data[k].some((v) => typeof v !== 'number' || !isFinite(v) || v <= 0)) {
+        return { isValid: false, reason: `${k} possui valores inválidos` };
+      }
     }
+
     const n = data.close.length;
     const idxs = [0, 1, 2, n - 3, n - 2, n - 1].filter((i) => i >= 0 && i < n);
     for (const i of idxs) {
@@ -287,7 +318,7 @@ class PatternDetectionService {
     this.log(`📊 Tolerância ${((this.config.tolerance || 0) * 100).toFixed(1)}% (vol: ${(vol * 100).toFixed(2)}%)`);
   }
 
-  // --------------- Detectores ---------------
+  // ---------- Detectores ----------
 
   detectBreakout(data, support, resistance) {
     const n = data.close.length;
@@ -377,7 +408,6 @@ class PatternDetectionService {
     return null;
   }
 
-  // implementação mínima para garantir presença no protótipo
   detectHeadShoulders(data) {
     const min = 7;
     if (data.high.length < min || data.low.length < min) return null;
@@ -457,7 +487,7 @@ class PatternDetectionService {
     return out;
   }
 
-  // --------------- Stats ---------------
+  // ---------- Estatísticas ----------
 
   getPatternStats(patterns) {
     const stats = {
