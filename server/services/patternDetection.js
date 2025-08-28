@@ -62,14 +62,97 @@ class PatternDetectionService {
       patterns.headShoulders = this.detectHeadShoulders(recentData);
 
       console.log('🕯️ Detectando padrões de candlestick...');
-      // Padrões de candlestick
+      // Padrões de candlestick - IMPLEMENTAÇÃO DIRETA
       patterns.candlestick = this.detectCandlestickPatterns(recentData);
 
       console.log('✅ Detecção de padrões concluída');
       return patterns;
     } catch (error) {
       console.error('❌ Erro ao detectar padrões:', error.message);
+      console.error('Stack trace:', error.stack);
       return this.getEmptyPatterns();
+    }
+  }
+
+  /**
+   * Detecta padrões de candlestick
+   */
+  detectCandlestickPatterns(data) {
+    try {
+      console.log('🕯️ Detectando padrões de candlestick...');
+      const patterns = [];
+      const lastIndex = data.close.length - 1;
+
+      if (lastIndex < 1) {
+        console.log('⚠️ Dados insuficientes para padrões candlestick');
+        return patterns;
+      }
+
+      const current = {
+        open: data.open[lastIndex],
+        high: data.high[lastIndex],
+        low: data.low[lastIndex],
+        close: data.close[lastIndex]
+      };
+
+      const previous = {
+        open: data.open[lastIndex - 1],
+        high: data.high[lastIndex - 1],
+        low: data.low[lastIndex - 1],
+        close: data.close[lastIndex - 1]
+      };
+
+      // Validação dos dados
+      if (!this.isValidCandle(current) || !this.isValidCandle(previous)) {
+        console.warn('⚠️ Dados de candlestick inválidos');
+        return patterns;
+      }
+
+      // Doji
+      if (Math.abs(current.open - current.close) < current.close * 0.001) {
+        patterns.push({ type: 'DOJI', bias: 'NEUTRAL', confidence: 70 });
+        console.log('✅ Padrão DOJI detectado');
+      }
+
+      // Engolfo bullish
+      if (previous.close < previous.open && // Candle anterior bearish
+          current.close > current.open && // Candle atual bullish
+          current.open < previous.close && // Abre abaixo do fechamento anterior
+          current.close > previous.open) { // Fecha acima da abertura anterior
+        patterns.push({ type: 'BULLISH_ENGULFING', bias: 'BULLISH', confidence: 80 });
+        console.log('✅ Padrão BULLISH_ENGULFING detectado');
+      }
+
+      // Engolfo bearish
+      if (previous.close > previous.open && // Candle anterior bullish
+          current.close < current.open && // Candle atual bearish
+          current.open > previous.close && // Abre acima do fechamento anterior
+          current.close < previous.open) { // Fecha abaixo da abertura anterior
+        patterns.push({ type: 'BEARISH_ENGULFING', bias: 'BEARISH', confidence: 80 });
+        console.log('✅ Padrão BEARISH_ENGULFING detectado');
+      }
+
+      // Martelo
+      const bodySize = Math.abs(current.close - current.open);
+      const lowerShadow = Math.min(current.open, current.close) - current.low;
+      const upperShadow = current.high - Math.max(current.open, current.close);
+
+      if (lowerShadow > bodySize * 2 && upperShadow < bodySize * 0.5) {
+        patterns.push({ type: 'HAMMER', bias: 'BULLISH', confidence: 75 });
+        console.log('✅ Padrão HAMMER detectado');
+      }
+
+      // Enforcado
+      if (upperShadow > bodySize * 2 && lowerShadow < bodySize * 0.5) {
+        patterns.push({ type: 'HANGING_MAN', bias: 'BEARISH', confidence: 75 });
+        console.log('✅ Padrão HANGING_MAN detectado');
+      }
+
+      console.log(`✅ ${patterns.length} padrões candlestick detectados`);
+      return patterns;
+    } catch (error) {
+      console.error('❌ Erro ao detectar padrões candlestick:', error.message);
+      return [];
     }
   }
 
@@ -258,88 +341,6 @@ class PatternDetectionService {
     } catch (error) {
       console.error('Erro ao detectar cabeça e ombros:', error.message);
       return null;
-    }
-  }
-
-  /**
-   * Detecta padrões de candlestick
-   */
-  detectCandlestickPatterns(data) {
-    try {
-      console.log('🕯️ Detectando padrões de candlestick...');
-      const patterns = [];
-      const lastIndex = data.close.length - 1;
-
-      if (lastIndex < 1) {
-        console.log('⚠️ Dados insuficientes para padrões candlestick');
-        return patterns;
-      }
-
-      const current = {
-        open: data.open[lastIndex],
-        high: data.high[lastIndex],
-        low: data.low[lastIndex],
-        close: data.close[lastIndex]
-      };
-
-      const previous = {
-        open: data.open[lastIndex - 1],
-        high: data.high[lastIndex - 1],
-        low: data.low[lastIndex - 1],
-        close: data.close[lastIndex - 1]
-      };
-
-      // Validação dos dados
-      if (!this.isValidCandle(current) || !this.isValidCandle(previous)) {
-        console.warn('⚠️ Dados de candlestick inválidos');
-        return patterns;
-      }
-
-      // Doji
-      if (Math.abs(current.open - current.close) < current.close * 0.001) {
-        patterns.push({ type: 'DOJI', bias: 'NEUTRAL', confidence: 70 });
-        console.log('✅ Padrão DOJI detectado');
-      }
-
-      // Engolfo bullish
-      if (previous.close < previous.open && // Candle anterior bearish
-          current.close > current.open && // Candle atual bullish
-          current.open < previous.close && // Abre abaixo do fechamento anterior
-          current.close > previous.open) { // Fecha acima da abertura anterior
-        patterns.push({ type: 'BULLISH_ENGULFING', bias: 'BULLISH', confidence: 80 });
-        console.log('✅ Padrão BULLISH_ENGULFING detectado');
-      }
-
-      // Engolfo bearish
-      if (previous.close > previous.open && // Candle anterior bullish
-          current.close < current.open && // Candle atual bearish
-          current.open > previous.close && // Abre acima do fechamento anterior
-          current.close < previous.open) { // Fecha abaixo da abertura anterior
-        patterns.push({ type: 'BEARISH_ENGULFING', bias: 'BEARISH', confidence: 80 });
-        console.log('✅ Padrão BEARISH_ENGULFING detectado');
-      }
-
-      // Martelo
-      const bodySize = Math.abs(current.close - current.open);
-      const lowerShadow = Math.min(current.open, current.close) - current.low;
-      const upperShadow = current.high - Math.max(current.open, current.close);
-
-      if (lowerShadow > bodySize * 2 && upperShadow < bodySize * 0.5) {
-        patterns.push({ type: 'HAMMER', bias: 'BULLISH', confidence: 75 });
-        console.log('✅ Padrão HAMMER detectado');
-      }
-
-      // Enforcado
-      if (upperShadow > bodySize * 2 && lowerShadow < bodySize * 0.5) {
-        patterns.push({ type: 'HANGING_MAN', bias: 'BEARISH', confidence: 75 });
-        console.log('✅ Padrão HANGING_MAN detectado');
-      }
-
-      console.log(`✅ ${patterns.length} padrões candlestick detectados`);
-      return patterns;
-    } catch (error) {
-      console.error('❌ Erro ao detectar padrões candlestick:', error.message);
-      return [];
     }
   }
 
