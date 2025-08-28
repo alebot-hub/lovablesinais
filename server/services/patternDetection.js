@@ -501,11 +501,6 @@ class PatternDetectionService {
         : Array(data.close.length).fill(1);
       const volume = volArr.at(-1);
       const avgVolume = volArr.reduce((a, b) => a + b, 0) / volArr.length;
-      const volArr = (Array.isArray(data.volume) && data.volume.length === data.close.length)
-        ? data.volume
-        : Array(data.close.length).fill(1);
-      const volume = volArr.at(-1);
-      const avgVolume = volArr.reduce((a, b) => a + b, 0) / volArr.length;
 
       // Rompimento de resistência com volume
       if (currentPrice > resistance && 
