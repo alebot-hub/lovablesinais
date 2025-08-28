@@ -17,16 +17,16 @@ const PDS_VERSION = 'v2.1-bind-lock';
 class PatternDetectionService {
   constructor(config = {}) {
     // Configurações padrão com valores configuráveis
-    this.config = {
-      minDataLength: config.minDataLength || 20,
-      breakoutVolumeThreshold: config.breakoutVolumeThreshold || 1.5,
-      tolerance: config.tolerance || 0.02,
-      candlestickTolerance: config.candlestickTolerance || 0.001,
-      debug: config.debug !== undefined ? config.debug : true,
-      volatilityAdjustment: config.volatilityAdjustment !== undefined ? config.volatilityAdjustment : true,
-      minSeparation: config.minSeparation || 3,
-      regressionMinR2: config.regressionMinR2 || 0.3
-    };
+    this.config = Object.assign({
+      minDataLength: 20,
+      breakoutVolumeThreshold: 1.5,
+      tolerance: 0.02,
+      candlestickTolerance: 0.001,
+      debug: true,
+      volatilityAdjustment: true,
+      minSeparation: 3,
+      regressionMinR2: 0.3
+    }, config || {});
 
     const FILE_ID = (typeof __filename !== 'undefined')
       ? __filename
