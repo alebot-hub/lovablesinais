@@ -29,7 +29,10 @@ class PatternDetectionService {
       ...config
     };
 
-    this.log(`🔧 PatternDetectionService versão ${PDS_VERSION}`);
+    const FILE_ID = (typeof __filename !== 'undefined')
+      ? __filename
+      : (typeof import !== 'undefined' && import.meta && import.meta.url ? import.meta.url : 'unknown');
+    this.log(`🔧 PatternDetectionService versão ${PDS_VERSION} @ ${FILE_ID}`);
     this.log('✅ PatternDetectionService inicializado com configurações:', this.config);
     
     // BIND + LOCK: garante contexto e impede reatribuição acidental
@@ -112,9 +115,9 @@ class PatternDetectionService {
    */
   detectPatterns(data) {
     try {
-      // Guard extra contra perda de contexto
+      // Guards de contexto/instância
       if (!(this instanceof PatternDetectionService)) {
-        throw new Error('detectPatterns chamado sem contexto de PatternDetectionService (this inválido)');
+        throw new Error('[PDS] detectPatterns chamado sem contexto de PatternDetectionService (this inválido)');
       }
 
       this.log('🔍 Iniciando detecção de padrões...');
@@ -182,6 +185,10 @@ class PatternDetectionService {
       this.log('🕯️ Detectando padrões de candlestick...');
       // Padrões de candlestick - COM SALVAGUARDA TRIPLA
       try {
+        this.log('[PDS] typeof detectCandlestickPatterns =', typeof this.detectCandlestickPatterns);
+        this.log('[PDS] tem no protótipo?', !!PatternDetectionService.prototype.detectCandlestickPatterns);
+        this.log('[PDS] keys da instância:', Object.keys(this));
+        this.log('[PDS] proto ok?', Object.getPrototypeOf(this) === PatternDetectionService.prototype);
         // SALVAGUARDA 1: Verifica se o método ainda é uma função
         if (typeof this.detectCandlestickPatterns !== 'function') {
           console.error('❌ detectCandlestickPatterns não é função; restaurando implementação padrão.');
@@ -488,7 +495,12 @@ class PatternDetectionService {
       const currentPrice = data.close.at(-1);
       const previousPrice = data.close.at(-2);
       
-      // Fallback de volume robusto
+      // Fallback robusto para volume
+      const volArr = (Array.isArray(data.volume) && data.volume.length === data.close.length)
+        ? data.volume
+        : Array(data.close.length).fill(1);
+      const volume = volArr.at(-1);
+      const avgVolume = volArr.reduce((a, b) => a + b, 0) / volArr.length;
       const volArr = (Array.isArray(data.volume) && data.volume.length === data.close.length)
         ? data.volume
         : Array(data.close.length).fill(1);
