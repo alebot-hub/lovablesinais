@@ -257,6 +257,67 @@ class PatternDetectionService {
   }
 
   /**
+   * Detecta padrões de candlestick
+   */
+  detectCandlestickPatterns(data) {
+    const patterns = [];
+    const lastIndex = data.close.length - 1;
+
+    if (lastIndex < 1) return patterns;
+
+    const current = {
+      open: data.open[lastIndex],
+      high: data.high[lastIndex],
+      low: data.low[lastIndex],
+      close: data.close[lastIndex]
+    };
+
+    const previous = {
+      open: data.open[lastIndex - 1],
+      high: data.high[lastIndex - 1],
+      low: data.low[lastIndex - 1],
+      close: data.close[lastIndex - 1]
+    };
+
+    // Doji
+    if (Math.abs(current.open - current.close) < current.close * 0.001) {
+      patterns.push({ type: 'DOJI', bias: 'NEUTRAL' });
+    }
+
+    // Engolfo bullish
+    if (previous.close < previous.open && // Candle anterior bearish
+        current.close > current.open && // Candle atual bullish
+        current.open < previous.close && // Abre abaixo do fechamento anterior
+        current.close > previous.open) { // Fecha acima da abertura anterior
+      patterns.push({ type: 'BULLISH_ENGULFING', bias: 'BULLISH' });
+    }
+
+    // Engolfo bearish
+    if (previous.close > previous.open && // Candle anterior bullish
+        current.close < current.open && // Candle atual bearish
+        current.open > previous.close && // Abre acima do fechamento anterior
+        current.close < previous.open) { // Fecha abaixo da abertura anterior
+      patterns.push({ type: 'BEARISH_ENGULFING', bias: 'BEARISH' });
+    }
+
+    // Martelo
+    const bodySize = Math.abs(current.close - current.open);
+    const lowerShadow = Math.min(current.open, current.close) - current.low;
+    const upperShadow = current.high - Math.max(current.open, current.close);
+
+    if (lowerShadow > bodySize * 2 && upperShadow < bodySize * 0.5) {
+      patterns.push({ type: 'HAMMER', bias: 'BULLISH' });
+    }
+
+    // Enforcado
+    if (upperShadow > bodySize * 2 && lowerShadow < bodySize * 0.5) {
+      patterns.push({ type: 'HANGING_MAN', bias: 'BEARISH' });
+    }
+
+    return patterns;
+  }
+
+  /**
    * Verifica se uma linha é horizontal
    */
   isHorizontalLine(values, tolerance = 0.02) {
