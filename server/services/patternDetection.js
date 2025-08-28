@@ -1,11 +1,9 @@
 /**
- * PatternDetectionService — versão estável e simples
- * - Sem bind/lock
- * - Sem validações que lancem exceção
- * - Todos os métodos existem no protótipo
+ * PatternDetectionService — versão estável (sem campos privados, sem validações que lançam erro)
+ * Todos os métodos existem no protótipo: evita “método ausente” e “is not a function”.
  */
 
-const PDS_VERSION = 'v1-stable';
+const PDS_VERSION = 'v1.1-nohash';
 
 class PatternDetectionService {
   constructor(config = {}) {
@@ -32,14 +30,11 @@ class PatternDetectionService {
     if (this.config.debug) console.log(msg, ...args);
   }
 
-  // ========== PONTO ÚNICO DE ENTRADA ==========
+  // ================= ENTRADA ÚNICA =================
   detectPatterns(data) {
     try {
-      // validação mínima
-      const ok = this.#isValidInput(data);
-      if (!ok) return this.getEmptyPatterns();
+      if (!this.isValidInput(data)) return this.getEmptyPatterns();
 
-      // ajuste de tolerância por volatilidade
       if (this.config.volatilityAdjustment) {
         this.adjustToleranceForVolatility(data);
       }
@@ -50,7 +45,7 @@ class PatternDetectionService {
         high: data.high.slice(-windowSize),
         low: data.low.slice(-windowSize),
         close: data.close.slice(-windowSize),
-        volume: Array.isArray(data.volume) && data.volume.length === data.close.length
+        volume: (Array.isArray(data.volume) && data.volume.length === data.close.length)
           ? data.volume.slice(-windowSize)
           : Array(windowSize).fill(1)
       };
@@ -78,7 +73,7 @@ class PatternDetectionService {
     }
   }
 
-  // ========== CANDLESTICKS ==========
+  // ================= CANDLESTICKS =================
   detectCandlestickPatterns(data) {
     try {
       const pats = [];
@@ -100,25 +95,43 @@ class PatternDetectionService {
       }
 
       // Engolfo bullish
-      if (prev.close < prev.open && cur.close > cur.open && cur.open <= prev.close && cur.close >= prev.open) {
-        pats.push({ type: 'BULLISH_ENGULFING', bias: 'BULLISH', confidence: this.calculateDynamicConfidence(80, cur, prevTrend, 'BULLISH') });
+      if (prev.close < prev.open && cur.close > cur.open &&
+          cur.open <= prev.close && cur.close >= prev.open) {
+        pats.push({
+          type: 'BULLISH_ENGULFING',
+          bias: 'BULLISH',
+          confidence: this.calculateDynamicConfidence(80, cur, prevTrend, 'BULLISH')
+        });
       }
 
       // Engolfo bearish
-      if (prev.close > prev.open && cur.close < cur.open && cur.open >= prev.close && cur.close <= prev.open) {
-        pats.push({ type: 'BEARISH_ENGULFING', bias: 'BEARISH', confidence: this.calculateDynamicConfidence(80, cur, prevTrend, 'BEARISH') });
+      if (prev.close > prev.open && cur.close < cur.open &&
+          cur.open >= prev.close && cur.close <= prev.open) {
+        pats.push({
+          type: 'BEARISH_ENGULFING',
+          bias: 'BEARISH',
+          confidence: this.calculateDynamicConfidence(80, cur, prevTrend, 'BEARISH')
+        });
       }
 
-      // Martelo / Enforcado simples
+      // Martelo / Enforcado
       const body = Math.abs(cur.close - cur.open);
       const lower = Math.min(cur.open, cur.close) - cur.low;
       const upper = cur.high - Math.max(cur.open, cur.close);
 
       if (lower > body * 2 && upper < body * 0.5) {
-        pats.push({ type: 'HAMMER', bias: 'BULLISH', confidence: this.calculateDynamicConfidence(75, cur, prevTrend, 'BULLISH') });
+        pats.push({
+          type: 'HAMMER',
+          bias: 'BULLISH',
+          confidence: this.calculateDynamicConfidence(75, cur, prevTrend, 'BULLISH')
+        });
       }
       if (upper > body * 2 && lower < body * 0.5) {
-        pats.push({ type: 'HANGING_MAN', bias: 'BEARISH', confidence: this.calculateDynamicConfidence(75, cur, prevTrend, 'BEARISH') });
+        pats.push({
+          type: 'HANGING_MAN',
+          bias: 'BEARISH',
+          confidence: this.calculateDynamicConfidence(75, cur, prevTrend, 'BEARISH')
+        });
       }
 
       return pats;
@@ -128,20 +141,21 @@ class PatternDetectionService {
     }
   }
 
-  // ========== PADRÕES CLÁSSICOS ==========
+  // ================= PADRÕES CLÁSSICOS =================
   detectBreakout(data, support, resistance) {
     try {
-      const cp = data.close.at(-1);
-      const pp = data.close.at(-2);
+      const c = data.close;
+      const v = data.volume && data.volume.length === c.length ? data.volume : Array(c.length).fill(1);
 
-      const volArr = data.volume && data.volume.length === data.close.length ? data.volume : Array(data.close.length).fill(1);
-      const v = volArr.at(-1);
-      const vAvg = volArr.reduce((a, b) => a + b, 0) / volArr.length;
+      const curPrice = c[c.length - 1];
+      const prevPrice = c[c.length - 2];
+      const curVol = v[v.length - 1];
+      const avgVol = v.reduce((a, b) => a + b, 0) / v.length;
 
-      if (cp > resistance && pp <= resistance && v > vAvg * this.config.breakoutVolumeThreshold) {
+      if (curPrice > resistance && prevPrice <= resistance && curVol > avgVol * this.config.breakoutVolumeThreshold) {
         return { type: 'BULLISH_BREAKOUT', level: resistance, strength: 'HIGH', confidence: 85, volumeConfirmation: true };
       }
-      if (cp < support && pp >= support && v > vAvg * this.config.breakoutVolumeThreshold) {
+      if (curPrice < support && prevPrice >= support && curVol > avgVol * this.config.breakoutVolumeThreshold) {
         return { type: 'BEARISH_BREAKOUT', level: support, strength: 'HIGH', confidence: 85, volumeConfirmation: true };
       }
       return null;
@@ -228,13 +242,13 @@ class PatternDetectionService {
 
       const resHits = [];
       for (let i = 0; i < highs.length; i++) if (Math.abs(highs[i] - resistance) < tolRes) resHits.push(i);
-      if (resHits.length >= 2 && (resHits.at(-1) - resHits[0]) >= this.config.minSeparation) {
+      if (resHits.length >= 2 && (resHits[resHits.length - 1] - resHits[0]) >= this.config.minSeparation) {
         return { type: 'DOUBLE_TOP', level: resistance, bias: 'BEARISH', confidence: 75 };
       }
 
       const supHits = [];
       for (let i = 0; i < lows.length; i++) if (Math.abs(lows[i] - support) < tolSup) supHits.push(i);
-      if (supHits.length >= 2 && (supHits.at(-1) - supHits[0]) >= this.config.minSeparation) {
+      if (supHits.length >= 2 && (supHits[supHits.length - 1] - supHits[0]) >= this.config.minSeparation) {
         return { type: 'DOUBLE_BOTTOM', level: support, bias: 'BULLISH', confidence: 75 };
       }
 
@@ -272,8 +286,7 @@ class PatternDetectionService {
     }
   }
 
-  // ========== SUPORTE ==========
-
+  // ================= SUPORTE =================
   isValidCandle(c) {
     return c &&
       typeof c.open === 'number' && isFinite(c.open) && c.open > 0 &&
@@ -297,6 +310,25 @@ class PatternDetectionService {
       headShoulders: null,
       candlestick: []
     };
+  }
+
+  isValidInput(data) {
+    try {
+      const arrs = ['open', 'high', 'low', 'close'];
+      for (const k of arrs) {
+        if (!Array.isArray(data?.[k]) || data[k].length < this.config.minDataLength) {
+          console.warn(`⚠️ ${k} inválido ou insuficiente`);
+          return false;
+        }
+        if (data[k].some(v => typeof v !== 'number' || !isFinite(v) || v <= 0)) {
+          console.warn(`⚠️ ${k} contém valores inválidos`);
+          return false;
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   calculatePreviousTrend(data) {
@@ -331,7 +363,6 @@ class PatternDetectionService {
         if ((expected === 'BULLISH' && prevTrend === 'BEARISH') ||
             (expected === 'BEARISH' && prevTrend === 'BULLISH')) conf += 10;
       }
-
       return Math.max(50, Math.min(95, conf));
     } catch {
       return base;
@@ -346,8 +377,8 @@ class PatternDetectionService {
         if (prices[i - 1] > 0) rets.push((prices[i] - prices[i - 1]) / prices[i - 1]);
       }
       const mean = rets.reduce((a, b) => a + b, 0) / (rets.length || 1);
-      const varc = rets.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / (rets.length || 1);
-      return Math.sqrt(varc);
+      const variance = rets.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / (rets.length || 1);
+      return Math.sqrt(variance);
     } catch {
       return 0;
     }
@@ -358,7 +389,7 @@ class PatternDetectionService {
     if (vol > 0.05) this.config.tolerance = 0.03;
     else if (vol < 0.01) this.config.tolerance = 0.01;
     else this.config.tolerance = 0.02;
-    this.log(`📊 Tolerância ${ (this.config.tolerance*100).toFixed(1) }% (vol: ${(vol*100).toFixed(2)}%)`);
+    this.log(`📊 Tolerância ${(this.config.tolerance * 100).toFixed(1)}% (vol: ${(vol * 100).toFixed(2)}%)`);
   }
 
   calculateLinearRegression(values) {
@@ -367,16 +398,16 @@ class PatternDetectionService {
       const n = values.length;
       const x = Array.from({ length: n }, (_, i) => i);
       const y = values;
-      const sx = x.reduce((a,b)=>a+b,0);
-      const sy = y.reduce((a,b)=>a+b,0);
-      const sxy = x.reduce((s,xi,i)=>s+xi*y[i],0);
-      const sxx = x.reduce((s,xi)=>s+xi*xi,0);
-      const slope = (n*sxy - sx*sy) / (n*sxx - sx*sx);
-      const intercept = (sy - slope*sx) / n;
-      const yMean = sy / n;
-      const sst = y.reduce((s,yi)=>s+Math.pow(yi - yMean,2),0);
-      const ssr = y.reduce((s,yi,i)=>s+Math.pow(yi - (slope*x[i] + intercept),2),0);
-      const r2 = sst > 0 ? 1 - (ssr/sst) : 0;
+      const sumX = x.reduce((a, b) => a + b, 0);
+      const sumY = y.reduce((a, b) => a + b, 0);
+      const sumXY = x.reduce((s, xi, i) => s + xi * y[i], 0);
+      const sumXX = x.reduce((s, xi) => s + xi * xi, 0);
+      const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+      const intercept = (sumY - slope * sumX) / n;
+      const yMean = sumY / n;
+      const ssTotal = y.reduce((s, yi) => s + Math.pow(yi - yMean, 2), 0);
+      const ssRes = y.reduce((s, yi, i) => s + Math.pow(yi - (slope * x[i] + intercept), 2), 0);
+      const r2 = ssTotal > 0 ? 1 - (ssRes / ssTotal) : 0;
       return { slope, intercept, r2 };
     } catch {
       return { slope: 0, intercept: 0, r2: 0 };
@@ -385,7 +416,7 @@ class PatternDetectionService {
 
   isHorizontalLine(values, tol = null) {
     try {
-      const t = tol ?? this.config.tolerance;
+      const t = (tol == null) ? this.config.tolerance : tol;
       if (!Array.isArray(values) || values.length < 2) return false;
       const r = this.calculateLinearRegression(values);
       return Math.abs(r.slope) < t && r.r2 > this.config.regressionMinR2;
@@ -419,7 +450,7 @@ class PatternDetectionService {
         patternTypes: {}
       };
 
-      const acc = (p) => {
+      const accumulate = (p) => {
         stats.totalPatterns++;
         if (p.bias === 'BULLISH') stats.bullishPatterns++;
         else if (p.bias === 'BEARISH') stats.bearishPatterns++;
@@ -428,12 +459,12 @@ class PatternDetectionService {
         if (p.type) stats.patternTypes[p.type] = (stats.patternTypes[p.type] || 0) + 1;
       };
 
-      for (const key of Object.keys(patterns || {})) {
-        const val = patterns[key];
-        if (!val) continue;
-        if (Array.isArray(val)) val.forEach(acc);
-        else if (typeof val === 'object' && val.type) acc(val);
-      }
+      Object.keys(patterns || {}).forEach((k) => {
+        const val = patterns[k];
+        if (!val) return;
+        if (Array.isArray(val)) val.forEach(accumulate);
+        else if (typeof val === 'object' && val.type) accumulate(val);
+      });
 
       return stats;
     } catch (e) {
@@ -446,26 +477,6 @@ class PatternDetectionService {
         highConfidencePatterns: 0,
         patternTypes: {}
       };
-    }
-  }
-
-  // ===== interno =====
-  #isValidInput(data) {
-    try {
-      const arrs = ['open','high','low','close'];
-      for (const k of arrs) {
-        if (!Array.isArray(data?.[k]) || data[k].length < this.config.minDataLength) {
-          console.warn(`⚠️ ${k} inválido ou insuficiente`);
-          return false;
-        }
-        if (data[k].some(v => typeof v !== 'number' || !isFinite(v) || v <= 0)) {
-          console.warn(`⚠️ ${k} contém valores inválidos`);
-          return false;
-        }
-      }
-      return true;
-    } catch {
-      return false;
     }
   }
 }
