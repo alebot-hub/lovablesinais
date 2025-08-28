@@ -62,8 +62,8 @@ class PatternDetectionService {
       patterns.headShoulders = this.detectHeadShoulders(recentData);
 
       console.log('🕯️ Detectando padrões de candlestick...');
-      // Padrões de candlestick - IMPLEMENTAÇÃO DIRETA
-      patterns.candlestick = this.detectCandlestickPatterns(recentData);
+      // Padrões de candlestick - IMPLEMENTAÇÃO DIRETA AQUI
+      patterns.candlestick = this.detectCandlestickPatternsInternal(recentData);
 
       console.log('✅ Detecção de padrões concluída');
       return patterns;
@@ -75,9 +75,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta padrões de candlestick
+   * Detecta padrões de candlestick - MÉTODO INTERNO
    */
-  detectCandlestickPatterns(data) {
+  detectCandlestickPatternsInternal(data) {
     try {
       console.log('🕯️ Detectando padrões de candlestick...');
       const patterns = [];
@@ -185,12 +185,14 @@ class PatternDetectionService {
 
       // Rompimento de resistência com volume
       if (currentPrice > resistance && previousPrice <= resistance && volume > avgVolume * 1.5) {
-        return { type: 'BULLISH_BREAKOUT', level: resistance, strength: 'HIGH' };
+        console.log('✅ Rompimento bullish detectado');
+        return { type: 'BULLISH_BREAKOUT', level: resistance, strength: 'HIGH', confidence: 85 };
       }
 
       // Rompimento de suporte com volume
       if (currentPrice < support && previousPrice >= support && volume > avgVolume * 1.5) {
-        return { type: 'BEARISH_BREAKOUT', level: support, strength: 'HIGH' };
+        console.log('✅ Rompimento bearish detectado');
+        return { type: 'BEARISH_BREAKOUT', level: support, strength: 'HIGH', confidence: 85 };
       }
 
       return null;
@@ -213,7 +215,8 @@ class PatternDetectionService {
       const supportRising = this.isRisingLine(lows);
 
       if (resistanceFlat && supportRising) {
-        return { type: 'ASCENDING_TRIANGLE', bias: 'BULLISH' };
+        console.log('✅ Triângulo ascendente detectado');
+        return { type: 'ASCENDING_TRIANGLE', bias: 'BULLISH', confidence: 70 };
       }
 
       // Triângulo descendente: suporte horizontal, resistência descendente
@@ -221,7 +224,8 @@ class PatternDetectionService {
       const resistanceFalling = this.isFallingLine(highs);
 
       if (supportFlat && resistanceFalling) {
-        return { type: 'DESCENDING_TRIANGLE', bias: 'BEARISH' };
+        console.log('✅ Triângulo descendente detectado');
+        return { type: 'DESCENDING_TRIANGLE', bias: 'BEARISH', confidence: 70 };
       }
 
       return null;
@@ -244,7 +248,8 @@ class PatternDetectionService {
 
       if (strongMove && consolidation) {
         const direction = prices[19] > prices[10] ? 'BULLISH' : 'BEARISH';
-        return { type: `${direction}_FLAG`, strength: 'MEDIUM' };
+        console.log(`✅ Bandeira ${direction.toLowerCase()} detectada`);
+        return { type: `${direction}_FLAG`, strength: 'MEDIUM', confidence: 65 };
       }
 
       return null;
@@ -269,12 +274,14 @@ class PatternDetectionService {
 
       // Cunha ascendente: ambas as linhas sobem, mas resistência sobe mais devagar
       if (highsRising && lowsRising) {
-        return { type: 'RISING_WEDGE', bias: 'BEARISH' };
+        console.log('✅ Cunha ascendente detectada');
+        return { type: 'RISING_WEDGE', bias: 'BEARISH', confidence: 60 };
       }
 
       // Cunha descendente: ambas as linhas descem, mas suporte desce mais devagar
       if (highsFalling && lowsFalling) {
-        return { type: 'FALLING_WEDGE', bias: 'BULLISH' };
+        console.log('✅ Cunha descendente detectada');
+        return { type: 'FALLING_WEDGE', bias: 'BULLISH', confidence: 60 };
       }
 
       return null;
@@ -295,13 +302,15 @@ class PatternDetectionService {
       // Topo duplo: dois picos próximos à resistência
       const resistanceHits = highs.filter(h => Math.abs(h - resistance) < resistance * 0.01).length;
       if (resistanceHits >= 2) {
-        return { type: 'DOUBLE_TOP', level: resistance, bias: 'BEARISH' };
+        console.log('✅ Topo duplo detectado');
+        return { type: 'DOUBLE_TOP', level: resistance, bias: 'BEARISH', confidence: 75 };
       }
 
       // Fundo duplo: dois vales próximos ao suporte
       const supportHits = lows.filter(l => Math.abs(l - support) < support * 0.01).length;
       if (supportHits >= 2) {
-        return { type: 'DOUBLE_BOTTOM', level: support, bias: 'BULLISH' };
+        console.log('✅ Fundo duplo detectado');
+        return { type: 'DOUBLE_BOTTOM', level: support, bias: 'BULLISH', confidence: 75 };
       }
 
       return null;
@@ -329,11 +338,13 @@ class PatternDetectionService {
 
       if (head > leftShoulder && head > rightShoulder && 
           Math.abs(leftShoulder - rightShoulder) < leftShoulder * 0.02) {
+        console.log('✅ Cabeça e ombros detectado');
         return { 
           type: 'HEAD_AND_SHOULDERS', 
           neckline, 
           bias: 'BEARISH',
-          target: neckline - (head - neckline)
+          target: neckline - (head - neckline),
+          confidence: 80
         };
       }
 
