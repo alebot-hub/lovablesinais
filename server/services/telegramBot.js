@@ -887,7 +887,7 @@ ${counterTrendWarning}
   getTargetRecommendation(targetNumber) {
     switch (targetNumber) {
       case 1: return 'Realize 50% de Lucro Parcial da posição';
-      case 2: return 'Realize 50% da posição e mova o stop para o ponto de entrada';
+      case 2: return 'Realize 15% da posição e mova o stop para o ponto de entrada';
       case 3: return 'Mova o stop para o alvo 1';
       case 4: return 'Mova o stop para o alvo 2';
       case 5: return 'Mova o stop para o alvo 3';
