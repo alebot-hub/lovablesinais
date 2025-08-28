@@ -1,35 +1,48 @@
 /**
- * Serviço de detecção de padrões gráficos - Versão Atualizada
- * Solução para erro 'this.detectCandlestickPatterns is not a function'
+ * Serviço de detecção de padrões gráficos - Versão Corrigida com Métodos de Protótipo
+ * 
+ * IMPORTANTE: NÃO reatribuir métodos desta instância em runtime para evitar erros!
+ * 
+ * Correções aplicadas:
+ * 1. Todos os métodos convertidos para métodos de protótipo (não arrow functions)
+ * 2. Salvaguarda contra sombreamento de métodos
+ * 3. Validação completa de dados OHLC
+ * 4. Sistema de configuração flexível
+ * 5. Logging configurável
+ * 6. Regressão linear para análise de linhas
+ * 7. Tolerâncias baseadas em volatilidade
  */
 
 class PatternDetectionService {
   constructor(config = {}) {
-    // Configurações padrão
+    // Configurações padrão com valores configuráveis
     this.config = {
       minDataLength: config.minDataLength || 20,
       breakoutVolumeThreshold: config.breakoutVolumeThreshold || 1.5,
       tolerance: config.tolerance || 0.02,
       candlestickTolerance: config.candlestickTolerance || 0.001,
       debug: config.debug !== undefined ? config.debug : true,
+      volatilityAdjustment: config.volatilityAdjustment !== undefined ? config.volatilityAdjustment : true,
+      minSeparation: config.minSeparation || 3, // Separação mínima para padrões duplos
+      regressionMinR2: config.regressionMinR2 || 0.3, // R² mínimo para regressão linear
       ...config
     };
 
     this.log('✅ PatternDetectionService inicializado com configurações:', this.config);
     
-    // Verificação crítica: confirma que todos os métodos principais estão definidos
+    // Validação crítica: confirma que todos os métodos principais estão definidos
     this.validateMethods();
   }
 
-  // Método de logging configurável
-  log = (message, ...args) => {
+  // Sistema de logging configurável
+  log(message, ...args) {
     if (this.config.debug) {
       console.log(message, ...args);
     }
   }
 
-  // Validação de métodos (arrow function para preservar 'this')
-  validateMethods = () => {
+  // Validação de métodos - MÉTODO DE PROTÓTIPO
+  validateMethods() {
     const requiredMethods = [
       'detectPatterns',
       'detectCandlestickPatterns',
@@ -52,9 +65,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta todos os padrões gráficos (arrow function para preservar 'this')
+   * Detecta todos os padrões gráficos - MÉTODO DE PROTÓTIPO
    */
-  detectPatterns = (data) => {
+  detectPatterns(data) {
     try {
       this.log('🔍 Iniciando detecção de padrões...');
       
@@ -66,6 +79,11 @@ class PatternDetectionService {
       }
 
       const patterns = {};
+
+      // Ajusta tolerâncias baseado na volatilidade se configurado
+      if (this.config.volatilityAdjustment) {
+        this.adjustToleranceForVolatility(data);
+      }
 
       // Dados recentes para análise (usando configuração)
       const windowSize = this.config.minDataLength;
@@ -114,8 +132,14 @@ class PatternDetectionService {
       patterns.headShoulders = this.detectHeadShoulders(recentData);
 
       this.log('🕯️ Detectando padrões de candlestick...');
-      // Padrões de candlestick - ARROW FUNCTION para preservar 'this'
+      // Padrões de candlestick - COM SALVAGUARDA CONTRA SOMBREAMENTO
       try {
+        // SALVAGUARDA: Verifica se o método ainda é uma função
+        if (typeof this.detectCandlestickPatterns !== 'function') {
+          console.error('❌ detectCandlestickPatterns não é função; restaurando implementação padrão.');
+          this.detectCandlestickPatterns = PatternDetectionService.prototype.detectCandlestickPatterns.bind(this);
+        }
+        
         patterns.candlestick = this.detectCandlestickPatterns(recentData);
         this.log(`✅ ${patterns.candlestick.length} padrões candlestick detectados`);
       } catch (candlestickError) {
@@ -136,7 +160,7 @@ class PatternDetectionService {
   /**
    * Validação completa de dados de entrada
    */
-  validateInputData = (data) => {
+  validateInputData(data) {
     if (!data) {
       return { isValid: false, reason: 'Dados não fornecidos' };
     }
@@ -160,8 +184,15 @@ class PatternDetectionService {
       }
     }
 
-    // Verifica consistência OHLC
-    for (let i = 0; i < Math.min(5, data.close.length); i++) {
+    // Verifica consistência OHLC nos primeiros e últimos candles
+    const checkIndices = [
+      ...Array(5).fill().map((_, i) => i), // Primeiros 5
+      ...Array(5).fill().map((_, i) => data.close.length - 5 + i) // Últimos 5
+    ];
+
+    for (const i of checkIndices) {
+      if (i >= data.close.length || i < 0) continue;
+      
       const candle = {
         open: data.open[i],
         high: data.high[i],
@@ -169,9 +200,7 @@ class PatternDetectionService {
         close: data.close[i]
       };
 
-      if (candle.high < candle.low || 
-          candle.high < Math.max(candle.open, candle.close) ||
-          candle.low > Math.min(candle.open, candle.close)) {
+      if (!this.isValidCandle(candle)) {
         return { isValid: false, reason: `Dados OHLC inconsistentes no índice ${i}` };
       }
     }
@@ -180,9 +209,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta padrões de candlestick (ARROW FUNCTION para preservar 'this')
+   * Detecta padrões de candlestick - MÉTODO DE PROTÓTIPO
    */
-  detectCandlestickPatterns = (data) => {
+  detectCandlestickPatterns(data) {
     try {
       this.log('🕯️ Detectando padrões de candlestick...');
       const patterns = [];
@@ -273,7 +302,7 @@ class PatternDetectionService {
   /**
    * Calcula tendência prévia para análise de candlestick
    */
-  calculatePreviousTrend = (data) => {
+  calculatePreviousTrend(data) {
     try {
       const trendWindow = Math.min(5, data.close.length - 1);
       if (trendWindow < 2) return 'NEUTRAL';
@@ -299,7 +328,7 @@ class PatternDetectionService {
   /**
    * Calcula confiança dinâmica baseada em contexto
    */
-  calculateDynamicConfidence = (baseConfidence, candle, prevTrend, expectedBias = null) => {
+  calculateDynamicConfidence(baseConfidence, candle, prevTrend, expectedBias = null) {
     try {
       let confidence = baseConfidence;
 
@@ -327,9 +356,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Valida se um candle tem dados válidos (arrow function)
+   * Valida se um candle tem dados válidos
    */
-  isValidCandle = (candle) => {
+  isValidCandle(candle) {
     return candle && 
            typeof candle.open === 'number' && isFinite(candle.open) && candle.open > 0 &&
            typeof candle.high === 'number' && isFinite(candle.high) && candle.high > 0 &&
@@ -341,9 +370,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Retorna padrões vazios em caso de erro (arrow function)
+   * Retorna padrões vazios em caso de erro
    */
-  getEmptyPatterns = () => {
+  getEmptyPatterns() {
     return {
       support: 0,
       resistance: 0,
@@ -358,9 +387,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta rompimentos de suporte/resistência (arrow function)
+   * Detecta rompimentos de suporte/resistência - MÉTODO DE PROTÓTIPO
    */
-  detectBreakout = (data, support, resistance) => {
+  detectBreakout(data, support, resistance) {
     try {
       const currentPrice = data.close[data.close.length - 1];
       const previousPrice = data.close[data.close.length - 2];
@@ -403,39 +432,45 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta triângulos ascendentes/descendentes (arrow function)
+   * Detecta triângulos ascendentes/descendentes - MÉTODO DE PROTÓTIPO
    */
-  detectTriangles = (data) => {
+  detectTriangles(data) {
     try {
       const analysisWindow = Math.min(10, data.high.length);
       const highs = data.high.slice(-analysisWindow);
       const lows = data.low.slice(-analysisWindow);
 
       // Usa regressão linear para melhor precisão
-      const resistanceSlope = this.calculateLinearRegression(highs).slope;
-      const supportSlope = this.calculateLinearRegression(lows).slope;
+      const resistanceRegression = this.calculateLinearRegression(highs);
+      const supportRegression = this.calculateLinearRegression(lows);
 
       // Triângulo ascendente: resistência horizontal, suporte ascendente
-      if (Math.abs(resistanceSlope) < this.config.tolerance && supportSlope > this.config.tolerance) {
+      if (Math.abs(resistanceRegression.slope) < this.config.tolerance && 
+          resistanceRegression.r2 > this.config.regressionMinR2 &&
+          supportRegression.slope > this.config.tolerance && 
+          supportRegression.r2 > this.config.regressionMinR2) {
         this.log('✅ Triângulo ascendente detectado');
         return { 
           type: 'ASCENDING_TRIANGLE', 
           bias: 'BULLISH', 
           confidence: 70,
-          resistanceSlope,
-          supportSlope
+          resistanceSlope: resistanceRegression.slope,
+          supportSlope: supportRegression.slope
         };
       }
 
       // Triângulo descendente: suporte horizontal, resistência descendente
-      if (Math.abs(supportSlope) < this.config.tolerance && resistanceSlope < -this.config.tolerance) {
+      if (Math.abs(supportRegression.slope) < this.config.tolerance && 
+          supportRegression.r2 > this.config.regressionMinR2 &&
+          resistanceRegression.slope < -this.config.tolerance && 
+          resistanceRegression.r2 > this.config.regressionMinR2) {
         this.log('✅ Triângulo descendente detectado');
         return { 
           type: 'DESCENDING_TRIANGLE', 
           bias: 'BEARISH', 
           confidence: 70,
-          resistanceSlope,
-          supportSlope
+          resistanceSlope: resistanceRegression.slope,
+          supportSlope: supportRegression.slope
         };
       }
 
@@ -447,9 +482,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta bandeiras de alta/baixa (arrow function com índices relativos)
+   * Detecta bandeiras de alta/baixa - MÉTODO DE PROTÓTIPO (com índices relativos)
    */
-  detectFlags = (data) => {
+  detectFlags(data) {
     try {
       const prices = data.close;
       const lastIndex = prices.length - 1;
@@ -479,9 +514,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta cunhas (arrow function com verificação de convergência)
+   * Detecta cunhas - MÉTODO DE PROTÓTIPO (com verificação de convergência)
    */
-  detectWedges = (data) => {
+  detectWedges(data) {
     try {
       const analysisWindow = Math.min(10, data.high.length);
       const highs = data.high.slice(-analysisWindow);
@@ -530,9 +565,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta topo duplo/fundo duplo (arrow function com separação temporal)
+   * Detecta topo duplo/fundo duplo - MÉTODO DE PROTÓTIPO (com separação temporal)
    */
-  detectDoublePatterns = (data, support, resistance) => {
+  detectDoublePatterns(data, support, resistance) {
     try {
       const highs = data.high;
       const lows = data.low;
@@ -549,7 +584,7 @@ class PatternDetectionService {
       // Verifica se há pelo menos 2 picos com separação mínima
       if (resistanceHits.length >= 2) {
         const separation = resistanceHits[resistanceHits.length - 1] - resistanceHits[0];
-        if (separation >= 3) { // Mínimo 3 candles de separação
+        if (separation >= this.config.minSeparation) {
           this.log('✅ Topo duplo detectado');
           return { 
             type: 'DOUBLE_TOP', 
@@ -572,7 +607,7 @@ class PatternDetectionService {
       // Verifica se há pelo menos 2 vales com separação mínima
       if (supportHits.length >= 2) {
         const separation = supportHits[supportHits.length - 1] - supportHits[0];
-        if (separation >= 3) { // Mínimo 3 candles de separação
+        if (separation >= this.config.minSeparation) {
           this.log('✅ Fundo duplo detectado');
           return { 
             type: 'DOUBLE_BOTTOM', 
@@ -592,9 +627,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta cabeça e ombros (arrow function com índices relativos)
+   * Detecta cabeça e ombros - MÉTODO DE PROTÓTIPO (com índices relativos)
    */
-  detectHeadShoulders = (data) => {
+  detectHeadShoulders(data) {
     try {
       const minLength = 7;
       if (data.high.length < minLength) return null;
@@ -639,9 +674,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Regressão linear simples para análise de linhas (arrow function)
+   * Regressão linear simples para análise de linhas
    */
-  calculateLinearRegression = (values) => {
+  calculateLinearRegression(values) {
     try {
       if (!Array.isArray(values) || values.length < 2) {
         return { slope: 0, intercept: 0, r2: 0 };
@@ -673,15 +708,15 @@ class PatternDetectionService {
   }
 
   /**
-   * Verifica se uma linha é horizontal (arrow function com regressão)
+   * Verifica se uma linha é horizontal (com regressão)
    */
-  isHorizontalLine = (values, tolerance = null) => {
+  isHorizontalLine(values, tolerance = null) {
     try {
       const usedTolerance = tolerance || this.config.tolerance;
       if (!Array.isArray(values) || values.length < 2) return false;
       
       const regression = this.calculateLinearRegression(values);
-      return Math.abs(regression.slope) < usedTolerance && regression.r2 > 0.3;
+      return Math.abs(regression.slope) < usedTolerance && regression.r2 > this.config.regressionMinR2;
     } catch (error) {
       console.error('Erro ao verificar linha horizontal:', error.message);
       return false;
@@ -689,14 +724,14 @@ class PatternDetectionService {
   }
 
   /**
-   * Verifica se uma linha está subindo (arrow function com regressão)
+   * Verifica se uma linha está subindo (com regressão)
    */
-  isRisingLine = (values) => {
+  isRisingLine(values) {
     try {
       if (!Array.isArray(values) || values.length < 2) return false;
       
       const regression = this.calculateLinearRegression(values);
-      return regression.slope > this.config.tolerance && regression.r2 > 0.3;
+      return regression.slope > this.config.tolerance && regression.r2 > this.config.regressionMinR2;
     } catch (error) {
       console.error('Erro ao verificar linha ascendente:', error.message);
       return false;
@@ -704,14 +739,14 @@ class PatternDetectionService {
   }
 
   /**
-   * Verifica se uma linha está descendo (arrow function com regressão)
+   * Verifica se uma linha está descendo (com regressão)
    */
-  isFallingLine = (values) => {
+  isFallingLine(values) {
     try {
       if (!Array.isArray(values) || values.length < 2) return false;
       
       const regression = this.calculateLinearRegression(values);
-      return regression.slope < -this.config.tolerance && regression.r2 > 0.3;
+      return regression.slope < -this.config.tolerance && regression.r2 > this.config.regressionMinR2;
     } catch (error) {
       console.error('Erro ao verificar linha descendente:', error.message);
       return false;
@@ -719,9 +754,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Calcula volatilidade baseada em desvio padrão (arrow function)
+   * Calcula volatilidade baseada em desvio padrão
    */
-  calculateVolatility = (prices) => {
+  calculateVolatility(prices) {
     try {
       if (!Array.isArray(prices) || prices.length < 2) return 0;
 
@@ -745,9 +780,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Ajusta tolerâncias baseado na volatilidade (arrow function)
+   * Ajusta tolerâncias baseado na volatilidade
    */
-  adjustToleranceForVolatility = (data) => {
+  adjustToleranceForVolatility(data) {
     try {
       const volatility = this.calculateVolatility(data.close);
       
@@ -767,9 +802,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Obtém estatísticas dos padrões detectados (arrow function)
+   * Obtém estatísticas dos padrões detectados
    */
-  getPatternStats = (patterns) => {
+  getPatternStats(patterns) {
     try {
       const stats = {
         totalPatterns: 0,
