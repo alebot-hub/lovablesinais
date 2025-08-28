@@ -377,13 +377,20 @@ ${counterTrendWarning}
           console.log(`   🎯 Alvos restantes: ${currentMonitor.targets.length}/6`);
 
           // Verifica stop loss
+          // AGORA USA O STOP ATUALIZADO (que pode ser o stop móvel)
           const hitStopLoss = currentMonitor.trend === 'BULLISH' ? 
             currentPrice <= currentMonitor.stopLoss :
             currentPrice >= currentMonitor.stopLoss;
 
           if (hitStopLoss) {
-            console.log(`🛑 [${symbol}] STOP LOSS ATINGIDO! Preço: $${currentPrice}, Stop: $${currentMonitor.stopLoss}`);
-            await this.handleStopLoss(symbol, currentPrice, currentMonitor, app);
+            // Verifica se é stop móvel ou stop original
+            if (currentMonitor.isMobileStopActive && currentMonitor.targetsHit > 0) {
+              console.log(`🛡️ [${symbol}] STOP MÓVEL ATINGIDO! Preço: $${currentPrice}, Stop: $${currentMonitor.stopLoss}`);
+              await this.handleStopMobile(symbol, currentPrice, currentMonitor, app);
+            } else {
+              console.log(`🛑 [${symbol}] STOP LOSS ATINGIDO! Preço: $${currentPrice}, Stop: $${currentMonitor.stopLoss}`);
+              await this.handleStopLoss(symbol, currentPrice, currentMonitor, app);
+            }
             return;
           }
 
@@ -518,7 +525,12 @@ ${counterTrendWarning}
       
       if (newStopPrice) {
         console.log(`🛡️ [${symbol}] Movendo stop para ${stopDescription}: $${newStopPrice}`);
+        
+        // ATUALIZA O STOP NO MONITOR PARA O NOVO VALOR
         monitor.stopLoss = newStopPrice;
+        monitor.isMobileStopActive = true;
+        monitor.mobileStopLevel = stopDescription;
+        
         await this.sendStopMovedNotification(symbol, newStopPrice, stopDescription);
       }
     } catch (error) {
@@ -807,11 +819,13 @@ ${counterTrendWarning}
       
       const message = `✅ *STOP DE LUCRO ATIVADO #${symbol.split('/')[0]} ${direction}*
 
-🔍 *Preço retornou ao ponto de proteção*
+🔍 *Preço retornou ao ${monitor.mobileStopLevel || 'ponto de proteção'}*
 💰 *Lucro realizado:* +${leveragedTotalPnL.toFixed(1)}% (${this.getRealizationBreakdown(monitor.targetsHit)})
+📈 *Alvos atingidos:* ${monitor.targetsHit}/6
 📈 *Alvos atingidos:* ${monitor.targetsHit}/6
 📊 *Entrada:* ${this.formatPrice(monitor.entry).replace('.', '․')}
 💵 *Preço atual:* ${this.formatPrice(currentPrice).replace('.', '․')}
+⏱️ *Duração:* ${duration}
 ⏱️ *Duração:* ${duration}
 
 🎉 *EXCELENTE RESULTADO!*
