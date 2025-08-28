@@ -62,8 +62,14 @@ class PatternDetectionService {
       patterns.headShoulders = this.detectHeadShoulders(recentData);
 
       console.log('🕯️ Detectando padrões de candlestick...');
-      // Padrões de candlestick - IMPLEMENTAÇÃO DIRETA AQUI
-      patterns.candlestick = this.detectCandlestickPatterns(recentData);
+      // Padrões de candlestick - IMPLEMENTAÇÃO DIRETA
+      try {
+        patterns.candlestick = this.detectCandlestickPatterns(recentData);
+        console.log(`✅ ${patterns.candlestick.length} padrões candlestick detectados`);
+      } catch (candlestickError) {
+        console.error('❌ Erro específico em candlestick:', candlestickError.message);
+        patterns.candlestick = [];
+      }
 
       console.log('✅ Detecção de padrões concluída');
       return patterns;
@@ -148,12 +154,25 @@ class PatternDetectionService {
         console.log('✅ Padrão HANGING_MAN detectado');
       }
 
-      console.log(`✅ ${patterns.length} padrões candlestick detectados`);
       return patterns;
     } catch (error) {
       console.error('❌ Erro ao detectar padrões candlestick:', error.message);
       return [];
     }
+  }
+
+  /**
+   * Valida se um candle tem dados válidos
+   */
+  isValidCandle(candle) {
+    return candle && 
+           typeof candle.open === 'number' && isFinite(candle.open) &&
+           typeof candle.high === 'number' && isFinite(candle.high) &&
+           typeof candle.low === 'number' && isFinite(candle.low) &&
+           typeof candle.close === 'number' && isFinite(candle.close) &&
+           candle.high >= candle.low &&
+           candle.high >= Math.max(candle.open, candle.close) &&
+           candle.low <= Math.min(candle.open, candle.close);
   }
 
   /**
@@ -353,20 +372,6 @@ class PatternDetectionService {
       console.error('Erro ao detectar cabeça e ombros:', error.message);
       return null;
     }
-  }
-
-  /**
-   * Valida se um candle tem dados válidos
-   */
-  isValidCandle(candle) {
-    return candle && 
-           typeof candle.open === 'number' && isFinite(candle.open) &&
-           typeof candle.high === 'number' && isFinite(candle.high) &&
-           typeof candle.low === 'number' && isFinite(candle.low) &&
-           typeof candle.close === 'number' && isFinite(candle.close) &&
-           candle.high >= candle.low &&
-           candle.high >= Math.max(candle.open, candle.close) &&
-           candle.low <= Math.min(candle.open, candle.close);
   }
 
   /**
