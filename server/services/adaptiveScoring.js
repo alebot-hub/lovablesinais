@@ -899,13 +899,8 @@ class AdaptiveScoringService {
       }
       
       // Bônus para divergências (muito importante em reversões)
-      if (indicators.rsiDivergence) {
-        const divergenceBonus = TRADING_CONFIG.COUNTER_TREND.DIVERGENCE_BONUS;
-        adjustedScore += divergenceBonus;
-        bonus += divergenceBonus;
-        details.divergenceBonus = divergenceBonus;
-        console.log(`🔄 [${symbol}] DIVERGÊNCIA RSI: +${divergenceBonus} pontos`);
-      }
+      // Divergência RSI - REMOVIDO (causava erros)
+      // Sistema funciona sem divergências
       
       // Bônus para padrões de reversão
       if (patterns.candlestick && patterns.candlestick.some(p => 

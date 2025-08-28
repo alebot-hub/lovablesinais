@@ -627,6 +627,169 @@ class SignalScoringService {
     return 'NEUTRAL';
   }
 
+  /**
+   * Pontua indicadores técnicos
+   */
+  scoreIndicators(indicators) {
+    let total = 0;
+    const details = {};
+    let confirmations = 0;
+    const strengthFactors = [];
+
+    // RSI
+    if (indicators.rsi !== undefined) {
+      let score = 0;
+      let reason = '';
+      
+      if (indicators.rsi <= 30) {
+        score = 25;
+        reason = 'Sobrevenda';
+        confirmations++;
+        if (indicators.rsi <= 20) strengthFactors.push('RSI_EXTREME');
+      } else if (indicators.rsi >= 70) {
+        score = 25;
+        reason = 'Sobrecompra';
+        confirmations++;
+        if (indicators.rsi >= 80) strengthFactors.push('RSI_EXTREME');
+      } else if (indicators.rsi <= 40) {
+        score = 15;
+        reason = 'Sobrevenda moderada';
+      } else if (indicators.rsi >= 60) {
+        score = 15;
+        reason = 'Sobrecompra moderada';
+      }
+      
+      total += score;
+      details.rsi = { score, reason };
+    }
+
+    // MACD
+    if (indicators.macd && indicators.macd.histogram !== undefined) {
+      let score = 0;
+      let reason = '';
+      const histogramStrength = Math.abs(indicators.macd.histogram) * 1000000;
+      
+      if (Math.abs(indicators.macd.histogram) > 0.000001) {
+        if (histogramStrength > 10) {
+          score = 30;
+          reason = 'Sinal muito forte';
+          confirmations++;
+          strengthFactors.push('MACD_STRONG');
+        } else if (histogramStrength > 5) {
+          score = 20;
+          reason = 'Sinal forte';
+          confirmations++;
+        } else if (histogramStrength > 1) {
+          score = 10;
+          reason = 'Sinal moderado';
+        }
+      }
+      
+      total += score;
+      details.macd = { score, reason, strength: histogramStrength };
+    }
+
+    // Médias Móveis
+    if (indicators.ma21 !== undefined && indicators.ma200 !== undefined) {
+      let score = 0;
+      let reason = '';
+      const maDiff = ((indicators.ma21 - indicators.ma200) / indicators.ma200) * 100;
+      
+      if (Math.abs(maDiff) > 2) {
+        score = 20;
+        reason = `Tendência forte (${maDiff.toFixed(2)}%)`;
+        confirmations++;
+        strengthFactors.push('MA_STRONG');
+      } else if (Math.abs(maDiff) > 0.5) {
+        score = 10;
+        reason = `Tendência moderada (${maDiff.toFixed(2)}%)`;
+      }
+      
+      total += score;
+      details.movingAverages = { score, reason, difference: maDiff };
+    }
+
+    // Divergência RSI - REMOVIDO (causava erros)
+    // Sistema funciona sem divergências
+
+    return { total, details, confirmations, strengthFactors };
+  }
+
+  /**
+   * Pontua padrões gráficos
+   */
+  scorePatterns(patterns) {
+    let total = 0;
+    const details = {};
+    let confirmations = 0;
+    const strengthFactors = [];
+
+    // Breakouts
+    if (patterns.breakout) {
+      const score = patterns.breakout.confidence || 20;
+      total += score;
+      details.breakout = { score, type: patterns.breakout.type };
+      confirmations++;
+      if (score > 25) strengthFactors.push('BREAKOUT_STRONG');
+    }
+
+    // Padrões de candlestick
+    if (patterns.candlestick && Array.isArray(patterns.candlestick)) {
+      patterns.candlestick.forEach(pattern => {
+        const score = pattern.confidence || 15;
+        total += score;
+        confirmations++;
+        if (score > 20) strengthFactors.push('CANDLESTICK_STRONG');
+      });
+      details.candlestick = { 
+        count: patterns.candlestick.length,
+        patterns: patterns.candlestick 
+      };
+    }
+
+    // Padrões de reversão
+    if (patterns.reversalPatterns && patterns.reversalPatterns.length > 0) {
+      const score = patterns.reversalPatterns.length * 10;
+      total += score;
+      details.reversal = { score, count: patterns.reversalPatterns.length };
+      confirmations++;
+    }
+
+    // Padrões de continuação
+    if (patterns.continuationPatterns && patterns.continuationPatterns.length > 0) {
+      const score = patterns.continuationPatterns.length * 8;
+      total += score;
+      details.continuation = { score, count: patterns.continuationPatterns.length };
+      confirmations++;
+    }
+
+    return { total, details, confirmations, strengthFactors };
+  }
+
+  /**
+   * Pontua volume
+   */
+  scoreVolume(data, indicators) {
+    if (!data.volume || !indicators.volumeMA) return 0;
+
+    const volumeRatio = data.volume / indicators.volumeMA;
+    let score = 0;
+
+    if (volumeRatio > 3) {
+      score = 30; // Volume extremamente alto
+    } else if (volumeRatio > 2) {
+      score = 20; // Volume muito alto
+    } else if (volumeRatio > 1.5) {
+      score = 15; // Volume alto
+    } else if (volumeRatio > 1.2) {
+      score = 10; // Volume moderadamente alto
+    } else if (volumeRatio < 0.5) {
+      score = -10; // Volume muito baixo (penalidade)
+    }
+
+    return score;
+  }
+
   // Restante do código...
 }
 
