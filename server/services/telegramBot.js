@@ -122,6 +122,8 @@ ${factorsText}
 🎯 *ALVOS (15x):*
 ${targets}
 
+🛑 *Stop Loss:* ${this.formatPrice(signal.stopLoss).replace('.', '․')}
+
 ${counterTrendWarning}
 
 👑 *Sinais Premium são 100% a favor da tendência e correlação com o Bitcoin*
