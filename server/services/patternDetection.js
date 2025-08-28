@@ -1,22 +1,13 @@
 /**
- * Serviço de detecção de padrões gráficos - Versão Ultra-Robusta
- *
- * VERSÃO: v2.1-bind-lock
- *
- * IMPORTANTE: Esta classe usa bind+lock para prevenir:
- * - Perda de contexto 'this' em callbacks
- * - Sombreamento acidental de métodos
- * - Clonagem sem protótipo
- *
- * NÃO reatribuir métodos desta instância em runtime!
- * NÃO clonar a instância com spread/Object.assign/JSON
+ * Serviço de detecção de padrões gráficos - Versão Blindada (v2.3-proto-call-safe)
+ * - Evita "this.detectCandlestickPatterns is not a function" chamando via protótipo
+ * - Não derruba o processo se algum método faltar: cria stubs seguros e avisa
  */
 
-const PDS_VERSION = 'v2.1-bind-lock';
+const PDS_VERSION = 'v2.3-proto-call-safe';
 
 class PatternDetectionService {
   constructor(config = {}) {
-    // Configurações padrão com valores configuráveis
     this.config = Object.assign(
       {
         minDataLength: 20,
@@ -31,30 +22,30 @@ class PatternDetectionService {
       config || {}
     );
 
-    // ID do arquivo para logging (compatível com CJS; em ESM pode aparecer 'unknown')
     const FILE_ID = typeof __filename !== 'undefined' ? __filename : 'unknown';
-    this.log(`🔧 PatternDetectionService versão ${PDS_VERSION} @ ${FILE_ID}`);
-    this.log('✅ PatternDetectionService inicializado com configurações:', this.config);
+    this.log(`🔧 PatternDetectionService ${PDS_VERSION} @ ${FILE_ID}`);
 
-    // BIND + LOCK: garante contexto e impede reatribuição acidental
-    const bindAndLock = (name) => {
-      if (typeof this[name] !== 'function') {
-        console.error(`❌ ERRO CRÍTICO: Método ${name} não existe no protótipo!`);
-        throw new Error(`Método ${name} não encontrado`);
-      }
+    // Garante que o protótipo tem todos os métodos essenciais (senão cria stubs)
+    this.ensurePrototypeMethods();
 
-      const fn = this[name].bind(this);
-      Object.defineProperty(this, name, {
-        value: fn,
-        writable: false,      // impede sobrescrita
-        configurable: false,  // impede redefineProperty/delete
-        enumerable: false
-      });
-      this.log(`🔒 Método ${name} bindado e protegido`);
-    };
+    // Evita que novas props sejam adicionadas e sobrescrevam métodos por engano
+    try { Object.preventExtensions(this); } catch {}
 
-    // Lista de métodos críticos para bind+lock
-    [
+    this.log('✅ Inicialização concluída');
+  }
+
+  // -------------------- Infra --------------------
+
+  log(message, ...args) {
+    if (this.config.debug) console.log(message, ...args);
+  }
+
+  warn(message, ...args) {
+    console.warn(message, ...args);
+  }
+
+  ensurePrototypeMethods() {
+    const mustHave = [
       'detectPatterns',
       'detectCandlestickPatterns',
       'detectBreakout',
@@ -63,7 +54,7 @@ class PatternDetectionService {
       'detectWedges',
       'detectDoublePatterns',
       'detectHeadShoulders',
-      'validateMethods',
+      'validateInputData',
       'calculatePreviousTrend',
       'calculateDynamicConfidence',
       'isValidCandle',
@@ -75,409 +66,253 @@ class PatternDetectionService {
       'calculateVolatility',
       'adjustToleranceForVolatility',
       'getPatternStats'
-    ].forEach(bindAndLock);
-
-    // Validação crítica após bind+lock
-    this.validateMethods();
-  }
-
-  // Sistema de logging configurável
-  log(message, ...args) {
-    if (this.config.debug) {
-      console.log(message, ...args);
-    }
-  }
-
-  // Validação de métodos
-  validateMethods() {
-    const requiredMethods = [
-      'detectPatterns',
-      'detectCandlestickPatterns',
-      'detectBreakout',
-      'detectTriangles',
-      'detectFlags',
-      'detectWedges',
-      'detectDoublePatterns',
-      'detectHeadShoulders'
     ];
 
-    for (const methodName of requiredMethods) {
-      if (typeof this[methodName] !== 'function') {
-        console.error(`❌ ERRO CRÍTICO: Método ${methodName} não está definido como função!`);
-        throw new Error(`Método ${methodName} não encontrado na classe PatternDetectionService`);
+    for (const name of mustHave) {
+      const exists = typeof PatternDetectionService.prototype[name] === 'function';
+      if (!exists) {
+        this.warn(`⚠️ Método ausente no protótipo: ${name} — criando stub seguro.`);
+        // Stubs seguros para não derrubar a aplicação
+        if (name === 'detectCandlestickPatterns') {
+          PatternDetectionService.prototype[name] = function () { return []; };
+        } else if (name === 'getEmptyPatterns') {
+          PatternDetectionService.prototype[name] = function () {
+            return {
+              support: 0, resistance: 0,
+              breakout: null, triangle: null, flag: null, wedge: null,
+              double: null, headShoulders: null, candlestick: []
+            };
+          };
+        } else if (name === 'validateInputData') {
+          PatternDetectionService.prototype[name] = function (data) {
+            return data && data.open && data.high && data.low && data.close
+              ? { isValid: true, reason: 'stub-ok' }
+              : { isValid: false, reason: 'stub-invalid' };
+          };
+        } else {
+          PatternDetectionService.prototype[name] = function () { return null; };
+        }
       }
     }
-
-    this.log('✅ Todos os métodos principais validados com sucesso');
   }
 
-  /**
-   * Detecta todos os padrões gráficos
-   */
+  // -------------------- Orquestração --------------------
+
   detectPatterns(data) {
     try {
-      // Guard de contexto/instância
-      if (!(this instanceof PatternDetectionService)) {
-        throw new Error('[PDS] detectPatterns chamado sem contexto de PatternDetectionService (this inválido)');
-      }
-
       this.log('🔍 Iniciando detecção de padrões...');
 
-      // Validação completa de dados
-      const validationResult = this.validateInputData(data);
-      if (!validationResult.isValid) {
-        console.warn('⚠️ Dados insuficientes para detecção de padrões:', validationResult.reason);
+      const validation = this.validateInputData(data);
+      if (!validation.isValid) {
+        this.warn('⚠️ Dados insuficientes para padrões:', validation.reason);
         return this.getEmptyPatterns();
       }
 
-      const patterns = {};
+      if (this.config.volatilityAdjustment) this.adjustToleranceForVolatility(data);
 
-      // Ajusta tolerâncias baseado na volatilidade se configurado
-      if (this.config.volatilityAdjustment) {
-        this.adjustToleranceForVolatility(data);
-      }
-
-      // Dados recentes para análise
       const windowSize = this.config.minDataLength;
       const recentData = {
         open: data.open.slice(-windowSize),
         high: data.high.slice(-windowSize),
         low: data.low.slice(-windowSize),
         close: data.close.slice(-windowSize),
-        volume: data.volume ? data.volume.slice(-windowSize) : Array(windowSize).fill(1)
+        volume: Array.isArray(data.volume)
+          ? data.volume.slice(-windowSize)
+          : Array(windowSize).fill(1)
       };
 
-      if (!data.volume || !Array.isArray(data.volume)) {
-        console.warn('⚠️ Volume ausente ou inválido - usando valores padrão para confirmação de rompimentos');
+      if (!Array.isArray(data.volume)) {
+        this.warn('⚠️ Volume ausente/invalidado – usando 1 como volume padrão');
       }
 
-      this.log('📊 Analisando suporte e resistência...');
+      const patterns = {};
+
+      // suporte/resistência
       const resistance = Math.max(...recentData.high);
       const support = Math.min(...recentData.low);
       patterns.support = support;
       patterns.resistance = resistance;
 
-      this.log('📈 Detectando rompimentos...');
+      // geométricos
       patterns.breakout = this.detectBreakout(recentData, support, resistance);
-
-      this.log('🔺 Detectando triângulos...');
       patterns.triangle = this.detectTriangles(recentData);
-
-      this.log('🏳️ Detectando bandeiras...');
       patterns.flag = this.detectFlags(recentData);
-
-      this.log('📐 Detectando cunhas...');
       patterns.wedge = this.detectWedges(recentData);
-
-      this.log('🔄 Detectando padrões duplos...');
       patterns.double = this.detectDoublePatterns(recentData, support, resistance);
-
-      this.log('👤 Detectando cabeça e ombros...');
       patterns.headShoulders = this.detectHeadShoulders(recentData);
 
-      this.log('🕯️ Detectando padrões de candlestick...');
+      // Candlestick — chama SEMPRE a implementação do protótipo (blindado)
       try {
-        this.log('[PDS] typeof detectCandlestickPatterns =', typeof this.detectCandlestickPatterns);
-        this.log('[PDS] tem no protótipo?', !!PatternDetectionService.prototype.detectCandlestickPatterns);
-        this.log('[PDS] keys da instância:', Object.keys(this));
-        this.log('[PDS] proto ok?', Object.getPrototypeOf(this) === PatternDetectionService.prototype);
-
-        if (typeof this.detectCandlestickPatterns !== 'function') {
-          console.error('❌ detectCandlestickPatterns não é função; restaurando implementação padrão.');
-          this.detectCandlestickPatterns =
-            PatternDetectionService.prototype.detectCandlestickPatterns.bind(this);
-        }
-
-        if (!PatternDetectionService.prototype.detectCandlestickPatterns) {
-          console.error('❌ Protótipo detectCandlestickPatterns não existe; usando implementação inline.');
-          patterns.candlestick = this.detectCandlestickPatternsInline(recentData);
-        } else {
-          patterns.candlestick = this.detectCandlestickPatterns(recentData);
-        }
-
-        this.log(`✅ ${patterns.candlestick.length} padrões candlestick detectados`);
-      } catch (candlestickError) {
-        console.error('❌ Erro específico em candlestick:', candlestickError.message);
-        console.error('❌ Stack trace:', candlestickError.stack);
+        const protoFn = PatternDetectionService.prototype.detectCandlestickPatterns;
+        patterns.candlestick = typeof protoFn === 'function'
+          ? protoFn.call(this, recentData)
+          : this.detectCandlestickPatternsInline(recentData);
+      } catch (e) {
+        console.error('❌ Candlestick (proto) falhou:', e && e.message);
         try {
           patterns.candlestick = this.detectCandlestickPatternsInline(recentData);
-          this.log(`✅ ${patterns.candlestick.length} padrões candlestick detectados (fallback)`);
-        } catch (fallbackError) {
-          console.error('❌ Erro no fallback candlestick:', fallbackError.message);
+        } catch {
           patterns.candlestick = [];
         }
       }
 
-      this.log('✅ Detecção de padrões concluída');
+      this.log('✅ Detecção concluída');
       return patterns;
-    } catch (error) {
-      console.error('❌ Erro ao detectar padrões:', error.message);
-      console.error('❌ Stack trace:', error.stack);
+    } catch (err) {
+      console.error('❌ Erro ao detectar padrões:', err && err.message);
       return this.getEmptyPatterns();
     }
   }
 
-  /**
-   * Validação completa de dados de entrada
-   */
+  // -------------------- Validação de dados --------------------
+
   validateInputData(data) {
-    if (!data) {
-      return { isValid: false, reason: 'Dados não fornecidos' };
+    if (!data) return { isValid: false, reason: 'Dados não fornecidos' };
+    const req = ['open', 'high', 'low', 'close'];
+    const minLen = this.config.minDataLength;
+
+    for (const k of req) {
+      if (!Array.isArray(data[k])) return { isValid: false, reason: `${k} não é array` };
+      if (data[k].length < minLen)
+        return { isValid: false, reason: `${k} tem ${data[k].length} (< ${minLen})` };
+      const bad = data[k].filter((v) => typeof v !== 'number' || !isFinite(v) || v < 0);
+      if (bad.length) return { isValid: false, reason: `${k} contém ${bad.length} inválidos` };
     }
 
-    const requiredArrays = ['open', 'high', 'low', 'close'];
-    const minLength = this.config.minDataLength;
-
-    for (const arrayName of requiredArrays) {
-      if (!Array.isArray(data[arrayName])) {
-        return { isValid: false, reason: `${arrayName} não é um array` };
-      }
-
-      if (data[arrayName].length < minLength) {
-        return {
-          isValid: false,
-          reason: `${arrayName} tem apenas ${data[arrayName].length} elementos (mínimo ${minLength})`
-        };
-      }
-
-      const invalidValues = data[arrayName].filter(
-        (val) => typeof val !== 'number' || !isFinite(val) || val < 0
-      );
-      if (invalidValues.length > 0) {
-        return { isValid: false, reason: `${arrayName} contém ${invalidValues.length} valores inválidos` };
-      }
+    // checagem rápida OHLC
+    const head = [0, 1, 2, 3, 4];
+    const base = data.close.length;
+    const tail = [base - 5, base - 4, base - 3, base - 2, base - 1];
+    for (const i of head.concat(tail)) {
+      if (i < 0 || i >= base) continue;
+      const c = { open: data.open[i], high: data.high[i], low: data.low[i], close: data.close[i] };
+      if (!this.isValidCandle(c)) return { isValid: false, reason: `OHLC inconsistente em ${i}` };
     }
-
-    // Verifica consistência OHLC nos primeiros e últimos candles
-    const head = Array(5).fill(0).map((_, i) => i);
-    const tail = Array(5).fill(0).map((_, i) => data.close.length - 5 + i);
-    const checkIndices = head.concat(tail);
-
-    for (let idx = 0; idx < checkIndices.length; idx++) {
-      const i = checkIndices[idx];
-      if (i >= data.close.length || i < 0) continue;
-
-      const candle = {
-        open: data.open[i],
-        high: data.high[i],
-        low: data.low[i],
-        close: data.close[i]
-      };
-
-      if (!this.isValidCandle(candle)) {
-        return { isValid: false, reason: `Dados OHLC inconsistentes no índice ${i}` };
-      }
-    }
-
-    return { isValid: true, reason: 'Dados válidos' };
+    return { isValid: true, reason: 'OK' };
   }
 
-  /**
-   * Detecta padrões de candlestick
-   */
+  // -------------------- Candlestick --------------------
+
   detectCandlestickPatterns(data) {
-    try {
-      this.log('🕯️ Detectando padrões de candlestick...');
-      const patterns = [];
-      const lastIndex = data.close.length - 1;
+    const patterns = [];
+    const last = data.close.length - 1;
+    if (last < 1) return patterns;
 
-      if (lastIndex < 1) {
-        this.log('⚠️ Dados insuficientes para padrões candlestick');
-        return patterns;
-      }
+    const cur = {
+      open: data.open[last],
+      high: data.high[last],
+      low: data.low[last],
+      close: data.close[last]
+    };
+    const prev = {
+      open: data.open[last - 1],
+      high: data.high[last - 1],
+      low: data.low[last - 1],
+      close: data.close[last - 1]
+    };
+    if (!this.isValidCandle(cur) || !this.isValidCandle(prev)) return patterns;
 
-      const current = {
-        open: data.open[lastIndex],
-        high: data.high[lastIndex],
-        low: data.low[lastIndex],
-        close: data.close[lastIndex]
-      };
+    const prevTrend = this.calculatePreviousTrend(data);
 
-      const previous = {
-        open: data.open[lastIndex - 1],
-        high: data.high[lastIndex - 1],
-        low: data.low[lastIndex - 1],
-        close: data.close[lastIndex - 1]
-      };
-
-      if (!this.isValidCandle(current) || !this.isValidCandle(previous)) {
-        console.warn('⚠️ Dados de candlestick inválidos');
-        return patterns;
-      }
-
-      const prevTrend = this.calculatePreviousTrend(data);
-
-      // Doji
-      const dojiTolerance = current.close * this.config.candlestickTolerance;
-      if (Math.abs(current.open - current.close) < dojiTolerance) {
-        const confidence = this.calculateDynamicConfidence(70, current, prevTrend);
-        patterns.push({ type: 'DOJI', bias: 'NEUTRAL', confidence });
-        this.log('✅ Padrão DOJI detectado');
-      }
-
-      // Bullish Engulfing
-      if (
-        previous.close < previous.open &&
-        current.close > current.open &&
-        current.open < previous.close &&
-        current.close > previous.open
-      ) {
-        const confidence = this.calculateDynamicConfidence(80, current, prevTrend, 'BULLISH');
-        patterns.push({ type: 'BULLISH_ENGULFING', bias: 'BULLISH', confidence });
-        this.log('✅ Padrão BULLISH_ENGULFING detectado');
-      }
-
-      // Bearish Engulfing
-      if (
-        previous.close > previous.open &&
-        current.close < current.open &&
-        current.open > previous.close &&
-        current.close < previous.open
-      ) {
-        const confidence = this.calculateDynamicConfidence(80, current, prevTrend, 'BEARISH');
-        patterns.push({ type: 'BEARISH_ENGULFING', bias: 'BEARISH', confidence });
-        this.log('✅ Padrão BEARISH_ENGULFING detectado');
-      }
-
-      // Hammer
-      const bodySize = Math.abs(current.close - current.open);
-      const lowerShadow = Math.min(current.open, current.close) - current.low;
-      const upperShadow = current.high - Math.max(current.open, current.close);
-
-      if (lowerShadow > bodySize * 2 && upperShadow < bodySize * 0.5) {
-        const confidence = this.calculateDynamicConfidence(75, current, prevTrend, 'BULLISH');
-        patterns.push({ type: 'HAMMER', bias: 'BULLISH', confidence });
-        this.log('✅ Padrão HAMMER detectado');
-      }
-
-      // Hanging Man
-      if (upperShadow > bodySize * 2 && lowerShadow < bodySize * 0.5) {
-        const confidence = this.calculateDynamicConfidence(75, current, prevTrend, 'BEARISH');
-        patterns.push({ type: 'HANGING_MAN', bias: 'BEARISH', confidence });
-        this.log('✅ Padrão HANGING_MAN detectado');
-      }
-
-      return patterns;
-    } catch (error) {
-      console.error('❌ Erro ao detectar padrões candlestick:', error.message);
-      console.error('❌ Stack trace:', error.stack);
-      return [];
+    // Doji
+    const dojiTol = cur.close * this.config.candlestickTolerance;
+    if (Math.abs(cur.open - cur.close) < dojiTol) {
+      const conf = this.calculateDynamicConfidence(70, cur, prevTrend);
+      patterns.push({ type: 'DOJI', bias: 'NEUTRAL', confidence: conf });
     }
+
+    // Bullish Engulfing
+    if (prev.close < prev.open && cur.close > cur.open && cur.open < prev.close && cur.close > prev.open) {
+      const conf = this.calculateDynamicConfidence(80, cur, prevTrend, 'BULLISH');
+      patterns.push({ type: 'BULLISH_ENGULFING', bias: 'BULLISH', confidence: conf });
+    }
+
+    // Bearish Engulfing
+    if (prev.close > prev.open && cur.close < cur.open && cur.open > prev.close && cur.close < prev.open) {
+      const conf = this.calculateDynamicConfidence(80, cur, prevTrend, 'BEARISH');
+      patterns.push({ type: 'BEARISH_ENGULFING', bias: 'BEARISH', confidence: conf });
+    }
+
+    // Hammer / Hanging Man
+    const body = Math.abs(cur.close - cur.open);
+    const lower = Math.min(cur.open, cur.close) - cur.low;
+    const upper = cur.high - Math.max(cur.open, cur.close);
+
+    if (lower > body * 2 && upper < body * 0.5) {
+      const conf = this.calculateDynamicConfidence(75, cur, prevTrend, 'BULLISH');
+      patterns.push({ type: 'HAMMER', bias: 'BULLISH', confidence: conf });
+    }
+    if (upper > body * 2 && lower < body * 0.5) {
+      const conf = this.calculateDynamicConfidence(75, cur, prevTrend, 'BEARISH');
+      patterns.push({ type: 'HANGING_MAN', bias: 'BEARISH', confidence: conf });
+    }
+
+    return patterns;
   }
 
-  /**
-   * FALLBACK INLINE para padrões candlestick
-   */
+  // Fallback mínimo
   detectCandlestickPatternsInline(data) {
-    try {
-      console.log('🆘 Usando fallback inline para padrões candlestick...');
-      const patterns = [];
-      const lastIndex = data.close.length - 1;
-      if (lastIndex < 1) return patterns;
-
-      const current = {
-        open: data.open[lastIndex],
-        high: data.high[lastIndex],
-        low: data.low[lastIndex],
-        close: data.close[lastIndex]
-      };
-
-      // Doji simples
-      if (Math.abs(current.open - current.close) < current.close * 0.001) {
-        patterns.push({ type: 'DOJI', bias: 'NEUTRAL', confidence: 70 });
-        console.log('✅ Padrão DOJI detectado (fallback)');
-      }
-
-      return patterns;
-    } catch (error) {
-      console.error('❌ Erro no fallback candlestick:', error.message);
-      return [];
-    }
+    const out = [];
+    const last = data.close.length - 1;
+    if (last < 1) return out;
+    const c = {
+      open: data.open[last],
+      high: data.high[last],
+      low: data.low[last],
+      close: data.close[last]
+    };
+    if (Math.abs(c.open - c.close) < c.close * 0.001) out.push({ type: 'DOJI', bias: 'NEUTRAL', confidence: 70 });
+    return out;
   }
 
-  /**
-   * Calcula tendência prévia para análise de candlestick
-   */
+  // -------------------- Apoio Candlestick --------------------
+
   calculatePreviousTrend(data) {
-    try {
-      const trendWindow = Math.min(5, data.close.length - 1);
-      if (trendWindow < 2) return 'NEUTRAL';
-
-      const prices = data.close.slice(-trendWindow - 1, -1);
-      let upMoves = 0;
-      let downMoves = 0;
-
-      for (let i = 1; i < prices.length; i++) {
-        if (prices[i] > prices[i - 1]) upMoves++;
-        else if (prices[i] < prices[i - 1]) downMoves++;
-      }
-
-      if (upMoves > downMoves) return 'BULLISH';
-      if (downMoves > upMoves) return 'BEARISH';
-      return 'NEUTRAL';
-    } catch (error) {
-      console.error('Erro ao calcular tendência prévia:', error.message);
-      return 'NEUTRAL';
+    const w = Math.min(5, data.close.length - 1);
+    if (w < 2) return 'NEUTRAL';
+    const prices = data.close.slice(-w - 1, -1);
+    let up = 0, down = 0;
+    for (let i = 1; i < prices.length; i++) {
+      if (prices[i] > prices[i - 1]) up++;
+      else if (prices[i] < prices[i - 1]) down++;
     }
+    if (up > down) return 'BULLISH';
+    if (down > up) return 'BEARISH';
+    return 'NEUTRAL';
   }
 
-  /**
-   * Calcula confiança dinâmica baseada em contexto
-   */
-  calculateDynamicConfidence(baseConfidence, candle, prevTrend, expectedBias = null) {
-    try {
-      let confidence = baseConfidence;
+  calculateDynamicConfidence(base, candle, prevTrend, expectedBias = null) {
+    let conf = base;
+    const body = Math.abs(candle.close - candle.open);
+    const range = candle.high - candle.low;
+    const ratio = range > 0 ? body / range : 0;
+    if (ratio > 0.7) conf += 5;
+    else if (ratio < 0.3) conf -= 5;
 
-      const bodySize = Math.abs(candle.close - candle.open);
-      const totalRange = candle.high - candle.low;
-      const bodyRatio = totalRange > 0 ? bodySize / totalRange : 0;
-
-      if (bodyRatio > 0.7) confidence += 5;
-      else if (bodyRatio < 0.3) confidence -= 5;
-
-      if (expectedBias && prevTrend !== 'NEUTRAL') {
-        if (
-          (expectedBias === 'BULLISH' && prevTrend === 'BEARISH') ||
-          (expectedBias === 'BEARISH' && prevTrend === 'BULLISH')
-        ) {
-          confidence += 10; // Reversão em tendência oposta
-        }
+    if (expectedBias && prevTrend !== 'NEUTRAL') {
+      if (
+        (expectedBias === 'BULLISH' && prevTrend === 'BEARISH') ||
+        (expectedBias === 'BEARISH' && prevTrend === 'BULLISH')
+      ) {
+        conf += 10;
       }
-
-      return Math.max(50, Math.min(95, confidence));
-    } catch (error) {
-      console.error('Erro ao calcular confiança dinâmica:', error.message);
-      return baseConfidence;
     }
+    return Math.max(50, Math.min(95, conf));
   }
 
-  /**
-   * Valida se um candle tem dados válidos
-   */
-  isValidCandle(candle) {
+  isValidCandle(c) {
     return (
-      candle &&
-      typeof candle.open === 'number' &&
-      isFinite(candle.open) &&
-      candle.open > 0 &&
-      typeof candle.high === 'number' &&
-      isFinite(candle.high) &&
-      candle.high > 0 &&
-      typeof candle.low === 'number' &&
-      isFinite(candle.low) &&
-      candle.low > 0 &&
-      typeof candle.close === 'number' &&
-      isFinite(candle.close) &&
-      candle.close > 0 &&
-      candle.high >= candle.low &&
-      candle.high >= Math.max(candle.open, candle.close) &&
-      candle.low <= Math.min(candle.open, candle.close)
+      c &&
+      typeof c.open === 'number' && isFinite(c.open) && c.open > 0 &&
+      typeof c.high === 'number' && isFinite(c.high) && c.high > 0 &&
+      typeof c.low === 'number' && isFinite(c.low) && c.low > 0 &&
+      typeof c.close === 'number' && isFinite(c.close) && c.close > 0 &&
+      c.high >= c.low &&
+      c.high >= Math.max(c.open, c.close) &&
+      c.low <= Math.min(c.open, c.close)
     );
   }
 
-  /**
-   * Retorna padrões vazios em caso de erro
-   */
   getEmptyPatterns() {
     return {
       support: 0,
@@ -492,420 +327,225 @@ class PatternDetectionService {
     };
   }
 
-  /**
-   * Detecta rompimentos de suporte/resistência
-   */
+  // -------------------- Padrões geométricos --------------------
+
   detectBreakout(data, support, resistance) {
     try {
       const last = data.close.length - 1;
-      const currentPrice = data.close[last];
-      const previousPrice = data.close[last - 1];
+      const cur = data.close[last];
+      const prev = data.close[last - 1];
 
-      // Fallback robusto para volume
-      const volArr =
-        Array.isArray(data.volume) && data.volume.length === data.close.length
-          ? data.volume
-          : Array(data.close.length).fill(1);
-      const volume = volArr[last];
-      const avgVolume = volArr.reduce((a, b) => a + b, 0) / volArr.length;
+      const vols = Array.isArray(data.volume) && data.volume.length === data.close.length
+        ? data.volume
+        : Array(data.close.length).fill(1);
+      const vol = vols[last];
+      const avgVol = vols.reduce((a, b) => a + b, 0) / vols.length;
 
-      // Rompimento de resistência com volume
-      if (currentPrice > resistance && previousPrice <= resistance && volume > avgVolume * this.config.breakoutVolumeThreshold) {
-        this.log('✅ Rompimento bullish detectado');
-        return {
-          type: 'BULLISH_BREAKOUT',
-          level: resistance,
-          strength: 'HIGH',
-          confidence: 85,
-          volumeConfirmation: true
-        };
+      if (cur > resistance && prev <= resistance && vol > avgVol * this.config.breakoutVolumeThreshold) {
+        return { type: 'BULLISH_BREAKOUT', level: resistance, strength: 'HIGH', confidence: 85, volumeConfirmation: true };
       }
-
-      // Rompimento de suporte com volume
-      if (currentPrice < support && previousPrice >= support && volume > avgVolume * this.config.breakoutVolumeThreshold) {
-        this.log('✅ Rompimento bearish detectado');
-        return {
-          type: 'BEARISH_BREAKOUT',
-          level: support,
-          strength: 'HIGH',
-          confidence: 85,
-          volumeConfirmation: true
-        };
+      if (cur < support && prev >= support && vol > avgVol * this.config.breakoutVolumeThreshold) {
+        return { type: 'BEARISH_BREAKOUT', level: support, strength: 'HIGH', confidence: 85, volumeConfirmation: true };
       }
-
       return null;
-    } catch (error) {
-      console.error('Erro ao detectar breakout:', error.message);
+    } catch {
       return null;
     }
   }
 
-  /**
-   * Detecta triângulos ascendentes/descendentes
-   */
   detectTriangles(data) {
-    try {
-      const analysisWindow = Math.min(10, data.high.length);
-      const highs = data.high.slice(-analysisWindow);
-      const lows = data.low.slice(-analysisWindow);
+    const n = Math.min(10, data.high.length);
+    const highs = data.high.slice(-n);
+    const lows = data.low.slice(-n);
+    const r = this.calculateLinearRegression(highs);
+    const s = this.calculateLinearRegression(lows);
 
-      const resistanceRegression = this.calculateLinearRegression(highs);
-      const supportRegression = this.calculateLinearRegression(lows);
-
-      if (
-        Math.abs(resistanceRegression.slope) < this.config.tolerance &&
-        resistanceRegression.r2 > this.config.regressionMinR2 &&
-        supportRegression.slope > this.config.tolerance &&
-        supportRegression.r2 > this.config.regressionMinR2
-      ) {
-        this.log('✅ Triângulo ascendente detectado');
-        return {
-          type: 'ASCENDING_TRIANGLE',
-          bias: 'BULLISH',
-          confidence: 70,
-          resistanceSlope: resistanceRegression.slope,
-          supportSlope: supportRegression.slope
-        };
-      }
-
-      if (
-        Math.abs(supportRegression.slope) < this.config.tolerance &&
-        supportRegression.r2 > this.config.regressionMinR2 &&
-        resistanceRegression.slope < -this.config.tolerance &&
-        resistanceRegression.r2 > this.config.regressionMinR2
-      ) {
-        this.log('✅ Triângulo descendente detectado');
-        return {
-          type: 'DESCENDING_TRIANGLE',
-          bias: 'BEARISH',
-          confidence: 70,
-          resistanceSlope: resistanceRegression.slope,
-          supportSlope: supportRegression.slope
-        };
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Erro ao detectar triângulos:', error.message);
-      return null;
+    if (Math.abs(r.slope) < this.config.tolerance && r.r2 > this.config.regressionMinR2 &&
+        s.slope > this.config.tolerance && s.r2 > this.config.regressionMinR2) {
+      return { type: 'ASCENDING_TRIANGLE', bias: 'BULLISH', confidence: 70, resistanceSlope: r.slope, supportSlope: s.slope };
     }
+    if (Math.abs(s.slope) < this.config.tolerance && s.r2 > this.config.regressionMinR2 &&
+        r.slope < -this.config.tolerance && r.r2 > this.config.regressionMinR2) {
+      return { type: 'DESCENDING_TRIANGLE', bias: 'BEARISH', confidence: 70, resistanceSlope: r.slope, supportSlope: s.slope };
+    }
+    return null;
   }
 
-  /**
-   * Detecta bandeiras de alta/baixa (com índices relativos)
-   */
   detectFlags(data) {
-    try {
-      const prices = data.close;
-      const lastIndex = prices.length - 1;
-      const midIndex = Math.floor(prices.length / 2);
-      const quarterIndex = Math.floor(prices.length * 0.75);
+    const p = data.close;
+    const last = p.length - 1;
+    const mid = Math.floor(p.length / 2);
+    const q = Math.floor(p.length * 0.75);
 
-      const strongMove = Math.abs(prices[lastIndex] - prices[midIndex]) > prices[midIndex] * 0.05;
-      const consolidation = Math.abs(prices[lastIndex] - prices[quarterIndex]) < prices[quarterIndex] * 0.02;
-
-      if (strongMove && consolidation) {
-        const direction = prices[lastIndex] > prices[midIndex] ? 'BULLISH' : 'BEARISH';
-        this.log(`✅ Bandeira ${direction.toLowerCase()} detectada`);
-        return {
-          type: `${direction}_FLAG`,
-          strength: 'MEDIUM',
-          confidence: 65,
-          moveSize: (Math.abs(prices[lastIndex] - prices[midIndex]) / prices[midIndex]) * 100
-        };
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Erro ao detectar bandeiras:', error.message);
-      return null;
+    const strong = Math.abs(p[last] - p[mid]) > p[mid] * 0.05;
+    const cons = Math.abs(p[last] - p[q]) < p[q] * 0.02;
+    if (strong && cons) {
+      const dir = p[last] > p[mid] ? 'BULLISH' : 'BEARISH';
+      return { type: `${dir}_FLAG`, strength: 'MEDIUM', confidence: 65, moveSize: (Math.abs(p[last] - p[mid]) / p[mid]) * 100 };
     }
+    return null;
   }
 
-  /**
-   * Detecta cunhas (com verificação de convergência)
-   */
   detectWedges(data) {
-    try {
-      const analysisWindow = Math.min(10, data.high.length);
-      const highs = data.high.slice(-analysisWindow);
-      const lows = data.low.slice(-analysisWindow);
+    const n = Math.min(10, data.high.length);
+    const highs = data.high.slice(-n);
+    const lows = data.low.slice(-n);
+    const hr = this.calculateLinearRegression(highs);
+    const lr = this.calculateLinearRegression(lows);
+    const hs = hr.slope, ls = lr.slope;
+    const conv = Math.abs(hs - ls) > this.config.tolerance;
 
-      const highsRegression = this.calculateLinearRegression(highs);
-      const lowsRegression = this.calculateLinearRegression(lows);
-
-      const highsSlope = highsRegression.slope;
-      const lowsSlope = lowsRegression.slope;
-
-      const isConverging = Math.abs(highsSlope - lowsSlope) > this.config.tolerance;
-
-      if (highsSlope > 0 && lowsSlope > 0 && isConverging && highsSlope < lowsSlope) {
-        this.log('✅ Cunha ascendente detectada');
-        return {
-          type: 'RISING_WEDGE',
-          bias: 'BEARISH',
-          confidence: 60,
-          convergence: Math.abs(highsSlope - lowsSlope),
-          highsSlope,
-          lowsSlope
-        };
-      }
-
-      if (highsSlope < 0 && lowsSlope < 0 && isConverging && highsSlope > lowsSlope) {
-        this.log('✅ Cunha descendente detectada');
-        return {
-          type: 'FALLING_WEDGE',
-          bias: 'BULLISH',
-          confidence: 60,
-          convergence: Math.abs(highsSlope - lowsSlope),
-          highsSlope,
-          lowsSlope
-        };
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Erro ao detectar cunhas:', error.message);
-      return null;
+    if (hs > 0 && ls > 0 && conv && hs < ls) {
+      return { type: 'RISING_WEDGE', bias: 'BEARISH', confidence: 60, convergence: Math.abs(hs - ls), highsSlope: hs, lowsSlope: ls };
     }
+    if (hs < 0 && ls < 0 && conv && hs > ls) {
+      return { type: 'FALLING_WEDGE', bias: 'BULLISH', confidence: 60, convergence: Math.abs(hs - ls), highsSlope: hs, lowsSlope: ls };
+    }
+    return null;
   }
 
-  /**
-   * Detecta topo duplo/fundo duplo (com separação temporal)
-   */
   detectDoublePatterns(data, support, resistance) {
-    try {
-      const highs = data.high;
-      const lows = data.low;
-      const tolerance = resistance * this.config.tolerance;
+    const highs = data.high;
+    const lows = data.low;
+    const tol = resistance * this.config.tolerance;
 
-      const resistanceHits = [];
-      for (let i = 0; i < highs.length; i++) {
-        if (Math.abs(highs[i] - resistance) < tolerance) {
-          resistanceHits.push(i);
-        }
+    const rHits = [];
+    for (let i = 0; i < highs.length; i++) if (Math.abs(highs[i] - resistance) < tol) rHits.push(i);
+    if (rHits.length >= 2) {
+      const sep = rHits[rHits.length - 1] - rHits[0];
+      if (sep >= this.config.minSeparation) {
+        return { type: 'DOUBLE_TOP', level: resistance, bias: 'BEARISH', confidence: 75, separation: sep };
       }
-
-      if (resistanceHits.length >= 2) {
-        const separation = resistanceHits[resistanceHits.length - 1] - resistanceHits[0];
-        if (separation >= this.config.minSeparation) {
-          this.log('✅ Topo duplo detectado');
-          return {
-            type: 'DOUBLE_TOP',
-            level: resistance,
-            bias: 'BEARISH',
-            confidence: 75,
-            separation
-          };
-        }
-      }
-
-      const supportHits = [];
-      for (let i = 0; i < lows.length; i++) {
-        if (Math.abs(lows[i] - support) < support * this.config.tolerance) {
-          supportHits.push(i);
-        }
-      }
-
-      if (supportHits.length >= 2) {
-        const separation = supportHits[supportHits.length - 1] - supportHits[0];
-        if (separation >= this.config.minSeparation) {
-          this.log('✅ Fundo duplo detectado');
-          return {
-            type: 'DOUBLE_BOTTOM',
-            level: support,
-            bias: 'BULLISH',
-            confidence: 75,
-            separation
-          };
-        }
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Erro ao detectar padrões duplos:', error.message);
-      return null;
     }
+
+    const sHits = [];
+    for (let i = 0; i < lows.length; i++) if (Math.abs(lows[i] - support) < support * this.config.tolerance) sHits.push(i);
+    if (sHits.length >= 2) {
+      const sep = sHits[sHits.length - 1] - sHits[0];
+      if (sep >= this.config.minSeparation) {
+        return { type: 'DOUBLE_BOTTOM', level: support, bias: 'BULLISH', confidence: 75, separation: sep };
+      }
+    }
+
+    return null;
   }
 
-  /**
-   * Detecta cabeça e ombros (com índices relativos)
-   */
   detectHeadShoulders(data) {
-    try {
-      const minLength = 7;
-      if (data.high.length < minLength) return null;
+    const minLength = 7;
+    if (data.high.length < minLength) return null;
 
-      const highs = data.high.slice(-minLength);
-      const lows = data.low.slice(-minLength);
+    const highs = data.high.slice(-minLength);
+    const lows = data.low.slice(-minLength);
 
-      const leftShoulderIdx = 1;
-      const headIdx = 3;
-      const rightShoulderIdx = 5;
+    // Índices relativos (modelo simples)
+    const leftShoulderIdx = 1;
+    const headIdx = 3;
+    const rightShoulderIdx = 5;
 
-      const leftShoulder = highs[leftShoulderIdx];
-      const head = highs[headIdx];
-      const rightShoulder = highs[rightShoulderIdx];
-      const neckline = Math.min(lows[2], lows[4]);
+    const leftShoulder = highs[leftShoulderIdx];
+    const head = highs[headIdx];
+    const rightShoulder = highs[rightShoulderIdx];
+    const neckline = Math.min(lows[2], lows[4]);
 
-      const shoulderTolerance = leftShoulder * this.config.tolerance;
+    const shoulderTolerance = leftShoulder * this.config.tolerance;
 
-      if (
-        head > leftShoulder &&
+    if (head > leftShoulder &&
         head > rightShoulder &&
-        Math.abs(leftShoulder - rightShoulder) < shoulderTolerance
-      ) {
-        this.log('✅ Cabeça e ombros detectado');
-        return {
-          type: 'HEAD_AND_SHOULDERS',
-          neckline,
-          bias: 'BEARISH',
-          target: neckline - (head - neckline),
-          confidence: 80,
-          leftShoulder,
-          head,
-          rightShoulder
-        };
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Erro ao detectar cabeça e ombros:', error.message);
-      return null;
+        Math.abs(leftShoulder - rightShoulder) < shoulderTolerance) {
+      return {
+        type: 'HEAD_AND_SHOULDERS',
+        neckline,
+        bias: 'BEARISH',
+        target: neckline - (head - neckline),
+        confidence: 80,
+        leftShoulder, head, rightShoulder
+      };
     }
+
+    return null;
   }
 
-  /**
-   * Regressão linear simples para análise de linhas
-   */
+  // -------------------- Utilidades --------------------
+
   calculateLinearRegression(values) {
     try {
-      if (!Array.isArray(values) || values.length < 2) {
-        return { slope: 0, intercept: 0, r2: 0 };
-      }
-
+      if (!Array.isArray(values) || values.length < 2) return { slope: 0, intercept: 0, r2: 0 };
       const n = values.length;
       const x = Array.from({ length: n }, (_, i) => i);
       const y = values;
 
       const sumX = x.reduce((a, b) => a + b, 0);
       const sumY = y.reduce((a, b) => a + b, 0);
-      const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
-      const sumXX = x.reduce((sum, xi) => sum + xi * xi, 0);
+      const sumXY = x.reduce((s, xi, i) => s + xi * y[i], 0);
+      const sumXX = x.reduce((s, xi) => s + xi * xi, 0);
 
       const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
       const intercept = (sumY - slope * sumX) / n;
 
       const yMean = sumY / n;
-      const ssTotal = y.reduce((sum, yi) => sum + Math.pow(yi - yMean, 2), 0);
-      const ssRes = y.reduce((sum, yi, i) => sum + Math.pow(yi - (slope * x[i] + intercept), 2), 0);
-      const r2 = ssTotal > 0 ? 1 - ssRes / ssTotal : 0;
+      const ssTot = y.reduce((s, yi) => s + Math.pow(yi - yMean, 2), 0);
+      const ssRes = y.reduce((s, yi, i) => s + Math.pow(yi - (slope * x[i] + intercept), 2), 0);
+      const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
 
       return { slope, intercept, r2 };
-    } catch (error) {
-      console.error('Erro ao calcular regressão linear:', error.message);
+    } catch {
       return { slope: 0, intercept: 0, r2: 0 };
     }
   }
 
-  /**
-   * Verifica se uma linha é horizontal (com regressão)
-   */
   isHorizontalLine(values, tolerance = null) {
     try {
-      const usedTolerance = tolerance || this.config.tolerance;
+      const tol = tolerance || this.config.tolerance;
       if (!Array.isArray(values) || values.length < 2) return false;
-
-      const regression = this.calculateLinearRegression(values);
-      return Math.abs(regression.slope) < usedTolerance && regression.r2 > this.config.regressionMinR2;
-    } catch (error) {
-      console.error('Erro ao verificar linha horizontal:', error.message);
+      const r = this.calculateLinearRegression(values);
+      return Math.abs(r.slope) < tol && r.r2 > this.config.regressionMinR2;
+    } catch {
       return false;
     }
   }
 
-  /**
-   * Verifica se uma linha está subindo (com regressão)
-   */
   isRisingLine(values) {
     try {
       if (!Array.isArray(values) || values.length < 2) return false;
-
-      const regression = this.calculateLinearRegression(values);
-      return regression.slope > this.config.tolerance && regression.r2 > this.config.regressionMinR2;
-    } catch (error) {
-      console.error('Erro ao verificar linha ascendente:', error.message);
+      const r = this.calculateLinearRegression(values);
+      return r.slope > this.config.tolerance && r.r2 > this.config.regressionMinR2;
+    } catch {
       return false;
     }
   }
 
-  /**
-   * Verifica se uma linha está descendo (com regressão)
-   */
   isFallingLine(values) {
     try {
       if (!Array.isArray(values) || values.length < 2) return false;
-
-      const regression = this.calculateLinearRegression(values);
-      return regression.slope < -this.config.tolerance && regression.r2 > this.config.regressionMinR2;
-    } catch (error) {
-      console.error('Erro ao verificar linha descendente:', error.message);
+      const r = this.calculateLinearRegression(values);
+      return r.slope < -this.config.tolerance && r.r2 > this.config.regressionMinR2;
+    } catch {
       return false;
     }
   }
 
-  /**
-   * Calcula volatilidade baseada em desvio padrão
-   */
   calculateVolatility(prices) {
     try {
       if (!Array.isArray(prices) || prices.length < 2) return 0;
-
       const returns = [];
-      for (let i = 1; i < prices.length; i++) {
-        if (prices[i - 1] > 0) {
-          returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
-        }
-      }
-
-      if (returns.length === 0) return 0;
-
+      for (let i = 1; i < prices.length; i++) if (prices[i - 1] > 0) returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+      if (!returns.length) return 0;
       const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-      const variance = returns.reduce((sum, ret) => sum + Math.pow(ret - mean, 2), 0) / returns.length;
-
+      const variance = returns.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / returns.length;
       return Math.sqrt(variance);
-    } catch (error) {
-      console.error('Erro ao calcular volatilidade:', error.message);
+    } catch {
       return 0;
     }
   }
 
-  /**
-   * Ajusta tolerâncias baseado na volatilidade
-   */
   adjustToleranceForVolatility(data) {
-    try {
-      const volatility = this.calculateVolatility(data.close);
-
-      if (volatility > 0.05) {
-        this.config.tolerance = 0.03;
-      } else if (volatility < 0.01) {
-        this.config.tolerance = 0.01;
-      } else {
-        this.config.tolerance = 0.02;
-      }
-
-      this.log(
-        `📊 Tolerância ajustada para ${(this.config.tolerance * 100).toFixed(1)}% (volatilidade: ${(volatility * 100).toFixed(2)}%)`
-      );
-    } catch (error) {
-      console.error('Erro ao ajustar tolerância:', error.message);
-    }
+    const vol = this.calculateVolatility(data.close);
+    if (vol > 0.05) this.config.tolerance = 0.03;
+    else if (vol < 0.01) this.config.tolerance = 0.01;
+    else this.config.tolerance = 0.02;
+    this.log(`📊 Tolerância ${(this.config.tolerance * 100).toFixed(1)}% (vol: ${(vol * 100).toFixed(2)}%)`);
   }
 
-  /**
-   * Obtém estatísticas dos padrões detectados
-   */
   getPatternStats(patterns) {
     try {
       const stats = {
@@ -916,8 +556,7 @@ class PatternDetectionService {
         highConfidencePatterns: 0,
         patternTypes: {}
       };
-
-      Object.entries(patterns).forEach(([_, pattern]) => {
+      Object.entries(patterns).forEach(([, pattern]) => {
         if (pattern && typeof pattern === 'object') {
           if (Array.isArray(pattern)) {
             pattern.forEach((p) => {
@@ -925,9 +564,7 @@ class PatternDetectionService {
               if (p.bias === 'BULLISH') stats.bullishPatterns++;
               else if (p.bias === 'BEARISH') stats.bearishPatterns++;
               else stats.neutralPatterns++;
-
               if (p.confidence >= 80) stats.highConfidencePatterns++;
-
               stats.patternTypes[p.type] = (stats.patternTypes[p.type] || 0) + 1;
             });
           } else {
@@ -935,25 +572,14 @@ class PatternDetectionService {
             if (pattern.bias === 'BULLISH') stats.bullishPatterns++;
             else if (pattern.bias === 'BEARISH') stats.bearishPatterns++;
             else stats.neutralPatterns++;
-
             if (pattern.confidence >= 80) stats.highConfidencePatterns++;
-
             stats.patternTypes[pattern.type] = (stats.patternTypes[pattern.type] || 0) + 1;
           }
         }
       });
-
       return stats;
-    } catch (error) {
-      console.error('Erro ao calcular estatísticas de padrões:', error.message);
-      return {
-        totalPatterns: 0,
-        bullishPatterns: 0,
-        bearishPatterns: 0,
-        neutralPatterns: 0,
-        highConfidencePatterns: 0,
-        patternTypes: {}
-      };
+    } catch {
+      return { totalPatterns: 0, bullishPatterns: 0, bearishPatterns: 0, neutralPatterns: 0, highConfidencePatterns: 0, patternTypes: {} };
     }
   }
 }
