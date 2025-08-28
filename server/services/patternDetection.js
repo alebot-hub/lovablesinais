@@ -26,7 +26,6 @@ class PatternDetectionService {
       volatilityAdjustment: config.volatilityAdjustment !== undefined ? config.volatilityAdjustment : true,
       minSeparation: config.minSeparation || 3,
       regressionMinR2: config.regressionMinR2 || 0.3
-    };
 
     const FILE_ID = (typeof __filename !== 'undefined')
       ? __filename
