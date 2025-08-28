@@ -63,7 +63,7 @@ class PatternDetectionService {
 
       console.log('🕯️ Detectando padrões de candlestick...');
       // Padrões de candlestick - IMPLEMENTAÇÃO DIRETA AQUI
-      patterns.candlestick = this.detectCandlestickPatternsInternal(recentData);
+      patterns.candlestick = this.detectCandlestickPatterns(recentData);
 
       console.log('✅ Detecção de padrões concluída');
       return patterns;
@@ -75,9 +75,9 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta padrões de candlestick - MÉTODO INTERNO
+   * Detecta padrões de candlestick
    */
-  detectCandlestickPatternsInternal(data) {
+  detectCandlestickPatterns(data) {
     try {
       console.log('🕯️ Detectando padrões de candlestick...');
       const patterns = [];
