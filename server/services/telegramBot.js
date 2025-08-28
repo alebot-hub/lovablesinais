@@ -871,7 +871,7 @@ ${counterTrendWarning}
    */
   getStopStatus(targetNumber) {
     switch (targetNumber) {
-      case 1: return 'mantido na entrada';
+      case 1: return 'Mantenha o Stop Original';
       case 2: return 'movido para entrada';
       case 3: return 'movido para alvo 1';
       case 4: return 'movido para alvo 2';
