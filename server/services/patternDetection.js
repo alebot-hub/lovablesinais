@@ -1,17 +1,18 @@
 /**
- * Serviço de detecção de padrões gráficos - Versão Corrigida com Métodos de Protótipo
+ * Serviço de detecção de padrões gráficos - Versão Ultra-Robusta
  * 
- * IMPORTANTE: NÃO reatribuir métodos desta instância em runtime para evitar erros!
+ * VERSÃO: v2.1-bind-lock
  * 
- * Correções aplicadas:
- * 1. Todos os métodos convertidos para métodos de protótipo (não arrow functions)
- * 2. Salvaguarda contra sombreamento de métodos
- * 3. Validação completa de dados OHLC
- * 4. Sistema de configuração flexível
- * 5. Logging configurável
- * 6. Regressão linear para análise de linhas
- * 7. Tolerâncias baseadas em volatilidade
+ * IMPORTANTE: Esta classe usa bind+lock para prevenir:
+ * - Perda de contexto 'this' em callbacks
+ * - Sombreamento acidental de métodos
+ * - Clonagem sem protótipo
+ * 
+ * NÃO reatribuir métodos desta instância em runtime!
+ * NÃO clonar a instância com spread/Object.assign/JSON
  */
+
+const PDS_VERSION = 'v2.1-bind-lock';
 
 class PatternDetectionService {
   constructor(config = {}) {
@@ -23,14 +24,56 @@ class PatternDetectionService {
       candlestickTolerance: config.candlestickTolerance || 0.001,
       debug: config.debug !== undefined ? config.debug : true,
       volatilityAdjustment: config.volatilityAdjustment !== undefined ? config.volatilityAdjustment : true,
-      minSeparation: config.minSeparation || 3, // Separação mínima para padrões duplos
-      regressionMinR2: config.regressionMinR2 || 0.3, // R² mínimo para regressão linear
+      minSeparation: config.minSeparation || 3,
+      regressionMinR2: config.regressionMinR2 || 0.3,
       ...config
     };
 
+    this.log(`🔧 PatternDetectionService versão ${PDS_VERSION}`);
     this.log('✅ PatternDetectionService inicializado com configurações:', this.config);
     
-    // Validação crítica: confirma que todos os métodos principais estão definidos
+    // BIND + LOCK: garante contexto e impede reatribuição acidental
+    const bindAndLock = (name) => {
+      if (typeof this[name] !== 'function') {
+        console.error(`❌ ERRO CRÍTICO: Método ${name} não existe no protótipo!`);
+        throw new Error(`Método ${name} não encontrado`);
+      }
+      
+      const fn = this[name].bind(this);
+      Object.defineProperty(this, name, {
+        value: fn,
+        writable: false,       // impede sobrescrita
+        configurable: false,   // impede redefineProperty/delete
+        enumerable: false
+      });
+      this.log(`🔒 Método ${name} bindado e protegido`);
+    };
+
+    // Lista de métodos críticos para bind+lock
+    [
+      'detectPatterns',
+      'detectCandlestickPatterns',
+      'detectBreakout',
+      'detectTriangles',
+      'detectFlags',
+      'detectWedges',
+      'detectDoublePatterns',
+      'detectHeadShoulders',
+      'validateMethods',
+      'calculatePreviousTrend',
+      'calculateDynamicConfidence',
+      'isValidCandle',
+      'getEmptyPatterns',
+      'calculateLinearRegression',
+      'isHorizontalLine',
+      'isRisingLine',
+      'isFallingLine',
+      'calculateVolatility',
+      'adjustToleranceForVolatility',
+      'getPatternStats'
+    ].forEach(bindAndLock);
+
+    // Validação crítica após bind+lock
     this.validateMethods();
   }
 
@@ -69,6 +112,11 @@ class PatternDetectionService {
    */
   detectPatterns(data) {
     try {
+      // Guard extra contra perda de contexto
+      if (!(this instanceof PatternDetectionService)) {
+        throw new Error('detectPatterns chamado sem contexto de PatternDetectionService (this inválido)');
+      }
+
       this.log('🔍 Iniciando detecção de padrões...');
       
       // Validação completa de dados
@@ -132,20 +180,35 @@ class PatternDetectionService {
       patterns.headShoulders = this.detectHeadShoulders(recentData);
 
       this.log('🕯️ Detectando padrões de candlestick...');
-      // Padrões de candlestick - COM SALVAGUARDA CONTRA SOMBREAMENTO
+      // Padrões de candlestick - COM SALVAGUARDA TRIPLA
       try {
-        // SALVAGUARDA: Verifica se o método ainda é uma função
+        // SALVAGUARDA 1: Verifica se o método ainda é uma função
         if (typeof this.detectCandlestickPatterns !== 'function') {
           console.error('❌ detectCandlestickPatterns não é função; restaurando implementação padrão.');
           this.detectCandlestickPatterns = PatternDetectionService.prototype.detectCandlestickPatterns.bind(this);
         }
         
-        patterns.candlestick = this.detectCandlestickPatterns(recentData);
+        // SALVAGUARDA 2: Verifica se o protótipo existe
+        if (!PatternDetectionService.prototype.detectCandlestickPatterns) {
+          console.error('❌ Protótipo detectCandlestickPatterns não existe; usando implementação inline.');
+          patterns.candlestick = this.detectCandlestickPatternsInline(recentData);
+        } else {
+          patterns.candlestick = this.detectCandlestickPatterns(recentData);
+        }
+        
         this.log(`✅ ${patterns.candlestick.length} padrões candlestick detectados`);
       } catch (candlestickError) {
         console.error('❌ Erro específico em candlestick:', candlestickError.message);
         console.error('❌ Stack trace:', candlestickError.stack);
-        patterns.candlestick = [];
+        
+        // SALVAGUARDA 3: Fallback inline
+        try {
+          patterns.candlestick = this.detectCandlestickPatternsInline(recentData);
+          this.log(`✅ ${patterns.candlestick.length} padrões candlestick detectados (fallback)`);
+        } catch (fallbackError) {
+          console.error('❌ Erro no fallback candlestick:', fallbackError.message);
+          patterns.candlestick = [];
+        }
       }
 
       this.log('✅ Detecção de padrões concluída');
@@ -300,6 +363,37 @@ class PatternDetectionService {
   }
 
   /**
+   * FALLBACK INLINE para padrões candlestick (caso o método principal falhe)
+   */
+  detectCandlestickPatternsInline(data) {
+    try {
+      console.log('🆘 Usando fallback inline para padrões candlestick...');
+      const patterns = [];
+      const lastIndex = data.close.length - 1;
+
+      if (lastIndex < 1) return patterns;
+
+      const current = {
+        open: data.open[lastIndex],
+        high: data.high[lastIndex],
+        low: data.low[lastIndex],
+        close: data.close[lastIndex]
+      };
+
+      // Doji simples
+      if (Math.abs(current.open - current.close) < current.close * 0.001) {
+        patterns.push({ type: 'DOJI', bias: 'NEUTRAL', confidence: 70 });
+        console.log('✅ Padrão DOJI detectado (fallback)');
+      }
+
+      return patterns;
+    } catch (error) {
+      console.error('❌ Erro no fallback candlestick:', error.message);
+      return [];
+    }
+  }
+
+  /**
    * Calcula tendência prévia para análise de candlestick
    */
   calculatePreviousTrend(data) {
@@ -391,10 +485,15 @@ class PatternDetectionService {
    */
   detectBreakout(data, support, resistance) {
     try {
-      const currentPrice = data.close[data.close.length - 1];
-      const previousPrice = data.close[data.close.length - 2];
-      const volume = data.volume[data.volume.length - 1];
-      const avgVolume = data.volume.reduce((a, b) => a + b, 0) / data.volume.length;
+      const currentPrice = data.close.at(-1);
+      const previousPrice = data.close.at(-2);
+      
+      // Fallback de volume robusto
+      const volArr = (Array.isArray(data.volume) && data.volume.length === data.close.length)
+        ? data.volume
+        : Array(data.close.length).fill(1);
+      const volume = volArr.at(-1);
+      const avgVolume = volArr.reduce((a, b) => a + b, 0) / volArr.length;
 
       // Rompimento de resistência com volume
       if (currentPrice > resistance && 
