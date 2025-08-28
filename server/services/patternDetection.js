@@ -1,13 +1,13 @@
 /**
  * Serviço de detecção de padrões gráficos - Versão Ultra-Robusta
- * 
+ *
  * VERSÃO: v2.1-bind-lock
- * 
+ *
  * IMPORTANTE: Esta classe usa bind+lock para prevenir:
  * - Perda de contexto 'this' em callbacks
  * - Sombreamento acidental de métodos
  * - Clonagem sem protótipo
- * 
+ *
  * NÃO reatribuir métodos desta instância em runtime!
  * NÃO clonar a instância com spread/Object.assign/JSON
  */
@@ -17,35 +17,37 @@ const PDS_VERSION = 'v2.1-bind-lock';
 class PatternDetectionService {
   constructor(config = {}) {
     // Configurações padrão com valores configuráveis
-    this.config = Object.assign({
-      minDataLength: 20,
-      breakoutVolumeThreshold: 1.5,
-      tolerance: 0.02,
-      candlestickTolerance: 0.001,
-      debug: true,
-      volatilityAdjustment: true,
-      minSeparation: 3,
-      regressionMinR2: 0.3
-    }, config || {});
+    this.config = Object.assign(
+      {
+        minDataLength: 20,
+        breakoutVolumeThreshold: 1.5,
+        tolerance: 0.02,
+        candlestickTolerance: 0.001,
+        debug: true,
+        volatilityAdjustment: true,
+        minSeparation: 3,
+        regressionMinR2: 0.3
+      },
+      config || {}
+    );
 
-    const FILE_ID = (typeof __filename !== 'undefined')
-      ? __filename
-      : (typeof import !== 'undefined' && import.meta && import.meta.url ? import.meta.url : 'unknown');
+    // ID do arquivo para logging (compatível com CJS; em ESM pode aparecer 'unknown')
+    const FILE_ID = typeof __filename !== 'undefined' ? __filename : 'unknown';
     this.log(`🔧 PatternDetectionService versão ${PDS_VERSION} @ ${FILE_ID}`);
     this.log('✅ PatternDetectionService inicializado com configurações:', this.config);
-    
+
     // BIND + LOCK: garante contexto e impede reatribuição acidental
     const bindAndLock = (name) => {
       if (typeof this[name] !== 'function') {
         console.error(`❌ ERRO CRÍTICO: Método ${name} não existe no protótipo!`);
         throw new Error(`Método ${name} não encontrado`);
       }
-      
+
       const fn = this[name].bind(this);
       Object.defineProperty(this, name, {
         value: fn,
-        writable: false,       // impede sobrescrita
-        configurable: false,   // impede redefineProperty/delete
+        writable: false,      // impede sobrescrita
+        configurable: false,  // impede redefineProperty/delete
         enumerable: false
       });
       this.log(`🔒 Método ${name} bindado e protegido`);
@@ -86,7 +88,7 @@ class PatternDetectionService {
     }
   }
 
-  // Validação de métodos - MÉTODO DE PROTÓTIPO
+  // Validação de métodos
   validateMethods() {
     const requiredMethods = [
       'detectPatterns',
@@ -105,22 +107,22 @@ class PatternDetectionService {
         throw new Error(`Método ${methodName} não encontrado na classe PatternDetectionService`);
       }
     }
-    
+
     this.log('✅ Todos os métodos principais validados com sucesso');
   }
 
   /**
-   * Detecta todos os padrões gráficos - MÉTODO DE PROTÓTIPO
+   * Detecta todos os padrões gráficos
    */
   detectPatterns(data) {
     try {
-      // Guards de contexto/instância
+      // Guard de contexto/instância
       if (!(this instanceof PatternDetectionService)) {
         throw new Error('[PDS] detectPatterns chamado sem contexto de PatternDetectionService (this inválido)');
       }
 
       this.log('🔍 Iniciando detecção de padrões...');
-      
+
       // Validação completa de dados
       const validationResult = this.validateInputData(data);
       if (!validationResult.isValid) {
@@ -135,7 +137,7 @@ class PatternDetectionService {
         this.adjustToleranceForVolatility(data);
       }
 
-      // Dados recentes para análise (usando configuração)
+      // Dados recentes para análise
       const windowSize = this.config.minDataLength;
       const recentData = {
         open: data.open.slice(-windowSize),
@@ -145,69 +147,58 @@ class PatternDetectionService {
         volume: data.volume ? data.volume.slice(-windowSize) : Array(windowSize).fill(1)
       };
 
-      // Validação adicional de volume
       if (!data.volume || !Array.isArray(data.volume)) {
         console.warn('⚠️ Volume ausente ou inválido - usando valores padrão para confirmação de rompimentos');
       }
 
       this.log('📊 Analisando suporte e resistência...');
-      // Suporte e resistência com tolerância configurável
       const resistance = Math.max(...recentData.high);
       const support = Math.min(...recentData.low);
       patterns.support = support;
       patterns.resistance = resistance;
 
       this.log('📈 Detectando rompimentos...');
-      // Rompimentos
       patterns.breakout = this.detectBreakout(recentData, support, resistance);
 
       this.log('🔺 Detectando triângulos...');
-      // Triângulos
       patterns.triangle = this.detectTriangles(recentData);
 
       this.log('🏳️ Detectando bandeiras...');
-      // Bandeiras
       patterns.flag = this.detectFlags(recentData);
 
       this.log('📐 Detectando cunhas...');
-      // Cunhas
       patterns.wedge = this.detectWedges(recentData);
 
       this.log('🔄 Detectando padrões duplos...');
-      // Topo/Fundo duplo
       patterns.double = this.detectDoublePatterns(recentData, support, resistance);
 
       this.log('👤 Detectando cabeça e ombros...');
-      // Cabeça e ombros
       patterns.headShoulders = this.detectHeadShoulders(recentData);
 
       this.log('🕯️ Detectando padrões de candlestick...');
-      // Padrões de candlestick - COM SALVAGUARDA TRIPLA
       try {
         this.log('[PDS] typeof detectCandlestickPatterns =', typeof this.detectCandlestickPatterns);
         this.log('[PDS] tem no protótipo?', !!PatternDetectionService.prototype.detectCandlestickPatterns);
         this.log('[PDS] keys da instância:', Object.keys(this));
         this.log('[PDS] proto ok?', Object.getPrototypeOf(this) === PatternDetectionService.prototype);
-        // SALVAGUARDA 1: Verifica se o método ainda é uma função
+
         if (typeof this.detectCandlestickPatterns !== 'function') {
           console.error('❌ detectCandlestickPatterns não é função; restaurando implementação padrão.');
-          this.detectCandlestickPatterns = PatternDetectionService.prototype.detectCandlestickPatterns.bind(this);
+          this.detectCandlestickPatterns =
+            PatternDetectionService.prototype.detectCandlestickPatterns.bind(this);
         }
-        
-        // SALVAGUARDA 2: Verifica se o protótipo existe
+
         if (!PatternDetectionService.prototype.detectCandlestickPatterns) {
           console.error('❌ Protótipo detectCandlestickPatterns não existe; usando implementação inline.');
           patterns.candlestick = this.detectCandlestickPatternsInline(recentData);
         } else {
           patterns.candlestick = this.detectCandlestickPatterns(recentData);
         }
-        
+
         this.log(`✅ ${patterns.candlestick.length} padrões candlestick detectados`);
       } catch (candlestickError) {
         console.error('❌ Erro específico em candlestick:', candlestickError.message);
         console.error('❌ Stack trace:', candlestickError.stack);
-        
-        // SALVAGUARDA 3: Fallback inline
         try {
           patterns.candlestick = this.detectCandlestickPatternsInline(recentData);
           this.log(`✅ ${patterns.candlestick.length} padrões candlestick detectados (fallback)`);
@@ -241,27 +232,31 @@ class PatternDetectionService {
       if (!Array.isArray(data[arrayName])) {
         return { isValid: false, reason: `${arrayName} não é um array` };
       }
-      
+
       if (data[arrayName].length < minLength) {
-        return { isValid: false, reason: `${arrayName} tem apenas ${data[arrayName].length} elementos (mínimo ${minLength})` };
+        return {
+          isValid: false,
+          reason: `${arrayName} tem apenas ${data[arrayName].length} elementos (mínimo ${minLength})`
+        };
       }
 
-      // Verifica se todos os valores são números válidos
-      const invalidValues = data[arrayName].filter(val => typeof val !== 'number' || !isFinite(val) || val < 0);
+      const invalidValues = data[arrayName].filter(
+        (val) => typeof val !== 'number' || !isFinite(val) || val < 0
+      );
       if (invalidValues.length > 0) {
         return { isValid: false, reason: `${arrayName} contém ${invalidValues.length} valores inválidos` };
       }
     }
 
     // Verifica consistência OHLC nos primeiros e últimos candles
-    const checkIndices = [
-      ...Array(5).fill().map((_, i) => i), // Primeiros 5
-      ...Array(5).fill().map((_, i) => data.close.length - 5 + i) // Últimos 5
-    ];
+    const head = Array(5).fill(0).map((_, i) => i);
+    const tail = Array(5).fill(0).map((_, i) => data.close.length - 5 + i);
+    const checkIndices = head.concat(tail);
 
-    for (const i of checkIndices) {
+    for (let idx = 0; idx < checkIndices.length; idx++) {
+      const i = checkIndices[idx];
       if (i >= data.close.length || i < 0) continue;
-      
+
       const candle = {
         open: data.open[i],
         high: data.high[i],
@@ -278,7 +273,7 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta padrões de candlestick - MÉTODO DE PROTÓTIPO
+   * Detecta padrões de candlestick
    */
   detectCandlestickPatterns(data) {
     try {
@@ -305,16 +300,14 @@ class PatternDetectionService {
         close: data.close[lastIndex - 1]
       };
 
-      // Validação dos dados
       if (!this.isValidCandle(current) || !this.isValidCandle(previous)) {
         console.warn('⚠️ Dados de candlestick inválidos');
         return patterns;
       }
 
-      // Calcula tendência prévia para melhor precisão
       const prevTrend = this.calculatePreviousTrend(data);
 
-      // Doji (confiança dinâmica baseada no contexto)
+      // Doji
       const dojiTolerance = current.close * this.config.candlestickTolerance;
       if (Math.abs(current.open - current.close) < dojiTolerance) {
         const confidence = this.calculateDynamicConfidence(70, current, prevTrend);
@@ -322,27 +315,31 @@ class PatternDetectionService {
         this.log('✅ Padrão DOJI detectado');
       }
 
-      // Engolfo bullish (com verificação de tendência)
-      if (previous.close < previous.open && // Candle anterior bearish
-          current.close > current.open && // Candle atual bullish
-          current.open < previous.close && // Abre abaixo do fechamento anterior
-          current.close > previous.open) { // Fecha acima da abertura anterior
+      // Bullish Engulfing
+      if (
+        previous.close < previous.open &&
+        current.close > current.open &&
+        current.open < previous.close &&
+        current.close > previous.open
+      ) {
         const confidence = this.calculateDynamicConfidence(80, current, prevTrend, 'BULLISH');
         patterns.push({ type: 'BULLISH_ENGULFING', bias: 'BULLISH', confidence });
         this.log('✅ Padrão BULLISH_ENGULFING detectado');
       }
 
-      // Engolfo bearish (com verificação de tendência)
-      if (previous.close > previous.open && // Candle anterior bullish
-          current.close < current.open && // Candle atual bearish
-          current.open > previous.close && // Abre acima do fechamento anterior
-          current.close < previous.open) { // Fecha abaixo da abertura anterior
+      // Bearish Engulfing
+      if (
+        previous.close > previous.open &&
+        current.close < current.open &&
+        current.open > previous.close &&
+        current.close < previous.open
+      ) {
         const confidence = this.calculateDynamicConfidence(80, current, prevTrend, 'BEARISH');
         patterns.push({ type: 'BEARISH_ENGULFING', bias: 'BEARISH', confidence });
         this.log('✅ Padrão BEARISH_ENGULFING detectado');
       }
 
-      // Martelo (com análise de tendência prévia)
+      // Hammer
       const bodySize = Math.abs(current.close - current.open);
       const lowerShadow = Math.min(current.open, current.close) - current.low;
       const upperShadow = current.high - Math.max(current.open, current.close);
@@ -353,7 +350,7 @@ class PatternDetectionService {
         this.log('✅ Padrão HAMMER detectado');
       }
 
-      // Enforcado (com análise de tendência prévia)
+      // Hanging Man
       if (upperShadow > bodySize * 2 && lowerShadow < bodySize * 0.5) {
         const confidence = this.calculateDynamicConfidence(75, current, prevTrend, 'BEARISH');
         patterns.push({ type: 'HANGING_MAN', bias: 'BEARISH', confidence });
@@ -369,14 +366,13 @@ class PatternDetectionService {
   }
 
   /**
-   * FALLBACK INLINE para padrões candlestick (caso o método principal falhe)
+   * FALLBACK INLINE para padrões candlestick
    */
   detectCandlestickPatternsInline(data) {
     try {
       console.log('🆘 Usando fallback inline para padrões candlestick...');
       const patterns = [];
       const lastIndex = data.close.length - 1;
-
       if (lastIndex < 1) return patterns;
 
       const current = {
@@ -432,19 +428,19 @@ class PatternDetectionService {
     try {
       let confidence = baseConfidence;
 
-      // Ajusta baseado no tamanho do candle
       const bodySize = Math.abs(candle.close - candle.open);
       const totalRange = candle.high - candle.low;
       const bodyRatio = totalRange > 0 ? bodySize / totalRange : 0;
 
-      if (bodyRatio > 0.7) confidence += 5; // Candle com corpo grande
-      else if (bodyRatio < 0.3) confidence -= 5; // Candle com corpo pequeno
+      if (bodyRatio > 0.7) confidence += 5;
+      else if (bodyRatio < 0.3) confidence -= 5;
 
-      // Ajusta baseado na tendência prévia
       if (expectedBias && prevTrend !== 'NEUTRAL') {
-        if ((expectedBias === 'BULLISH' && prevTrend === 'BEARISH') ||
-            (expectedBias === 'BEARISH' && prevTrend === 'BULLISH')) {
-          confidence += 10; // Padrão de reversão em tendência oposta
+        if (
+          (expectedBias === 'BULLISH' && prevTrend === 'BEARISH') ||
+          (expectedBias === 'BEARISH' && prevTrend === 'BULLISH')
+        ) {
+          confidence += 10; // Reversão em tendência oposta
         }
       }
 
@@ -459,14 +455,24 @@ class PatternDetectionService {
    * Valida se um candle tem dados válidos
    */
   isValidCandle(candle) {
-    return candle && 
-           typeof candle.open === 'number' && isFinite(candle.open) && candle.open > 0 &&
-           typeof candle.high === 'number' && isFinite(candle.high) && candle.high > 0 &&
-           typeof candle.low === 'number' && isFinite(candle.low) && candle.low > 0 &&
-           typeof candle.close === 'number' && isFinite(candle.close) && candle.close > 0 &&
-           candle.high >= candle.low &&
-           candle.high >= Math.max(candle.open, candle.close) &&
-           candle.low <= Math.min(candle.open, candle.close);
+    return (
+      candle &&
+      typeof candle.open === 'number' &&
+      isFinite(candle.open) &&
+      candle.open > 0 &&
+      typeof candle.high === 'number' &&
+      isFinite(candle.high) &&
+      candle.high > 0 &&
+      typeof candle.low === 'number' &&
+      isFinite(candle.low) &&
+      candle.low > 0 &&
+      typeof candle.close === 'number' &&
+      isFinite(candle.close) &&
+      candle.close > 0 &&
+      candle.high >= candle.low &&
+      candle.high >= Math.max(candle.open, candle.close) &&
+      candle.low <= Math.min(candle.open, candle.close)
+    );
   }
 
   /**
@@ -487,43 +493,41 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta rompimentos de suporte/resistência - MÉTODO DE PROTÓTIPO
+   * Detecta rompimentos de suporte/resistência
    */
   detectBreakout(data, support, resistance) {
     try {
-      const currentPrice = data.close.at(-1);
-      const previousPrice = data.close.at(-2);
-      
+      const last = data.close.length - 1;
+      const currentPrice = data.close[last];
+      const previousPrice = data.close[last - 1];
+
       // Fallback robusto para volume
-      const volArr = (Array.isArray(data.volume) && data.volume.length === data.close.length)
-        ? data.volume
-        : Array(data.close.length).fill(1);
-      const volume = volArr.at(-1);
+      const volArr =
+        Array.isArray(data.volume) && data.volume.length === data.close.length
+          ? data.volume
+          : Array(data.close.length).fill(1);
+      const volume = volArr[last];
       const avgVolume = volArr.reduce((a, b) => a + b, 0) / volArr.length;
 
       // Rompimento de resistência com volume
-      if (currentPrice > resistance && 
-          previousPrice <= resistance && 
-          volume > avgVolume * this.config.breakoutVolumeThreshold) {
+      if (currentPrice > resistance && previousPrice <= resistance && volume > avgVolume * this.config.breakoutVolumeThreshold) {
         this.log('✅ Rompimento bullish detectado');
-        return { 
-          type: 'BULLISH_BREAKOUT', 
-          level: resistance, 
-          strength: 'HIGH', 
+        return {
+          type: 'BULLISH_BREAKOUT',
+          level: resistance,
+          strength: 'HIGH',
           confidence: 85,
           volumeConfirmation: true
         };
       }
 
       // Rompimento de suporte com volume
-      if (currentPrice < support && 
-          previousPrice >= support && 
-          volume > avgVolume * this.config.breakoutVolumeThreshold) {
+      if (currentPrice < support && previousPrice >= support && volume > avgVolume * this.config.breakoutVolumeThreshold) {
         this.log('✅ Rompimento bearish detectado');
-        return { 
-          type: 'BEARISH_BREAKOUT', 
-          level: support, 
-          strength: 'HIGH', 
+        return {
+          type: 'BEARISH_BREAKOUT',
+          level: support,
+          strength: 'HIGH',
           confidence: 85,
           volumeConfirmation: true
         };
@@ -537,7 +541,7 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta triângulos ascendentes/descendentes - MÉTODO DE PROTÓTIPO
+   * Detecta triângulos ascendentes/descendentes
    */
   detectTriangles(data) {
     try {
@@ -545,34 +549,35 @@ class PatternDetectionService {
       const highs = data.high.slice(-analysisWindow);
       const lows = data.low.slice(-analysisWindow);
 
-      // Usa regressão linear para melhor precisão
       const resistanceRegression = this.calculateLinearRegression(highs);
       const supportRegression = this.calculateLinearRegression(lows);
 
-      // Triângulo ascendente: resistência horizontal, suporte ascendente
-      if (Math.abs(resistanceRegression.slope) < this.config.tolerance && 
-          resistanceRegression.r2 > this.config.regressionMinR2 &&
-          supportRegression.slope > this.config.tolerance && 
-          supportRegression.r2 > this.config.regressionMinR2) {
+      if (
+        Math.abs(resistanceRegression.slope) < this.config.tolerance &&
+        resistanceRegression.r2 > this.config.regressionMinR2 &&
+        supportRegression.slope > this.config.tolerance &&
+        supportRegression.r2 > this.config.regressionMinR2
+      ) {
         this.log('✅ Triângulo ascendente detectado');
-        return { 
-          type: 'ASCENDING_TRIANGLE', 
-          bias: 'BULLISH', 
+        return {
+          type: 'ASCENDING_TRIANGLE',
+          bias: 'BULLISH',
           confidence: 70,
           resistanceSlope: resistanceRegression.slope,
           supportSlope: supportRegression.slope
         };
       }
 
-      // Triângulo descendente: suporte horizontal, resistência descendente
-      if (Math.abs(supportRegression.slope) < this.config.tolerance && 
-          supportRegression.r2 > this.config.regressionMinR2 &&
-          resistanceRegression.slope < -this.config.tolerance && 
-          resistanceRegression.r2 > this.config.regressionMinR2) {
+      if (
+        Math.abs(supportRegression.slope) < this.config.tolerance &&
+        supportRegression.r2 > this.config.regressionMinR2 &&
+        resistanceRegression.slope < -this.config.tolerance &&
+        resistanceRegression.r2 > this.config.regressionMinR2
+      ) {
         this.log('✅ Triângulo descendente detectado');
-        return { 
-          type: 'DESCENDING_TRIANGLE', 
-          bias: 'BEARISH', 
+        return {
+          type: 'DESCENDING_TRIANGLE',
+          bias: 'BEARISH',
           confidence: 70,
           resistanceSlope: resistanceRegression.slope,
           supportSlope: supportRegression.slope
@@ -587,7 +592,7 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta bandeiras de alta/baixa - MÉTODO DE PROTÓTIPO (com índices relativos)
+   * Detecta bandeiras de alta/baixa (com índices relativos)
    */
   detectFlags(data) {
     try {
@@ -596,18 +601,17 @@ class PatternDetectionService {
       const midIndex = Math.floor(prices.length / 2);
       const quarterIndex = Math.floor(prices.length * 0.75);
 
-      // Movimento forte seguido de consolidação (índices relativos)
       const strongMove = Math.abs(prices[lastIndex] - prices[midIndex]) > prices[midIndex] * 0.05;
       const consolidation = Math.abs(prices[lastIndex] - prices[quarterIndex]) < prices[quarterIndex] * 0.02;
 
       if (strongMove && consolidation) {
         const direction = prices[lastIndex] > prices[midIndex] ? 'BULLISH' : 'BEARISH';
         this.log(`✅ Bandeira ${direction.toLowerCase()} detectada`);
-        return { 
-          type: `${direction}_FLAG`, 
-          strength: 'MEDIUM', 
+        return {
+          type: `${direction}_FLAG`,
+          strength: 'MEDIUM',
           confidence: 65,
-          moveSize: Math.abs(prices[lastIndex] - prices[midIndex]) / prices[midIndex] * 100
+          moveSize: (Math.abs(prices[lastIndex] - prices[midIndex]) / prices[midIndex]) * 100
         };
       }
 
@@ -619,7 +623,7 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta cunhas - MÉTODO DE PROTÓTIPO (com verificação de convergência)
+   * Detecta cunhas (com verificação de convergência)
    */
   detectWedges(data) {
     try {
@@ -633,15 +637,13 @@ class PatternDetectionService {
       const highsSlope = highsRegression.slope;
       const lowsSlope = lowsRegression.slope;
 
-      // Verifica convergência (linhas se aproximando)
       const isConverging = Math.abs(highsSlope - lowsSlope) > this.config.tolerance;
 
-      // Cunha ascendente: ambas as linhas sobem, mas com convergência
       if (highsSlope > 0 && lowsSlope > 0 && isConverging && highsSlope < lowsSlope) {
         this.log('✅ Cunha ascendente detectada');
-        return { 
-          type: 'RISING_WEDGE', 
-          bias: 'BEARISH', 
+        return {
+          type: 'RISING_WEDGE',
+          bias: 'BEARISH',
           confidence: 60,
           convergence: Math.abs(highsSlope - lowsSlope),
           highsSlope,
@@ -649,12 +651,11 @@ class PatternDetectionService {
         };
       }
 
-      // Cunha descendente: ambas as linhas descem, mas com convergência
       if (highsSlope < 0 && lowsSlope < 0 && isConverging && highsSlope > lowsSlope) {
         this.log('✅ Cunha descendente detectada');
-        return { 
-          type: 'FALLING_WEDGE', 
-          bias: 'BULLISH', 
+        return {
+          type: 'FALLING_WEDGE',
+          bias: 'BULLISH',
           confidence: 60,
           convergence: Math.abs(highsSlope - lowsSlope),
           highsSlope,
@@ -670,7 +671,7 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta topo duplo/fundo duplo - MÉTODO DE PROTÓTIPO (com separação temporal)
+   * Detecta topo duplo/fundo duplo (com separação temporal)
    */
   detectDoublePatterns(data, support, resistance) {
     try {
@@ -678,7 +679,6 @@ class PatternDetectionService {
       const lows = data.low;
       const tolerance = resistance * this.config.tolerance;
 
-      // Encontra picos próximos à resistência com separação temporal
       const resistanceHits = [];
       for (let i = 0; i < highs.length; i++) {
         if (Math.abs(highs[i] - resistance) < tolerance) {
@@ -686,22 +686,20 @@ class PatternDetectionService {
         }
       }
 
-      // Verifica se há pelo menos 2 picos com separação mínima
       if (resistanceHits.length >= 2) {
         const separation = resistanceHits[resistanceHits.length - 1] - resistanceHits[0];
         if (separation >= this.config.minSeparation) {
           this.log('✅ Topo duplo detectado');
-          return { 
-            type: 'DOUBLE_TOP', 
-            level: resistance, 
-            bias: 'BEARISH', 
+          return {
+            type: 'DOUBLE_TOP',
+            level: resistance,
+            bias: 'BEARISH',
             confidence: 75,
             separation
           };
         }
       }
 
-      // Encontra vales próximos ao suporte com separação temporal
       const supportHits = [];
       for (let i = 0; i < lows.length; i++) {
         if (Math.abs(lows[i] - support) < support * this.config.tolerance) {
@@ -709,15 +707,14 @@ class PatternDetectionService {
         }
       }
 
-      // Verifica se há pelo menos 2 vales com separação mínima
       if (supportHits.length >= 2) {
         const separation = supportHits[supportHits.length - 1] - supportHits[0];
         if (separation >= this.config.minSeparation) {
           this.log('✅ Fundo duplo detectado');
-          return { 
-            type: 'DOUBLE_BOTTOM', 
-            level: support, 
-            bias: 'BULLISH', 
+          return {
+            type: 'DOUBLE_BOTTOM',
+            level: support,
+            bias: 'BULLISH',
             confidence: 75,
             separation
           };
@@ -732,7 +729,7 @@ class PatternDetectionService {
   }
 
   /**
-   * Detecta cabeça e ombros - MÉTODO DE PROTÓTIPO (com índices relativos)
+   * Detecta cabeça e ombros (com índices relativos)
    */
   detectHeadShoulders(data) {
     try {
@@ -742,7 +739,6 @@ class PatternDetectionService {
       const highs = data.high.slice(-minLength);
       const lows = data.low.slice(-minLength);
 
-      // Índices relativos
       const leftShoulderIdx = 1;
       const headIdx = 3;
       const rightShoulderIdx = 5;
@@ -752,16 +748,17 @@ class PatternDetectionService {
       const rightShoulder = highs[rightShoulderIdx];
       const neckline = Math.min(lows[2], lows[4]);
 
-      // Verifica padrão com tolerância configurável
       const shoulderTolerance = leftShoulder * this.config.tolerance;
-      
-      if (head > leftShoulder && 
-          head > rightShoulder && 
-          Math.abs(leftShoulder - rightShoulder) < shoulderTolerance) {
+
+      if (
+        head > leftShoulder &&
+        head > rightShoulder &&
+        Math.abs(leftShoulder - rightShoulder) < shoulderTolerance
+      ) {
         this.log('✅ Cabeça e ombros detectado');
-        return { 
-          type: 'HEAD_AND_SHOULDERS', 
-          neckline, 
+        return {
+          type: 'HEAD_AND_SHOULDERS',
+          neckline,
           bias: 'BEARISH',
           target: neckline - (head - neckline),
           confidence: 80,
@@ -799,11 +796,10 @@ class PatternDetectionService {
       const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
       const intercept = (sumY - slope * sumX) / n;
 
-      // Calcula R²
       const yMean = sumY / n;
       const ssTotal = y.reduce((sum, yi) => sum + Math.pow(yi - yMean, 2), 0);
       const ssRes = y.reduce((sum, yi, i) => sum + Math.pow(yi - (slope * x[i] + intercept), 2), 0);
-      const r2 = ssTotal > 0 ? 1 - (ssRes / ssTotal) : 0;
+      const r2 = ssTotal > 0 ? 1 - ssRes / ssTotal : 0;
 
       return { slope, intercept, r2 };
     } catch (error) {
@@ -819,7 +815,7 @@ class PatternDetectionService {
     try {
       const usedTolerance = tolerance || this.config.tolerance;
       if (!Array.isArray(values) || values.length < 2) return false;
-      
+
       const regression = this.calculateLinearRegression(values);
       return Math.abs(regression.slope) < usedTolerance && regression.r2 > this.config.regressionMinR2;
     } catch (error) {
@@ -834,7 +830,7 @@ class PatternDetectionService {
   isRisingLine(values) {
     try {
       if (!Array.isArray(values) || values.length < 2) return false;
-      
+
       const regression = this.calculateLinearRegression(values);
       return regression.slope > this.config.tolerance && regression.r2 > this.config.regressionMinR2;
     } catch (error) {
@@ -849,7 +845,7 @@ class PatternDetectionService {
   isFallingLine(values) {
     try {
       if (!Array.isArray(values) || values.length < 2) return false;
-      
+
       const regression = this.calculateLinearRegression(values);
       return regression.slope < -this.config.tolerance && regression.r2 > this.config.regressionMinR2;
     } catch (error) {
@@ -876,7 +872,7 @@ class PatternDetectionService {
 
       const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
       const variance = returns.reduce((sum, ret) => sum + Math.pow(ret - mean, 2), 0) / returns.length;
-      
+
       return Math.sqrt(variance);
     } catch (error) {
       console.error('Erro ao calcular volatilidade:', error.message);
@@ -890,17 +886,18 @@ class PatternDetectionService {
   adjustToleranceForVolatility(data) {
     try {
       const volatility = this.calculateVolatility(data.close);
-      
-      // Ajusta tolerância baseado na volatilidade
-      if (volatility > 0.05) { // Alta volatilidade
+
+      if (volatility > 0.05) {
         this.config.tolerance = 0.03;
-      } else if (volatility < 0.01) { // Baixa volatilidade
+      } else if (volatility < 0.01) {
         this.config.tolerance = 0.01;
       } else {
-        this.config.tolerance = 0.02; // Padrão
+        this.config.tolerance = 0.02;
       }
 
-      this.log(`📊 Tolerância ajustada para ${(this.config.tolerance * 100).toFixed(1)}% (volatilidade: ${(volatility * 100).toFixed(2)}%)`);
+      this.log(
+        `📊 Tolerância ajustada para ${(this.config.tolerance * 100).toFixed(1)}% (volatilidade: ${(volatility * 100).toFixed(2)}%)`
+      );
     } catch (error) {
       console.error('Erro ao ajustar tolerância:', error.message);
     }
@@ -920,29 +917,27 @@ class PatternDetectionService {
         patternTypes: {}
       };
 
-      Object.entries(patterns).forEach(([key, pattern]) => {
+      Object.entries(patterns).forEach(([_, pattern]) => {
         if (pattern && typeof pattern === 'object') {
           if (Array.isArray(pattern)) {
-            // Para arrays como candlestick
-            pattern.forEach(p => {
+            pattern.forEach((p) => {
               stats.totalPatterns++;
               if (p.bias === 'BULLISH') stats.bullishPatterns++;
               else if (p.bias === 'BEARISH') stats.bearishPatterns++;
               else stats.neutralPatterns++;
-              
+
               if (p.confidence >= 80) stats.highConfidencePatterns++;
-              
+
               stats.patternTypes[p.type] = (stats.patternTypes[p.type] || 0) + 1;
             });
           } else {
-            // Para objetos únicos
             stats.totalPatterns++;
             if (pattern.bias === 'BULLISH') stats.bullishPatterns++;
             else if (pattern.bias === 'BEARISH') stats.bearishPatterns++;
             else stats.neutralPatterns++;
-            
+
             if (pattern.confidence >= 80) stats.highConfidencePatterns++;
-            
+
             stats.patternTypes[pattern.type] = (stats.patternTypes[pattern.type] || 0) + 1;
           }
         }
