@@ -752,12 +752,13 @@ class AdaptiveScoringService {
   }
 
   /**
-   * Calcula threshold dinâmico baseado no tempo
+   * Calcula threshold para manter qualidade alta
    */
   calculateDynamicThreshold() {
-    // Implementação básica - pode ser expandida
-    return this.marketRegime === 'BEAR' ? 40 : 
-           this.marketRegime === 'VOLATILE' ? 45 : 50;
+    // Mantém threshold alto para qualidade máxima
+    return this.marketRegime === 'BEAR' ? 65 :      // Mercado baixa: 65%
+           this.marketRegime === 'VOLATILE' ? 68 :  // Mercado volátil: 68%
+           70;                                      // Mercado normal/alta: 70%
   }
 
   /**

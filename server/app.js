@@ -267,6 +267,53 @@ function checkIfShouldSendBestSignal() {
   return { shouldSend: false };
 }
 
+/**
+ * Seleciona o melhor sinal baseado em múltiplos critérios de qualidade
+ */
+function selectBestQualitySignal(signals) {
+  console.log(`\n🏆 SELECIONANDO MELHOR ENTRE ${signals.length} SINAIS:`);
+  
+  // Ordena por critérios de qualidade
+  const rankedSignals = signals.map(signal => {
+    let qualityScore = signal.probability; // Score base
+    
+    // Bônus por correlação com Bitcoin
+    if (signal.btcCorrelation?.alignment === 'ALIGNED') {
+      qualityScore += 5;
+      console.log(`  ${signal.symbol}: +5 (alinhado com BTC)`);
+    }
+    
+    // Bônus por timeframe mais confiável
+    const timeframeBonus = {
+      '1d': 8, '4h': 6, '1h': 4, '15m': 2, '5m': 0
+    };
+    qualityScore += timeframeBonus[signal.timeframe] || 0;
+    
+    // Bônus por regime de mercado favorável
+    if (signal.regime === 'BULL' && signal.trend === 'BULLISH') {
+      qualityScore += 3;
+    } else if (signal.regime === 'BEAR' && signal.trend === 'BEARISH') {
+      qualityScore += 3;
+    }
+    
+    // Penalidade por sinais contra-tendência (mesmo que válidos)
+    if (signal.btcCorrelation?.alignment === 'AGAINST') {
+      qualityScore -= 2;
+    }
+    
+    console.log(`  ${signal.symbol} ${signal.timeframe}: ${signal.probability.toFixed(1)}% → ${qualityScore.toFixed(1)}% (qualidade)`);
+    
+    return { ...signal, qualityScore };
+  }).sort((a, b) => b.qualityScore - a.qualityScore);
+  
+  const bestSignal = rankedSignals[0];
+  console.log(`\n🥇 VENCEDOR: ${bestSignal.symbol} ${bestSignal.timeframe}`);
+  console.log(`📊 Score original: ${bestSignal.probability.toFixed(1)}%`);
+  console.log(`🏆 Score de qualidade: ${bestSignal.qualityScore.toFixed(1)}%`);
+  
+  return bestSignal;
+}
+
 async function analyzeSymbolTimeframe(symbol, timeframe, logPrefix) {
   try {
     console.log(`${logPrefix} 📊 Obtendo dados...`);
