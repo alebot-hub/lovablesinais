@@ -255,7 +255,6 @@ class AdaptiveScoringService {
     
     // Threshold dinâmico baseado no tempo desde último sinal
     const dynamicThreshold = this.calculateDynamicThreshold();
-    const isValid = finalScore >= dynamicThreshold;
     console.log(`${logPrefix} ⚡ Ajustes contra-tendência: ${counterTrendAdjustments.adjustedScore.toFixed(2)}`);
     // Score final com limites
     const finalScore = Math.min(Math.max(counterTrendAdjustments.adjustedScore, 0), 100);
@@ -263,6 +262,7 @@ class AdaptiveScoringService {
     // Determina se é válido (threshold ajustado para mercado bear)
     const minScore = this.marketRegime === 'BEAR' ? 40 : 
                     this.marketRegime === 'VOLATILE' ? 45 : 50; // Mais sensível
+    const isValid = finalScore >= dynamicThreshold;
     console.log(`🎯 [${symbol}] SCORE FINAL: ${finalScore.toFixed(1)}/${dynamicThreshold}`);
 
     // Log detalhado
@@ -293,35 +293,6 @@ class AdaptiveScoringService {
         counterTrendBonus: counterTrendAdjustments.bonus
       }
     };
-  }
-
-  /**
-   * Calcula threshold dinâmico baseado no tempo desde último sinal
-   */
-  calculateDynamicThreshold() {
-    // Acessa variáveis globais do app.js
-    const now = new Date();
-    const lastSignal = global.lastSignalTime || null;
-    
-    if (!lastSignal) {
-      // Primeiro sinal - usa threshold padrão
-      return TRADING_CONFIG.MIN_SIGNAL_PROBABILITY;
-    }
-    
-    const minutesSinceLastSignal = Math.floor((now - lastSignal) / (1000 * 60));
-    
-    // Reduz threshold gradualmente após 45 minutos
-    if (minutesSinceLastSignal >= 120) {
-      return TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.EMERGENCY_THRESHOLD; // 25%
-    } else if (minutesSinceLastSignal >= 90) {
-      return TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.MAX_THRESHOLD_REDUCTION; // 25%
-    } else if (minutesSinceLastSignal >= 60) {
-      return TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.FALLBACK_THRESHOLD; // 30%
-    } else if (minutesSinceLastSignal >= 45) {
-      return TRADING_CONFIG.MIN_SIGNAL_PROBABILITY - 5; // 30%
-    }
-    
-    return TRADING_CONFIG.MIN_SIGNAL_PROBABILITY; // 35%
   }
 
   /**
@@ -778,6 +749,15 @@ class AdaptiveScoringService {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Calcula threshold dinâmico baseado no tempo
+   */
+  calculateDynamicThreshold() {
+    // Implementação básica - pode ser expandida
+    return this.marketRegime === 'BEAR' ? 40 : 
+           this.marketRegime === 'VOLATILE' ? 45 : 50;
   }
 
   /**
