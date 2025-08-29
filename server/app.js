@@ -108,20 +108,10 @@ export async function analyzeSignals() {
     console.log(`\n🚀 ANÁLISE #${analysisCount} - ${lastAnalysisTime.toLocaleString('pt-BR')}`);
     console.log(`📊 ${CRYPTO_SYMBOLS.length} símbolos x ${TIMEFRAMES.length} timeframes`);
 
-    const allSignals = []; // Coleta TODOS os sinais válidos
+    let bestSignal = { score: 0, symbol: null, entryPrice: 0, indicators: null, patterns: null };
     let totalAnalyzed = 0;
     let validSignals = 0;
     let errors = [];
-    
-    // Verifica se deve enviar o melhor sinal da hora
-    const hourlyCheck = checkIfShouldSendBestSignal();
-    const currentThreshold = hourlyCheck.shouldSend ? hourlyCheck.threshold : TRADING_CONFIG.MIN_SIGNAL_PROBABILITY;
-    
-    if (hourlyCheck.shouldSend) {
-      console.log(`🎯 MODO SELEÇÃO DO MELHOR: Threshold ${currentThreshold}% (${hourlyCheck.reason})`);
-    } else {
-      console.log(`🎯 MODO PADRÃO: Threshold ${currentThreshold}% (aguardando horário de envio)`);
-    }
 
     for (const symbol of CRYPTO_SYMBOLS) {
       if (telegramBot.hasActiveMonitor(symbol)) {
@@ -158,24 +148,18 @@ export async function analyzeSignals() {
           if (result && result.isValid) {
             validSignals++;
             
-            // Coleta TODOS os sinais válidos para seleção posterior
-            if (result.totalScore >= TRADING_CONFIG.MIN_SIGNAL_PROBABILITY) {
-              const signal = {
+            if (result.totalScore > 70 && result.totalScore > bestSignal.score) {
+              bestSignal = {
+                score: result.totalScore,
                 symbol,
                 timeframe,
-                probability: result.totalScore,
-                entry: result.entry,
-                trend: result.trend,
+                entryPrice: result.entry,
                 indicators: result.indicators,
                 patterns: result.patterns,
-                btcCorrelation: result.btcCorrelation,
-                regime: marketRegimeService.getCurrentRegime()
+                trend: result.trend,
+                btcCorrelation: result.btcCorrelation
               };
-              
-              if (hourlyCheck.shouldSend || result.totalScore >= currentThreshold) {
-                allSignals.push(signal);
-                console.log(`✅ ${logPrefix} SINAL VÁLIDO COLETADO (${result.totalScore.toFixed(1)}%)`);
-              }
+              console.log(`🏆 ${logPrefix} NOVO MELHOR SINAL (${result.totalScore.toFixed(1)}%)`);
             }
           }
           
@@ -190,32 +174,13 @@ export async function analyzeSignals() {
 
     console.log(`\n📊 RESUMO #${analysisCount}:`);
     console.log(`✅ ${validSignals} sinais válidos encontrados`);
-    console.log(`🎯 ${allSignals.length} sinais coletados para seleção`);
     console.log(`❌ ${errors.length} erros`);
 
-    // Seleciona o MELHOR sinal se deve enviar nesta hora
-    if (hourlyCheck.shouldSend && allSignals.length > 0) {
-      // Ordena por qualidade (score + fatores de qualidade)
-      const bestSignal = selectBestQualitySignal(allSignals);
-      
-      console.log(`\n🏆 MELHOR SINAL SELECIONADO: ${bestSignal.symbol} ${bestSignal.timeframe} (${bestSignal.probability.toFixed(1)}%)`);
-      console.log(`📊 Selecionado entre ${allSignals.length} sinais válidos`);
-      console.log(`🎯 Threshold usado: ${currentThreshold}% (${hourlyCheck.reason})`);
-      
+    if (bestSignal.symbol) {
+      console.log(`\n🏆 MELHOR SINAL: ${bestSignal.symbol} ${bestSignal.timeframe} (${bestSignal.score.toFixed(1)}%)`);
       await processBestSignal(bestSignal);
-      
-      // Registra sinal enviado
-      lastSignalTime = new Date();
-      signalsThisHour++;
-    } else if (hourlyCheck.shouldSend) {
-      console.log(`\n⚠️ NENHUM SINAL ENCONTRADO para envio (threshold: ${currentThreshold}%)`);
-      console.log(`📊 ${validSignals} sinais válidos, mas nenhum atingiu o threshold mínimo`);
     } else {
-      console.log(`\n⏰ AGUARDANDO HORÁRIO DE ENVIO (${allSignals.length} sinais coletados)`);
-      if (allSignals.length > 0) {
-        const topSignal = allSignals.sort((a, b) => b.probability - a.probability)[0];
-        console.log(`🎯 Melhor sinal atual: ${topSignal.symbol} (${topSignal.probability.toFixed(1)}%) - aguardando horário`);
-      }
+      console.log(`\n⚠️ Nenhum sinal encontrado acima de 70%`);
     }
 
   } catch (error) {
@@ -224,94 +189,6 @@ export async function analyzeSignals() {
     isAnalyzing = false;
     console.log(`\n🏁 Análise #${analysisCount} concluída`);
   }
-}
-
-/**
- * Verifica se deve enviar o melhor sinal da hora (qualidade máxima)
- */
-function checkIfShouldSendBestSignal() {
-  const now = new Date();
-  const currentMinute = now.getMinutes();
-  
-  // Envia sinal aos 55 minutos de cada hora (dá tempo para análise completa)
-  const shouldSendNow = currentMinute >= 55;
-  
-  // Verifica se já enviou sinal nesta hora
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-  const alreadySentThisHour = lastSignalTime && lastSignalTime > oneHourAgo;
-  
-  if (shouldSendNow && !alreadySentThisHour) {
-    // Determina threshold baseado no tempo sem sinais
-    const minutesSinceLastSignal = lastSignalTime ? 
-      Math.floor((now - lastSignalTime) / (1000 * 60)) : 120;
-      
-    let threshold = TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.MIN_QUALITY_THRESHOLD; // 70%
-    let reason = 'Qualidade máxima';
-    
-    if (minutesSinceLastSignal >= 120) {
-      threshold = TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.EMERGENCY_THRESHOLD; // 50%
-      reason = 'Emergência - 2h sem sinais';
-    } else if (minutesSinceLastSignal >= 90) {
-      threshold = TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.FALLBACK_THRESHOLD; // 60%
-      reason = 'Fallback - 1.5h sem sinais';
-    }
-    
-    return {
-      shouldSend: true,
-      threshold,
-      reason,
-      forceBest: true
-    };
-  }
-  
-  return { shouldSend: false };
-}
-
-/**
- * Seleciona o melhor sinal baseado em múltiplos critérios de qualidade
- */
-function selectBestQualitySignal(signals) {
-  console.log(`\n🏆 SELECIONANDO MELHOR ENTRE ${signals.length} SINAIS:`);
-  
-  // Ordena por critérios de qualidade
-  const rankedSignals = signals.map(signal => {
-    let qualityScore = signal.probability; // Score base
-    
-    // Bônus por correlação com Bitcoin
-    if (signal.btcCorrelation?.alignment === 'ALIGNED') {
-      qualityScore += 5;
-      console.log(`  ${signal.symbol}: +5 (alinhado com BTC)`);
-    }
-    
-    // Bônus por timeframe mais confiável
-    const timeframeBonus = {
-      '1d': 8, '4h': 6, '1h': 4, '15m': 2, '5m': 0
-    };
-    qualityScore += timeframeBonus[signal.timeframe] || 0;
-    
-    // Bônus por regime de mercado favorável
-    if (signal.regime === 'BULL' && signal.trend === 'BULLISH') {
-      qualityScore += 3;
-    } else if (signal.regime === 'BEAR' && signal.trend === 'BEARISH') {
-      qualityScore += 3;
-    }
-    
-    // Penalidade por sinais contra-tendência (mesmo que válidos)
-    if (signal.btcCorrelation?.alignment === 'AGAINST') {
-      qualityScore -= 2;
-    }
-    
-    console.log(`  ${signal.symbol} ${signal.timeframe}: ${signal.probability.toFixed(1)}% → ${qualityScore.toFixed(1)}% (qualidade)`);
-    
-    return { ...signal, qualityScore };
-  }).sort((a, b) => b.qualityScore - a.qualityScore);
-  
-  const bestSignal = rankedSignals[0];
-  console.log(`\n🥇 VENCEDOR: ${bestSignal.symbol} ${bestSignal.timeframe}`);
-  console.log(`📊 Score original: ${bestSignal.probability.toFixed(1)}%`);
-  console.log(`🏆 Score de qualidade: ${bestSignal.qualityScore.toFixed(1)}%`);
-  
-  return bestSignal;
 }
 
 async function analyzeSymbolTimeframe(symbol, timeframe, logPrefix) {
@@ -379,7 +256,7 @@ async function processBestSignal(signal) {
   try {
     console.log(`\n🎯 ===== PROCESSANDO SINAL ${signal.symbol} =====`);
     
-    const levels = signalScoring.calculateTradingLevels(signal.entry, signal.trend);
+    const levels = signalScoring.calculateTradingLevels(signal.entryPrice, signal.trend);
     
     console.log(`💰 NÍVEIS CALCULADOS:`);
     console.log(`   🎯 Entrada: $${levels.entry.toFixed(8)}`);
@@ -387,7 +264,14 @@ async function processBestSignal(signal) {
     console.log(`   🛑 Stop: $${levels.stopLoss.toFixed(8)}`);
 
     const signalData = {
-      ...signal,
+      symbol: signal.symbol,
+      timeframe: signal.timeframe,
+      probability: signal.score,
+      entry: signal.entryPrice,
+      trend: signal.trend,
+      indicators: signal.indicators,
+      patterns: signal.patterns,
+      btcCorrelation: signal.btcCorrelation,
       ...levels,
       timestamp: new Date().toISOString()
     };
@@ -426,7 +310,7 @@ async function processBestSignal(signal) {
         adaptiveScoring
       );
       
-      console.log(`✅ Sinal enviado: ${signal.symbol} ${signal.timeframe} (${signal.probability.toFixed(1)}%)`);
+      console.log(`✅ Sinal enviado: ${signal.symbol} ${signal.timeframe} (${signal.score.toFixed(1)}%)`);
     } else {
       telegramBot.removeMonitor(signal.symbol, 'SEND_FAILED');
       console.error(`❌ Falha no envio - monitor removido para ${signal.symbol}`);

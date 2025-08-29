@@ -752,15 +752,21 @@ class AdaptiveScoringService {
   }
 
   /**
-   * Calcula threshold para manter qualidade alta
+   * Calcula threshold dinâmico baseado no tempo sem sinais
    */
   calculateDynamicThreshold() {
-    // Mantém threshold alto para qualidade máxima
-    return this.marketRegime === 'BEAR' ? 65 :      // Mercado baixa: 65%
-           this.marketRegime === 'VOLATILE' ? 68 :  // Mercado volátil: 68%
-           70;                                      // Mercado normal/alta: 70%
-           this.marketRegime === 'VOLATILE' ? 68 :  // Mercado volátil: 68%
-           70;                                      // Mercado normal/alta: 70%
+    const now = Date.now();
+    const timeSinceLastSignal = this.lastSignalTime ? now - this.lastSignalTime : 2 * 60 * 60 * 1000;
+    const hoursSinceLastSignal = timeSinceLastSignal / (60 * 60 * 1000);
+    
+    // Threshold dinâmico baseado no tempo
+    if (hoursSinceLastSignal >= 2) {
+      return 50; // Emergência após 2h
+    } else if (hoursSinceLastSignal >= 1.5) {
+      return 60; // Fallback após 1.5h
+    } else {
+      return 70; // Padrão de qualidade
+    }
   }
 
   /**
