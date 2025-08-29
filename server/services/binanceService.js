@@ -22,8 +22,9 @@ export default class BinanceService {
       secret,
       enableRateLimit,
       options: {
-        defaultType: defaultType, // spot por padrão
+        defaultType, // spot por padrão
       },
+      timeout: 15_000,
     });
 
     // Cache simples de OHLCV (por símbolo+timeframe)
@@ -46,18 +47,16 @@ export default class BinanceService {
   }
 
   _normalizeTimeframe(tf) {
-    // aceita '5m','15m','1h','4h','1d','1m' etc
     const allowed = new Set(['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M']);
     if (!allowed.has(tf)) {
-      // mapeamentos básicos caso venham abreviações
       const map = {
         '5min': '5m',
         '15min': '15m',
         '30min': '30m',
         '60min': '1h',
         '240min': '4h',
-        '1d': '1d',
-        '4h': '4h',
+        'D': '1d',
+        'H4': '4h',
       };
       return map[tf] || '1h';
     }
@@ -96,7 +95,6 @@ export default class BinanceService {
 
   async getServerTime() {
     try {
-      // ccxt normaliza fetchTime() para exchanges que suportam
       const t = await this.exchange.fetchTime();
       return String(t ?? Date.now());
     } catch (err) {
@@ -106,11 +104,13 @@ export default class BinanceService {
   }
 
   /**
-   * Busca OHLCV (com pequeno retry em 429). Retorna em formato de séries {timestamp[], open[], ...}
+   * Busca OHLCV (com retry/backoff em 429/500/timeout).
+   * Retorna em formato de séries {timestamp[], open[], high[], low[], close[], volume[]}
    */
   async getOHLCVData(symbol, timeframe = '1h', limit = 200) {
     const tf = this._normalizeTimeframe(timeframe);
-    const safeLimit = Math.min(Math.max(50, Number(limit) || 200), this.maxOhlcvLimit);
+    const requestedLimit = Number(limit) || 200;
+    const safeLimit = Math.min(Math.max(50, requestedLimit), this.maxOhlcvLimit);
     const cacheKey = this._key(symbol, tf);
 
     // usa cache dos últimos 30s pra aliviar chamadas
@@ -120,40 +120,82 @@ export default class BinanceService {
       return cached.data;
     }
 
-    let attempts = 0;
-    let lastErr = null;
+    const tryFetch = async (lim) => {
+      let attempts = 0;
+      let lastErr = null;
 
-    while (attempts < 3) {
-      attempts++;
-      try {
-        const ohlcv = await this.exchange.fetchOHLCV(symbol, tf, undefined, safeLimit);
-        const data = this._toSeries(ohlcv);
-        this.ohlcvCache.set(cacheKey, { ts: Date.now(), data });
-        return data;
-      } catch (err) {
-        lastErr = err;
-        const msg = (err && err.message) || '';
-        const is429 =
-          msg.includes('Too Many Requests') ||
-          (err?.httpStatus && Number(err.httpStatus) === 429) ||
-          msg.includes('429');
+      while (attempts < 4) {
+        attempts++;
+        try {
+          const ohlcv = await this.exchange.fetchOHLCV(symbol, tf, undefined, lim);
+          const data = this._toSeries(ohlcv);
+          this.ohlcvCache.set(cacheKey, { ts: Date.now(), data });
+          return data;
+        } catch (err) {
+          lastErr = err;
+          const msg = (err && err.message) || '';
+          const http = Number(err?.httpStatus || 0);
 
-        if (is429) {
-          const backoff = 800 * attempts; // 0.8s, 1.6s, 2.4s
-          console.warn(`[BinanceService] 429 em OHLCV ${symbol} ${tf} (tentativa ${attempts}) — aguardando ${backoff}ms`);
-          await sleep(backoff);
-          continue;
+          const is429 =
+            msg.includes('Too Many Requests') ||
+            http === 429 ||
+            msg.includes('429');
+
+          const is500 =
+            http === 500 ||
+            /500 Internal Server Error/i.test(msg);
+
+          const isNetwork =
+            err instanceof ccxt.NetworkError ||
+            err instanceof ccxt.ExchangeNotAvailable ||
+            err instanceof ccxt.RequestTimeout ||
+            /ETIMEDOUT|ECONNRESET|ENETUNREACH|EAI_AGAIN/i.test(msg);
+
+          if (is429 || is500 || isNetwork) {
+            const backoff = 600 * attempts; // 0.6s, 1.2s, 1.8s, 2.4s
+            console.warn(
+              `[BinanceService] ${http || 'ERR'} em OHLCV ${symbol} ${tf} (tentativa ${attempts}) — aguardando ${backoff}ms`
+            );
+            await sleep(backoff);
+            continue;
+          }
+
+          // erro diferente → não adianta insistir
+          throw err;
         }
-
-        // outros erros: quebra
-        throw err;
       }
-    }
 
-    // se chegou aqui, falhou após as tentativas
-    throw lastErr || new Error(`Falha em fetchOHLCV ${symbol} ${tf}`);
+      // falhou após tentativas
+      throw lastErr || new Error(`Falha em fetchOHLCV ${symbol} ${tf} (limit=${lim})`);
+    };
+
+    // 1) tenta com o limit solicitado
+    try {
+      return await tryFetch(safeLimit);
+    } catch (err1) {
+      // 2) fallback: tenta com metade do limit (alguns 500 somem com payload menor)
+      const smaller = Math.max(50, Math.floor(safeLimit / 2));
+      if (smaller < safeLimit) {
+        console.warn(`[BinanceService] Fallback OHLCV com limit reduzido: ${symbol} ${tf} ${smaller}`);
+        try {
+          return await tryFetch(smaller);
+        } catch (err2) {
+          // 3) último fallback: retorna cache (se existir) para não quebrar a análise
+          const cached2 = this.ohlcvCache.get(cacheKey)?.data;
+          if (cached2 && cached2.close?.length) {
+            console.warn('[BinanceService] Usando OHLCV em cache como último recurso.');
+            return cached2;
+          }
+          throw err2;
+        }
+      }
+      throw err1;
+    }
   }
 
+  /**
+   * Preço atual simples (número). Se falhar, retorna 0 para não quebrar.
+   */
   async getCurrentPrice(symbol) {
     try {
       const ticker = await this.exchange.fetchTicker(symbol);
@@ -162,6 +204,38 @@ export default class BinanceService {
       console.warn(`[BinanceService] getCurrentPrice falhou para ${symbol}:`, err.message);
       return 0;
     }
+  }
+
+  /**
+   * Ticker completo (objeto padronizado). Se falhar, retorna null.
+   * Corrige os logs “getCurrentTicker is not a function”.
+   */
+  async getCurrentTicker(symbol) {
+    try {
+      const t = await this.exchange.fetchTicker(symbol);
+      return {
+        symbol,
+        last: Number(t.last ?? t.close ?? 0),
+        bid: Number(t.bid ?? 0),
+        ask: Number(t.ask ?? 0),
+        high: Number(t.high ?? 0),
+        low: Number(t.low ?? 0),
+        baseVolume: Number(t.baseVolume ?? 0),
+        quoteVolume: Number(t.quoteVolume ?? 0),
+        change: Number(t.change ?? 0),
+        percentage: Number(t.percentage ?? 0),
+        ts: t.timestamp ?? Date.now(),
+        info: t.info,
+      };
+    } catch (err) {
+      console.warn(`[BinanceService] getCurrentTicker falhou para ${symbol}:`, err.message);
+      return null;
+    }
+  }
+
+  // Alias por compatibilidade com possíveis chamadas antigas
+  async getTicker(symbol) {
+    return this.getCurrentTicker(symbol);
   }
 
   // ===== WS (opcional) =====
@@ -178,7 +252,6 @@ export default class BinanceService {
 
     let WS;
     try {
-      // import dinâmico para não exigir dependência se não for usar
       const mod = await import('ws');
       WS = mod.default || mod;
     } catch (err) {
@@ -189,7 +262,6 @@ export default class BinanceService {
     const tf = this._normalizeTimeframe(interval);
     const key = this._key(symbol, tf);
     if (this.wsClients.has(key)) {
-      // já conectado
       return true;
     }
 
@@ -211,7 +283,6 @@ export default class BinanceService {
       try {
         const evt = JSON.parse(raw.toString());
         this.wsLastSeen.set(key, Date.now());
-        // Evento kline: { e, E, s, k: { t,o,h,l,c,v, x(closed) ... } }
         const k = evt?.k;
         if (!k) return;
 
@@ -268,7 +339,6 @@ export default class BinanceService {
   }
 
   async cleanupOrphanedWebSockets(maxIdleMs = 10 * 60 * 1000) {
-    // fecha conexões sem mensagens há mais de maxIdleMs
     const now = Date.now();
     for (const [key, last] of this.wsLastSeen.entries()) {
       if (now - last > maxIdleMs) {
