@@ -759,6 +759,8 @@ class AdaptiveScoringService {
     return this.marketRegime === 'BEAR' ? 65 :      // Mercado baixa: 65%
            this.marketRegime === 'VOLATILE' ? 68 :  // Mercado volátil: 68%
            70;                                      // Mercado normal/alta: 70%
+           this.marketRegime === 'VOLATILE' ? 68 :  // Mercado volátil: 68%
+           70;                                      // Mercado normal/alta: 70%
   }
 
   /**

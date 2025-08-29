@@ -197,6 +197,7 @@ export async function analyzeSignals() {
     if (hourlyCheck.shouldSend && allSignals.length > 0) {
       // Ordena por qualidade (score + fatores de qualidade)
       const bestSignal = selectBestQualitySignal(allSignals);
+      const bestSignal = selectBestQualitySignal(allSignals);
       
       console.log(`\n🏆 MELHOR SINAL SELECIONADO: ${bestSignal.symbol} ${bestSignal.timeframe} (${bestSignal.probability.toFixed(1)}%)`);
       console.log(`📊 Selecionado entre ${allSignals.length} sinais válidos`);
