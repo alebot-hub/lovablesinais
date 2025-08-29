@@ -872,7 +872,7 @@ ${counterTrendWarning}
 👑 Aí é Loucura!!
 📅 *Duração:* ${duration}
 
-👑 *Sinais Lobo Cripto*
+👑 *Sinais Lobo Premium*
 ⏰ ${new Date().toLocaleString('pt-BR')}`;
 
       await this._sendMessageSafe(message);
