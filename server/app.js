@@ -108,19 +108,19 @@ export async function analyzeSignals() {
     console.log(`\n🚀 ANÁLISE #${analysisCount} - ${lastAnalysisTime.toLocaleString('pt-BR')}`);
     console.log(`📊 ${CRYPTO_SYMBOLS.length} símbolos x ${TIMEFRAMES.length} timeframes`);
 
-    let bestSignal = null;
-    let bestScore = 0;
+    const allSignals = []; // Coleta TODOS os sinais válidos
     let totalAnalyzed = 0;
     let validSignals = 0;
     let errors = [];
     
-    // Verifica se precisa de threshold adaptativo
-    const needsAdaptiveThreshold = checkIfNeedsAdaptiveThreshold();
-    let currentThreshold = TRADING_CONFIG.MIN_SIGNAL_PROBABILITY;
+    // Verifica se deve enviar o melhor sinal da hora
+    const hourlyCheck = checkIfShouldSendBestSignal();
+    const currentThreshold = hourlyCheck.shouldSend ? hourlyCheck.threshold : TRADING_CONFIG.MIN_SIGNAL_PROBABILITY;
     
-    if (needsAdaptiveThreshold.needed) {
-      currentThreshold = needsAdaptiveThreshold.newThreshold;
-      console.log(`🎯 THRESHOLD ADAPTATIVO: ${currentThreshold}% (${needsAdaptiveThreshold.reason})`);
+    if (hourlyCheck.shouldSend) {
+      console.log(`🎯 MODO SELEÇÃO DO MELHOR: Threshold ${currentThreshold}% (${hourlyCheck.reason})`);
+    } else {
+      console.log(`🎯 MODO PADRÃO: Threshold ${currentThreshold}% (aguardando horário de envio)`);
     }
 
     for (const symbol of CRYPTO_SYMBOLS) {
@@ -157,10 +157,10 @@ export async function analyzeSignals() {
           
           if (result && result.isValid) {
             validSignals++;
-            if (result.totalScore >= currentThreshold && result.totalScore > bestScore) {
+            if (result.totalScore >= currentThreshold) {
               const riskCheck = riskManagement.canOpenTrade(symbol, telegramBot.activeMonitors);
               if (riskCheck.allowed) {
-                bestSignal = {
+                const signal = {
                   symbol,
                   timeframe,
                   entry: result.entry,
@@ -173,8 +173,8 @@ export async function analyzeSignals() {
                   riskCheck,
                   timestamp: new Date()
                 };
-                bestScore = result.totalScore;
-                console.log(`✅ ${logPrefix} NOVO MELHOR SINAL (${bestScore.toFixed(1)}%)`);
+                allSignals.push(signal);
+                console.log(`✅ ${logPrefix} SINAL VÁLIDO COLETADO (${result.totalScore.toFixed(1)}%)`);
               }
             }
           }
@@ -189,21 +189,32 @@ export async function analyzeSignals() {
     }
 
     console.log(`\n📊 RESUMO #${analysisCount}:`);
-    console.log(`✅ ${validSignals} sinais válidos`);
+    console.log(`✅ ${validSignals} sinais válidos encontrados`);
+    console.log(`🎯 ${allSignals.length} sinais coletados para seleção`);
     console.log(`❌ ${errors.length} erros`);
 
-    if (bestSignal) {
-      console.log(`\n🎯 MELHOR SINAL: ${bestSignal.symbol} ${bestSignal.timeframe} (${bestSignal.probability.toFixed(1)}%)`);
-      console.log(`📊 Threshold usado: ${currentThreshold}% ${needsAdaptiveThreshold.needed ? '(ADAPTATIVO)' : '(PADRÃO)'}`);
+    // Seleciona o MELHOR sinal se deve enviar nesta hora
+    if (hourlyCheck.shouldSend && allSignals.length > 0) {
+      // Ordena por qualidade (score + fatores de qualidade)
+      const bestSignal = selectBestQualitySignal(allSignals);
+      
+      console.log(`\n🏆 MELHOR SINAL SELECIONADO: ${bestSignal.symbol} ${bestSignal.timeframe} (${bestSignal.probability.toFixed(1)}%)`);
+      console.log(`📊 Selecionado entre ${allSignals.length} sinais válidos`);
+      console.log(`🎯 Threshold usado: ${currentThreshold}% (${hourlyCheck.reason})`);
+      
       await processBestSignal(bestSignal);
       
       // Registra sinal enviado
       lastSignalTime = new Date();
       signalsThisHour++;
+    } else if (hourlyCheck.shouldSend) {
+      console.log(`\n⚠️ NENHUM SINAL ENCONTRADO para envio (threshold: ${currentThreshold}%)`);
+      console.log(`📊 ${validSignals} sinais válidos, mas nenhum atingiu o threshold mínimo`);
     } else {
-      console.log(`\nℹ️ Nenhum sinal válido encontrado (threshold: ${currentThreshold}%)`);
-      if (needsAdaptiveThreshold.needed) {
-        console.log(`⚠️ Mesmo com threshold reduzido para ${currentThreshold}%, nenhum sinal encontrado`);
+      console.log(`\n⏰ AGUARDANDO HORÁRIO DE ENVIO (${allSignals.length} sinais coletados)`);
+      if (allSignals.length > 0) {
+        const topSignal = allSignals.sort((a, b) => b.probability - a.probability)[0];
+        console.log(`🎯 Melhor sinal atual: ${topSignal.symbol} (${topSignal.probability.toFixed(1)}%) - aguardando horário`);
       }
     }
 
@@ -216,54 +227,44 @@ export async function analyzeSignals() {
 }
 
 /**
- * Verifica se precisa usar threshold adaptativo para garantir sinais regulares
+ * Verifica se deve enviar o melhor sinal da hora (qualidade máxima)
  */
-function checkIfNeedsAdaptiveThreshold() {
+function checkIfShouldSendBestSignal() {
   const now = new Date();
-  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
   
-  // Reset contador a cada hora
-  const lastHour = lastSignalTime ? lastSignalTime.getHours() : -1;
-  if (currentHour !== lastHour) {
-    signalsThisHour = 0;
-  }
+  // Envia sinal aos 55 minutos de cada hora (dá tempo para análise completa)
+  const shouldSendNow = currentMinute >= 55;
   
-  // Se não houve sinais na última hora
+  // Verifica se já enviou sinal nesta hora
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-  const noSignalsLastHour = !lastSignalTime || lastSignalTime < oneHourAgo;
+  const alreadySentThisHour = lastSignalTime && lastSignalTime > oneHourAgo;
   
-  if (noSignalsLastHour && signalsThisHour === 0) {
-    // Reduz threshold gradualmente
+  if (shouldSendNow && !alreadySentThisHour) {
+    // Determina threshold baseado no tempo sem sinais
     const minutesSinceLastSignal = lastSignalTime ? 
       Math.floor((now - lastSignalTime) / (1000 * 60)) : 120;
-    
-    let newThreshold = TRADING_CONFIG.MIN_SIGNAL_PROBABILITY;
-    let reason = '';
+      
+    let threshold = TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.MIN_QUALITY_THRESHOLD; // 70%
+    let reason = 'Qualidade máxima';
     
     if (minutesSinceLastSignal >= 120) {
-      // 2+ horas sem sinais - threshold de emergência
-      newThreshold = TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.EMERGENCY_THRESHOLD;
-      reason = `${minutesSinceLastSignal}min sem sinais - EMERGÊNCIA`;
+      threshold = TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.EMERGENCY_THRESHOLD; // 50%
+      reason = 'Emergência - 2h sem sinais';
     } else if (minutesSinceLastSignal >= 90) {
-      // 1.5+ horas sem sinais - threshold muito baixo
-      newThreshold = TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.MAX_THRESHOLD_REDUCTION;
-      reason = `${minutesSinceLastSignal}min sem sinais - CRÍTICO`;
-    } else if (minutesSinceLastSignal >= 60) {
-      // 1+ hora sem sinais - threshold baixo
-      newThreshold = TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.FALLBACK_THRESHOLD;
-      reason = `${minutesSinceLastSignal}min sem sinais - ADAPTATIVO`;
+      threshold = TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.FALLBACK_THRESHOLD; // 60%
+      reason = 'Fallback - 1.5h sem sinais';
     }
     
-    if (newThreshold < TRADING_CONFIG.MIN_SIGNAL_PROBABILITY) {
-      return {
-        needed: true,
-        newThreshold,
-        reason
-      };
-    }
+    return {
+      shouldSend: true,
+      threshold,
+      reason,
+      forceBest: true
+    };
   }
   
-  return { needed: false };
+  return { shouldSend: false };
 }
 
 async function analyzeSymbolTimeframe(symbol, timeframe, logPrefix) {

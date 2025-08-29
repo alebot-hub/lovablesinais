@@ -56,18 +56,19 @@ export const SCORING_WEIGHTS = {
 
 // Configurações de trading (mantidas)
 export const TRADING_CONFIG = {
-  MIN_SIGNAL_PROBABILITY: 35,
+  MIN_SIGNAL_PROBABILITY: 70,
   TARGET_PERCENTAGES: [1.5, 3.0, 4.5, 6.0, 7.5, 9.0],
   STOP_LOSS_PERCENTAGE: 3.0,
   VOLATILITY_THRESHOLD: 7.0,
 
-  // Configurações para garantir sinais regulares
+  // Configurações para garantir 1 sinal de qualidade por hora
   HOURLY_SIGNAL_CONFIG: {
-    MIN_SIGNALS_PER_HOUR: 1,
-    FALLBACK_THRESHOLD: 30, // Se não houver sinais, reduz para 30%
-    MAX_THRESHOLD_REDUCTION: 25, // Nunca abaixo de 25%
-    QUALITY_BOOST_THRESHOLD: 50, // Acima de 50% = alta qualidade
-    EMERGENCY_THRESHOLD: 25 // Último recurso se mercado muito fraco
+    FORCE_BEST_SIGNAL: true, // Força envio do melhor sinal encontrado
+    MIN_QUALITY_THRESHOLD: 70, // Mantém qualidade alta
+    FALLBACK_THRESHOLD: 60, // Se não houver ≥70%, aceita ≥60%
+    EMERGENCY_THRESHOLD: 50, // Último recurso ≥50%
+    ANALYSIS_WINDOW: 60 * 60 * 1000, // 1 hora para encontrar o melhor
+    QUALITY_PRIORITY: true // Prioriza qualidade sobre quantidade
   },
 
   // Configurações específicas para sinais contra-tendência
