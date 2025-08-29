@@ -251,7 +251,10 @@ class AdaptiveScoringService {
       indicators, 
       patterns, 
       bitcoinCorrelation
-    );
+    
+    // Threshold dinâmico baseado no tempo desde último sinal
+    const dynamicThreshold = this.calculateDynamicThreshold();
+    const isValid = finalScore >= dynamicThreshold;
     console.log(`${logPrefix} ⚡ Ajustes contra-tendência: ${counterTrendAdjustments.adjustedScore.toFixed(2)}`);
     // Score final com limites
     const finalScore = Math.min(Math.max(counterTrendAdjustments.adjustedScore, 0), 100);
@@ -259,10 +262,10 @@ class AdaptiveScoringService {
     // Determina se é válido (threshold ajustado para mercado bear)
     const minScore = this.marketRegime === 'BEAR' ? 40 : 
                     this.marketRegime === 'VOLATILE' ? 45 : 50; // Mais sensível
-    const isValid = finalScore >= minScore;
+    console.log(`🎯 [${symbol}] SCORE FINAL: ${finalScore.toFixed(1)}/${dynamicThreshold}`);
 
     // Log detalhado
-    console.log(`${logPrefix} 🎯 Score final: ${finalScore.toFixed(1)}% (${isValid ? 'VÁLIDO' : 'INVÁLIDO'})`);
+    const logPrefix = isValid ? '✅ SINAL VÁLIDO' : '❌ SINAL INVÁLIDO';
     console.log(`${logPrefix} 📊 Detalhes: Base=${baseScore.total.toFixed(1)}, Min=${minScore}, Regime=${this.marketRegime}`);
     
     if (!isValid) {
@@ -580,8 +583,8 @@ class AdaptiveScoringService {
       this.marketRegime = 'VOLATILE';
     } else if (bullishSignals > bearishSignals + 1) {
       this.marketRegime = 'BULL';
-    } else if (bearishSignals > bullishSignals + 1) {
-      this.marketRegime = 'BEAR';
+      const missingPoints = (dynamicThreshold - finalScore).toFixed(1);
+      console.log(`❌ [${symbol}] Insuficiente: ${finalScore.toFixed(1)} < ${dynamicThreshold} (faltam ${missingPoints})`);
     } else {
       this.marketRegime = 'NORMAL';
     }
