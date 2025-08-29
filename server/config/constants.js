@@ -60,16 +60,6 @@ export const TRADING_CONFIG = {
   TARGET_PERCENTAGES: [1.5, 3.0, 4.5, 6.0, 7.5, 9.0],
   STOP_LOSS_PERCENTAGE: 3.0,
   VOLATILITY_THRESHOLD: 7.0,
-
-  // Configurações para garantir 1 sinal de qualidade por hora
-  HOURLY_SIGNAL_CONFIG: {
-    FORCE_BEST_SIGNAL: true, // Força envio do melhor sinal encontrado
-    MIN_QUALITY_THRESHOLD: 70, // Mantém qualidade alta
-    FALLBACK_THRESHOLD: 60, // Se não houver ≥70%, aceita ≥60%
-    EMERGENCY_THRESHOLD: 50, // Último recurso ≥50%
-    ANALYSIS_WINDOW: 60 * 60 * 1000, // 1 hora para encontrar o melhor
-    QUALITY_PRIORITY: true // Prioriza qualidade sobre quantidade
-  }
   COUNTER_TREND: {
     MIN_REVERSAL_STRENGTH: 45,
     EXTREME_REVERSAL_THRESHOLD: 65,
@@ -87,8 +77,37 @@ export const TRADING_CONFIG = {
     MIN_VOLUME_SPIKE: 1.5,
     DIVERGENCE_BONUS: 35,
     PATTERN_REVERSAL_BONUS: 30
-  },
+  }
+};
 
+// Configurações para garantir 1 sinal de qualidade por hora
+export const HOURLY_SIGNAL_CONFIG = {
+  FORCE_BEST_SIGNAL: true, // Força envio do melhor sinal encontrado
+  MIN_QUALITY_THRESHOLD: 70, // Mantém qualidade alta
+  FALLBACK_THRESHOLD: 60, // Se não houver ≥70%, aceita ≥60%
+  EMERGENCY_THRESHOLD: 50, // Último recurso ≥50%
+  ANALYSIS_WINDOW: 60 * 60 * 1000, // 1 hora para encontrar o melhor
+  QUALITY_PRIORITY: true // Prioriza qualidade sobre quantidade
+};
+
+// Configurações de qualidade de sinal
+export const QUALITY_FILTERS = {
+  MIN_VOLUME_RATIO: 0.4,
+  MIN_RSI_EXTREME: 20,
+  MAX_RSI_EXTREME: 80,
+  MIN_MACD_STRENGTH: 0.00001,
+  MIN_PATTERN_CONFIDENCE: 25,
+  REQUIRE_MULTIPLE_CONFIRMATIONS: true,
+  MIN_CONFIRMATIONS: 1,
+  BLACKLIST_LOW_PERFORMERS: false,
+  MIN_HISTORICAL_PERFORMANCE: 20
+};
+
+// Configurações de agendamento
+export const SCHEDULE_CONFIG = {
+  SIGNAL_ANALYSIS: '0 * * * *',       // A cada 1 hora
+  MARKET_SENTIMENT: '0 11,23 * * *'   // A cada 12 horas (11h e 23h UTC = 8h e 20h Brasília)
+};
   // Configurações de qualidade de sinal
   QUALITY_FILTERS: {
     MIN_VOLUME_RATIO: 0.4,
