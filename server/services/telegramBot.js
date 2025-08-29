@@ -869,7 +869,7 @@ ${counterTrendWarning}
 📌 *Motivo:* TODOS OS ALVOS ATINGIDOS - LUA!
 
 📈 *Alvos atingidos:* 6/6
-🛑 *Stop loss:* ${this.formatPrice(monitor.stopLoss).replace('.', '․')}
+👑 Aí é Loucura!!
 📅 *Duração:* ${duration}
 
 👑 *Sinais Lobo Cripto*
