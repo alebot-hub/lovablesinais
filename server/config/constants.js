@@ -108,22 +108,3 @@ export const SCHEDULE_CONFIG = {
   SIGNAL_ANALYSIS: '0 * * * *',       // A cada 1 hora
   MARKET_SENTIMENT: '0 11,23 * * *'   // A cada 12 horas (11h e 23h UTC = 8h e 20h Brasília)
 };
-  // Configurações de qualidade de sinal
-  QUALITY_FILTERS: {
-    MIN_VOLUME_RATIO: 0.4,
-    MIN_RSI_EXTREME: 20,
-    MAX_RSI_EXTREME: 80,
-    MIN_MACD_STRENGTH: 0.00001,
-    MIN_PATTERN_CONFIDENCE: 25,
-    REQUIRE_MULTIPLE_CONFIRMATIONS: true,
-    MIN_CONFIRMATIONS: 1,
-    BLACKLIST_LOW_PERFORMERS: false,
-    MIN_HISTORICAL_PERFORMANCE: 20
-  }
-};
-
-// Configurações de agendamento (mantidas)
-export const SCHEDULE_CONFIG = {
-  SIGNAL_ANALYSIS: '0 * * * *',       // A cada 1 hora
-  MARKET_SENTIMENT: '0 11,23 * * *'   // A cada 12 horas (11h e 23h UTC = 8h e 20h Brasília)
-};
