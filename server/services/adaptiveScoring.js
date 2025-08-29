@@ -251,6 +251,7 @@ class AdaptiveScoringService {
       indicators, 
       patterns, 
       bitcoinCorrelation
+    );
     
     // Threshold dinâmico baseado no tempo desde último sinal
     const dynamicThreshold = this.calculateDynamicThreshold();
@@ -265,11 +266,12 @@ class AdaptiveScoringService {
     console.log(`🎯 [${symbol}] SCORE FINAL: ${finalScore.toFixed(1)}/${dynamicThreshold}`);
 
     // Log detalhado
-    const logPrefix = isValid ? '✅ SINAL VÁLIDO' : '❌ SINAL INVÁLIDO';
-    console.log(`${logPrefix} 📊 Detalhes: Base=${baseScore.total.toFixed(1)}, Min=${minScore}, Regime=${this.marketRegime}`);
+    const logPrefix2 = isValid ? '✅ SINAL VÁLIDO' : '❌ SINAL INVÁLIDO';
+    console.log(`${logPrefix2} 📊 Detalhes: Base=${baseScore.total.toFixed(1)}, Min=${minScore}, Regime=${this.marketRegime}`);
     
     if (!isValid) {
-      console.log(`${logPrefix} ❌ Rejeitado: Score ${finalScore.toFixed(1)} < ${minScore} (regime: ${this.marketRegime})`);
+      const missingPoints = (dynamicThreshold - finalScore).toFixed(1);
+      console.log(`❌ [${symbol}] Insuficiente: ${finalScore.toFixed(1)} < ${dynamicThreshold} (faltam ${missingPoints})`);
     }
 
     return {
@@ -291,6 +293,35 @@ class AdaptiveScoringService {
         counterTrendBonus: counterTrendAdjustments.bonus
       }
     };
+  }
+
+  /**
+   * Calcula threshold dinâmico baseado no tempo desde último sinal
+   */
+  calculateDynamicThreshold() {
+    // Acessa variáveis globais do app.js
+    const now = new Date();
+    const lastSignal = global.lastSignalTime || null;
+    
+    if (!lastSignal) {
+      // Primeiro sinal - usa threshold padrão
+      return TRADING_CONFIG.MIN_SIGNAL_PROBABILITY;
+    }
+    
+    const minutesSinceLastSignal = Math.floor((now - lastSignal) / (1000 * 60));
+    
+    // Reduz threshold gradualmente após 45 minutos
+    if (minutesSinceLastSignal >= 120) {
+      return TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.EMERGENCY_THRESHOLD; // 25%
+    } else if (minutesSinceLastSignal >= 90) {
+      return TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.MAX_THRESHOLD_REDUCTION; // 25%
+    } else if (minutesSinceLastSignal >= 60) {
+      return TRADING_CONFIG.HOURLY_SIGNAL_CONFIG.FALLBACK_THRESHOLD; // 30%
+    } else if (minutesSinceLastSignal >= 45) {
+      return TRADING_CONFIG.MIN_SIGNAL_PROBABILITY - 5; // 30%
+    }
+    
+    return TRADING_CONFIG.MIN_SIGNAL_PROBABILITY; // 35%
   }
 
   /**
@@ -583,8 +614,8 @@ class AdaptiveScoringService {
       this.marketRegime = 'VOLATILE';
     } else if (bullishSignals > bearishSignals + 1) {
       this.marketRegime = 'BULL';
-      const missingPoints = (dynamicThreshold - finalScore).toFixed(1);
-      console.log(`❌ [${symbol}] Insuficiente: ${finalScore.toFixed(1)} < ${dynamicThreshold} (faltam ${missingPoints})`);
+    } else if (bearishSignals > bullishSignals + 1) {
+      this.marketRegime = 'BEAR';
     } else {
       this.marketRegime = 'NORMAL';
     }
