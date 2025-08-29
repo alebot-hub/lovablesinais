@@ -157,22 +157,22 @@ export async function analyzeSignals() {
           
           if (result && result.isValid) {
             validSignals++;
-            if (result.totalScore >= currentThreshold) {
-              const riskCheck = riskManagement.canOpenTrade(symbol, telegramBot.activeMonitors);
-              if (riskCheck.allowed) {
-                const signal = {
-                  symbol,
-                  timeframe,
-                  entry: result.entry,
-                  probability: result.totalScore,
-                  trend: result.trend,
-                  indicators: result.indicators,
-                  patterns: result.patterns,
-                  btcCorrelation: result.btcCorrelation,
-                  regime: adaptiveScoring.marketRegime,
-                  riskCheck,
-                  timestamp: new Date()
-                };
+            
+            // Coleta TODOS os sinais válidos para seleção posterior
+            if (result.totalScore >= TRADING_CONFIG.MIN_SIGNAL_PROBABILITY) {
+              const signal = {
+                symbol,
+                timeframe,
+                probability: result.totalScore,
+                entry: result.entry,
+                trend: result.trend,
+                indicators: result.indicators,
+                patterns: result.patterns,
+                btcCorrelation: result.btcCorrelation,
+                regime: marketRegimeService.getCurrentRegime()
+              };
+              
+              if (hourlyCheck.shouldSend || result.totalScore >= currentThreshold) {
                 allSignals.push(signal);
                 console.log(`✅ ${logPrefix} SINAL VÁLIDO COLETADO (${result.totalScore.toFixed(1)}%)`);
               }
@@ -196,7 +196,6 @@ export async function analyzeSignals() {
     // Seleciona o MELHOR sinal se deve enviar nesta hora
     if (hourlyCheck.shouldSend && allSignals.length > 0) {
       // Ordena por qualidade (score + fatores de qualidade)
-      const bestSignal = selectBestQualitySignal(allSignals);
       const bestSignal = selectBestQualitySignal(allSignals);
       
       console.log(`\n🏆 MELHOR SINAL SELECIONADO: ${bestSignal.symbol} ${bestSignal.timeframe} (${bestSignal.probability.toFixed(1)}%)`);
