@@ -3,6 +3,7 @@
  */
 
 // Lista das 70 principais criptomoedas de futuros perpétuos (excluindo stablecoins)
+// OBS: Mantido exatamente conforme solicitado; apenas removida a duplicidade de 1000PEPE/USDT
 export const CRYPTO_SYMBOLS = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'XRP/USDT', 'ADA/USDT',
   'DOGE/USDT', 'SOL/USDT', 'TRX/USDT', 'DOT/USDT', 'POL/USDT',
@@ -17,14 +18,14 @@ export const CRYPTO_SYMBOLS = [
   // Novos símbolos válidos
   'ARB/USDT', 'OP/USDT', '1000PEPE/USDT', 'SUI/USDT', 'SEI/USDT', 'S/USDT',
   'RENDER/USDT', 'WLD/USDT', 'TIA/USDT', 'JUP/USDT', 'PYTH/USDT',
-  'JTO/USDT', '1000PEPE/USDT', '1000BONK/USDT', 'WIF/USDT', 'ORDI/USDT', 'INJ/USDT',
+  'JTO/USDT', '1000BONK/USDT', 'WIF/USDT', 'ORDI/USDT', 'INJ/USDT',
   'BLUR/USDT', 'PENDLE/USDT', 'STRK/USDT', 'MEME/USDT', 'NOT/USDT'
-]
+];
 
-// Timeframes para análise
+// Timeframes para análise (mantidos)
 export const TIMEFRAMES = ['5m', '15m', '1h', '4h', '1d'];
 
-// Configurações de indicadores técnicos
+// Configurações de indicadores técnicos (mantidas)
 export const INDICATORS_CONFIG = {
   RSI: { period: 10 },
   MACD: { fastPeriod: 10, slowPeriod: 22, signalPeriod: 7 },
@@ -35,7 +36,7 @@ export const INDICATORS_CONFIG = {
   VOLUME_MA: { period: 14 }
 };
 
-// Configurações de pontuação
+// Configurações de pontuação (mantidas)
 export const SCORING_WEIGHTS = {
   RSI_OVERSOLD: 35,
   RSI_OVERBOUGHT: -45,
@@ -53,13 +54,13 @@ export const SCORING_WEIGHTS = {
   ML_WEIGHT: 0.6
 };
 
-// Configurações de trading
+// Configurações de trading (mantidas)
 export const TRADING_CONFIG = {
   MIN_SIGNAL_PROBABILITY: 45,
   TARGET_PERCENTAGES: [1.5, 3.0, 4.5, 6.0, 7.5, 9.0],
   STOP_LOSS_PERCENTAGE: 3.0,
   VOLATILITY_THRESHOLD: 7.0,
-  
+
   // Configurações específicas para sinais contra-tendência
   COUNTER_TREND: {
     MIN_REVERSAL_STRENGTH: 45,
@@ -70,7 +71,7 @@ export const TRADING_CONFIG = {
     SIDEWAYS_BREAKOUT_BONUS: 1.3,
     MAX_COUNTER_TREND_PER_DAY: 8,
     COUNTER_TREND_COOLDOWN: 30 * 60 * 1000,
-    SHORT_TERM_TIMEFRAMES: ['5m', '15m', '30m'],
+    SHORT_TERM_TIMEFRAMES: ['5m', '15m', '30m'], // mantido como estava
     SHORT_TERM_BONUS: 1.3,
     MIN_SHORT_TERM_RSI_EXTREME: 20,
     MAX_SHORT_TERM_RSI_EXTREME: 80,
@@ -79,7 +80,7 @@ export const TRADING_CONFIG = {
     DIVERGENCE_BONUS: 35,
     PATTERN_REVERSAL_BONUS: 30
   },
-  
+
   // Configurações de qualidade de sinal
   QUALITY_FILTERS: {
     MIN_VOLUME_RATIO: 0.4,
@@ -94,8 +95,8 @@ export const TRADING_CONFIG = {
   }
 };
 
-// Configurações de agendamento
+// Configurações de agendamento (mantidas)
 export const SCHEDULE_CONFIG = {
-  SIGNAL_ANALYSIS: '0 * * * *', // A cada 1 hora
-  MARKET_SENTIMENT: '0 11,23 * * *' // A cada 12 horas (11h e 23h UTC = 8h e 20h Brasília)
+  SIGNAL_ANALYSIS: '0 * * * *',       // A cada 1 hora
+  MARKET_SENTIMENT: '0 11,23 * * *'   // A cada 12 horas (11h e 23h UTC = 8h e 20h Brasília)
 };
