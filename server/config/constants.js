@@ -69,9 +69,6 @@ export const TRADING_CONFIG = {
     EMERGENCY_THRESHOLD: 50, // Último recurso ≥50%
     ANALYSIS_WINDOW: 60 * 60 * 1000, // 1 hora para encontrar o melhor
     QUALITY_PRIORITY: true // Prioriza qualidade sobre quantidade
-  },
-
-  // Configurações específicas para sinais contra-tendência
   COUNTER_TREND: {
     MIN_REVERSAL_STRENGTH: 45,
     EXTREME_REVERSAL_THRESHOLD: 65,
