@@ -631,10 +631,6 @@ ${counterTrendWarning}
           newStopPrice = monitor.originalTargets[2];
           stopDescription = 'alvo 3';
           break;
-        case 6:
-          newStopPrice = monitor.originalTargets[3];
-          stopDescription = 'alvo 4';
-          break;
         default:
           return;
       }
