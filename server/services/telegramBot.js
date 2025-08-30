@@ -612,6 +612,9 @@ ${counterTrendWarning}
       let stopDescription = '';
 
       switch (targetNumber) {
+        case 1:
+          // Após alvo 1, mantém stop original
+          return; // Não move o stop ainda
         case 2:
           newStopPrice = monitor.entry;
           stopDescription = 'ponto de entrada';
@@ -627,6 +630,10 @@ ${counterTrendWarning}
         case 5:
           newStopPrice = monitor.originalTargets[2];
           stopDescription = 'alvo 3';
+          break;
+        case 6:
+          newStopPrice = monitor.originalTargets[3];
+          stopDescription = 'alvo 4';
           break;
         default:
           return;
@@ -648,7 +655,7 @@ ${counterTrendWarning}
 
   async sendStopMovedNotification(symbol, newStopPrice, stopDescription) {
     try {
-      const monitor = self.activeMonitors?.get(symbol) || this.activeMonitors.get(symbol);
+      const monitor = this.activeMonitors.get(symbol);
       if (!monitor) {
         console.error(`❌ Monitor não encontrado para ${symbol}`);
         return;
@@ -678,7 +685,7 @@ ${counterTrendWarning}
 • Gestão de risco funcionando perfeitamente
 • Continue seguindo a estratégia!
 
-👑 *Gestão de risco ativa*`;
+👑 *Sinais Lobo Premium*`;
 
       await this._sendMessageSafe(message);
       console.log(`🛡️ Stop móvel enviado: ${symbol}`);
