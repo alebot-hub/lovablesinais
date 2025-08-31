@@ -1,9 +1,15 @@
 /**
  * Serviço do Bot do Telegram
  * (Mantida sua estrutura original; adicionado monitor com fallback por polling)
+ * Correções:
+ *  - Usa SEMPRE os níveis publicados no sinal (se disponíveis) para emissão e monitor
+ *  - Persiste níveis do sinal e força o monitor a respeitar esses números (sem recomputar)
+ *  - Mantém "stopLossOriginal" para exibir exatamente o preço publicado no resultado
+ *  - Adiciona hash de níveis para auditoria
  */
 
 import TelegramBot from 'node-telegram-bot-api';
+import crypto from 'crypto';
 import { Logger } from './logger.js';
 
 const logger = new Logger('TelegramBot');
@@ -14,6 +20,10 @@ class TelegramBotService {
     this.chatId = process.env.TELEGRAM_CHAT_ID;
     this.isEnabled = !!(this.token && this.chatId);
     this.activeMonitors = new Map();
+
+    // 🔒 Fonte-de-verdade dos níveis publicados
+    this.lastSignalById = new Map();      // signalId -> { symbol, entry, targets, stopLoss, timeframe, levelsHash, createdAt }
+    this.lastSignalBySymbol = new Map();  // symbol   -> último objeto acima
 
     if (this.isEnabled) {
       this.bot = new TelegramBot(this.token, { polling: false });
@@ -50,23 +60,15 @@ class TelegramBotService {
   /** Escapa caracteres especiais do MarkdownV2 (para fallback) */
   _escapeMarkdownV2(text) {
     if (!text) return text;
-    // Escapa TODOS os caracteres especiais do MarkdownV2
     return String(text).replace(/([_*[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
   }
 
-  /**
-   * Envia com:
-   * 1) Markdown (original)
-   * 2) se falhar de parse, tenta MarkdownV2 com escape
-   * 3) se ainda falhar, envia texto puro sem parse_mode
-   */
   async _sendMessageSafe(text) {
     if (!this.isEnabled) {
       console.log('📱 [SIMULADO] Sinal enviado (safe):', (text || '').slice(0, 120) + '...');
       return true;
     }
     try {
-      // 1) Tenta Markdown original (mantém seu formato atual)
       await this.bot.sendMessage(this.chatId, text, {
         parse_mode: 'Markdown',
         disable_web_page_preview: true,
@@ -78,7 +80,6 @@ class TelegramBotService {
       if (!parseFail1) throw err1;
 
       try {
-        // 2) Tenta MarkdownV2 com escape global
         const escaped = this._escapeMarkdownV2(text);
         await this.bot.sendMessage(this.chatId, escaped, {
           parse_mode: 'MarkdownV2',
@@ -88,58 +89,74 @@ class TelegramBotService {
       } catch (err2) {
         const msg2 = String(err2?.message || '');
         const parseFail2 = msg2.includes("can't parse entities") || msg2.includes('parse entities');
-
         if (!parseFail2) throw err2;
 
-        // 3) Por fim, texto puro
         const plain = this._stripAllMarkdown(text);
-        await this.bot.sendMessage(this.chatId, plain, {
-          disable_web_page_preview: true,
-        });
+        await this.bot.sendMessage(this.chatId, plain, { disable_web_page_preview: true });
         return true;
       }
     }
   }
 
   // ====== HORÁRIO SÃO PAULO ======
-  /** Retorna data/hora no fuso de São Paulo (pt-BR, 24h) */
   formatNowSP() {
     try {
-      return new Date().toLocaleString('pt-BR', {
-        timeZone: 'America/Sao_Paulo',
-        hour12: false,
-      });
+      return new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false });
     } catch (_) {
-      // Fallback caso timezone não esteja disponível
       return new Date().toLocaleString('pt-BR');
     }
   }
 
-  // =================== NÍVEIS (STOP E ALVOS) PARA EMISSÃO ===================
+  // =================== NÍVEIS (STOP E ALVOS) ===================
 
   /**
    * Calcula 6 alvos em degraus de 1.5% (até 9%) e stop de ~4.5% da entrada.
    * Compra: alvos acima, stop abaixo. Venda: alvos abaixo, stop acima.
+   * (Usado apenas como fallback caso os níveis NÃO venham no signalData)
    */
   _buildLevelsForSignal(entry, isLong) {
     const e = Number(entry);
     if (!isFinite(e) || e <= 0) return { targets: [], stopLoss: null };
+    const steps = [0.015, 0.03, 0.045, 0.06, 0.075, 0.09];
+    const stopPct = 0.045;
 
-    const steps = [0.015, 0.03, 0.045, 0.06, 0.075, 0.09]; // 1.5% → 9%
-    const stopPct = 0.045; // 4.5%
-
-    const targets = steps.map(pct => {
-      return isLong ? e * (1 + pct) : e * (1 - pct);
-    });
-
+    const targets = steps.map(pct => (isLong ? e * (1 + pct) : e * (1 - pct)));
     const stopLoss = isLong ? e * (1 - stopPct) : e * (1 + stopPct);
-
     return { targets, stopLoss };
   }
 
+  /** Hash estável dos níveis para auditoria */
+  _levelsHash(entry, targets, stopLoss) {
+    const payload = JSON.stringify({
+      e: Number(entry),
+      t: Array.isArray(targets) ? targets.map(Number) : [],
+      s: Number(stopLoss),
+    });
+    return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 12);
+  }
+
+  /** Comparação com tolerância numérica */
+  _almostEqual(a, b, eps = 1e-10) {
+    if (!isFinite(a) || !isFinite(b)) return false;
+    const diff = Math.abs(a - b);
+    return diff <= eps * Math.max(1, Math.abs(a), Math.abs(b));
+  }
+  _arraysEqualWithin(a = [], b = [], eps = 1e-10) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!this._almostEqual(Number(a[i]), Number(b[i]), eps)) return false;
+    }
+    return true;
+  }
+
+  // =================== EMISSÃO DO SINAL ===================
+
   /**
    * Envia sinal de trading formatado
-   * (agora forçando níveis conforme solicitado APENAS para a emissão no Telegram)
+   * Agora: se `signalData.targets/stopLoss` vierem preenchidos, eles são PRIORITÁRIOS.
+   * Só usamos _buildLevelsForSignal como fallback.
+   * Também persistimos os níveis publicados para o monitor usar exatamente os mesmos.
    */
   async sendTradingSignal(signalData) {
     try {
@@ -151,18 +168,45 @@ class TelegramBotService {
       const isLong = signalData.trend === 'BULLISH';
       const entry = Number(signalData.entry);
 
-      // Calcula níveis para emissão (sem alterar seu pipeline fora do Telegram)
-      const { targets, stopLoss } = this._buildLevelsForSignal(entry, isLong);
+      // 1) Preferir níveis vindos do pipeline; fallback se ausentes
+      let targets = Array.isArray(signalData.targets) && signalData.targets.length > 0
+        ? signalData.targets.map(Number)
+        : null;
+      let stopLoss = Number(signalData.stopLoss);
 
-      // Usa os níveis calculados na mensagem do Telegram
+      if (!targets || !isFinite(stopLoss)) {
+        const built = this._buildLevelsForSignal(entry, isLong);
+        targets = targets || built.targets;
+        stopLoss = isFinite(stopLoss) ? stopLoss : built.stopLoss;
+      }
+
+      // 2) Persistir níveis publicados (fonte de verdade do monitor)
+      const published = {
+        symbol: signalData.symbol,
+        entry,
+        targets: [...targets],
+        stopLoss,
+        timeframe: signalData.timeframe || '1h',
+        createdAt: new Date(),
+      };
+      published.levelsHash = this._levelsHash(entry, targets, stopLoss);
+
+      const signalId = signalData.signalId || `${signalData.symbol}:${published.timeframe}:${entry}`;
+      this.lastSignalById.set(signalId, published);
+      this.lastSignalBySymbol.set(signalData.symbol, { ...published, signalId });
+
+      console.log(`🧩 [TelegramBot] Níveis publicados (${signalId}) hash=${published.levelsHash}`);
+      console.log(`    Entry=${entry}  Stop=${stopLoss}  Targets=${targets.join(', ')}`);
+
+      // 3) Mensagem com exatamente os níveis publicados
       const message = this.formatTradingSignal({
         ...signalData,
+        entry,
         targets,
         stopLoss,
       });
 
       await this._sendMessageSafe(message);
-
       console.log(`✅ Sinal enviado via Telegram: ${signalData.symbol}`);
       return true;
     } catch (error) {
@@ -171,12 +215,10 @@ class TelegramBotService {
     }
   }
 
-  /**
-   * Formata preço com casas decimais inteligentes
-   */
+  // =================== FORMATAÇÃO ===================
+
   formatPrice(price) {
     if (!price || isNaN(price)) return '0.00';
-
     if (price >= 100) return Number(price).toFixed(2);
     if (price >= 10) return Number(price).toFixed(3);
     if (price >= 1) return Number(price).toFixed(4);
@@ -184,9 +226,6 @@ class TelegramBotService {
     return Number(price).toFixed(6);
   }
 
-  /**
-   * Formata sinal de trading para Telegram
-   */
   formatTradingSignal(signal) {
     const isLong = signal.trend === 'BULLISH';
     const direction = isLong ? 'COMPRA' : 'VENDA';
@@ -246,9 +285,6 @@ ${counterTrendWarning}
 ⏰ ${this.formatNowSP()}`;
   }
 
-  /**
-   * Aviso de contra-tendência (se aplicável)
-   */
   getCounterTrendWarning(signal, isLong) {
     const btcTrend =
       signal?.btcCorrelation?.btcTrend === 'BULLISH' ? 'alta' : 'baixa';
@@ -285,16 +321,12 @@ ${counterTrendWarning}
 • Considere reduzir alavancagem se necessário`;
   }
 
-  /**
-   * Gera fatores específicos e únicos baseados no sinal
-   */
   generateSpecificFactors(signal, isLong) {
     const factors = [];
     const indicators = signal.indicators || {};
     const patterns = signal.patterns || {};
     const btcCorrelation = signal.btcCorrelation || {};
 
-    // RSI
     if (indicators.rsi !== undefined) {
       if (isLong && indicators.rsi < 30) factors.push('RSI em sobrevenda favorável para compra');
       else if (!isLong && indicators.rsi > 70) factors.push('RSI em sobrecompra favorável para venda');
@@ -302,7 +334,6 @@ ${counterTrendWarning}
       else if (indicators.rsi > 60) factors.push(isLong ? 'RSI em sobrecompra' : 'RSI em zona de venda');
     }
 
-    // MACD
     if (indicators.macd && indicators.macd.histogram !== undefined) {
       if (isLong && indicators.macd.histogram > 0) factors.push('MACD com momentum bullish confirmado');
       else if (!isLong && indicators.macd.histogram < 0) factors.push('MACD com momentum bearish confirmado');
@@ -310,14 +341,12 @@ ${counterTrendWarning}
       else factors.push('MACD indicando pressão vendedora');
     }
 
-    // Volume
     if (indicators.volume && indicators.volume.volumeRatio > 1.2) {
       factors.push(isLong ? 'Volume alto confirmando movimento de compra' : 'Volume alto confirmando pressão vendedora');
     } else if (indicators.volume) {
       factors.push('Volume moderado sustentando o movimento');
     }
 
-    // Padrões
     if (patterns.breakout) {
       if (patterns.breakout.type === 'BULLISH_BREAKOUT') factors.push('Rompimento bullish de resistência confirmado');
       else if (patterns.breakout.type === 'BEARISH_BREAKOUT') factors.push('Rompimento bearish de suporte confirmado');
@@ -328,10 +357,8 @@ ${counterTrendWarning}
       else if (p.bias === 'BEARISH') factors.push(`Padrão ${p.type.toLowerCase()} detectado (bearish)`);
     }
 
-    // Divergência RSI
     if (indicators.rsiDivergence) factors.push('Divergência RSI detectada (sinal de reversão)');
 
-    // Correlação com BTC
     if (btcCorrelation.alignment === 'ALIGNED') {
       const btcTrend = btcCorrelation.btcTrend === 'BULLISH' ? 'bullish' : 'bearish';
       factors.push(`Alinhado com tendência ${btcTrend} do Bitcoin`);
@@ -339,7 +366,6 @@ ${counterTrendWarning}
       factors.push('Operação contra tendência do Bitcoin (risco elevado)');
     }
 
-    // Médias
     if (indicators.ma21 && indicators.ma200) {
       if (isLong && indicators.ma21 > indicators.ma200) factors.push('Médias móveis em configuração bullish');
       else if (!isLong && indicators.ma21 < indicators.ma200) factors.push('Médias móveis em configuração bearish');
@@ -349,12 +375,8 @@ ${counterTrendWarning}
     return unique.slice(0, 4);
   }
 
-  /**
-   * Interpretação curta
-   */
   getInterpretation(signal, isLong) {
     const indicators = signal.indicators || {};
-
     if (indicators.rsi < 25 && isLong) return 'RSI em sobrevenda extrema favorável para compra';
     if (indicators.rsi > 75 && !isLong) return 'RSI em sobrecompra extrema favorável para venda';
     if (indicators.macd && Math.abs(indicators.macd.histogram) > 0.001) {
@@ -363,28 +385,30 @@ ${counterTrendWarning}
     }
     if (signal.btcCorrelation && signal.btcCorrelation.alignment === 'ALIGNED')
       return 'Análise técnica alinhada com tendência do Bitcoin';
-
     return `Análise técnica favorável para ${isLong ? 'compra' : 'venda'}`;
   }
 
   /**
-   * Calcula probabilidade exibida (apenas numérica)
-   * (Comprime extremos para 60%–85% para UX mais realista)
+   * Comprime extremos apenas para exibição
    */
   calculateDisplayProbability(rawProbability) {
     let p = Number(rawProbability);
     if (!isFinite(p) || p < 0) p = 0;
     if (p > 100) p = 100;
 
-    if (p >= 98) return 82 + Math.min(5, (p - 98) * 0.5); // máx ~87
-    if (p >= 90) return 80 + (p - 90) * 0.2;               // 80–82
-    if (p >= 60) return 72 + (p - 60) * 0.2;               // 72–78
-    if (p >= 30) return 66 + (p - 30) * 0.2;               // 66–72
-    return 60 + p * 0.2;                                   // 60–66
+    if (p >= 98) return 82 + Math.min(5, (p - 98) * 0.5);
+    if (p >= 90) return 80 + (p - 90) * 0.2;
+    if (p >= 60) return 72 + (p - 60) * 0.2;
+    if (p >= 30) return 66 + (p - 30) * 0.2;
+    return 60 + p * 0.2;
   }
 
   // ====== Monitores ======
 
+  /**
+   * Cria monitor SEMPRE com os níveis publicados no sinal (se existirem).
+   * Se o chamador passar níveis divergentes, serão sobrepostos pelo publicado.
+   */
   createMonitor(symbol, entry, targets, stopLoss, signalId, trend) {
     try {
       if (this.activeMonitors.has(symbol)) {
@@ -392,22 +416,51 @@ ${counterTrendWarning}
         this.removeMonitor(symbol, 'REPLACED');
       }
 
+      // 1) Recupera níveis publicados
+      const published =
+        (signalId && this.lastSignalById.get(signalId)) ||
+        this.lastSignalBySymbol.get(symbol);
+
+      let finalTargets = Array.isArray(targets) ? targets.map(Number) : [];
+      let finalStop = Number(stopLoss);
+
+      if (published) {
+        const sameEntry = this._almostEqual(Number(entry), Number(published.entry), 1e-10);
+        const sameTargets = this._arraysEqualWithin(finalTargets, published.targets, 1e-10);
+        const sameStop = this._almostEqual(finalStop, published.stopLoss, 1e-10);
+
+        if (!sameEntry || !sameTargets || !sameStop) {
+          console.log(`🧷 Reconciliando níveis do monitor com o sinal publicado (hash=${published.levelsHash})`);
+          console.log(`    entry: ${entry} -> ${published.entry}`);
+          console.log(`    stop : ${finalStop} -> ${published.stopLoss}`);
+          console.log(`    targets(passados) vs publicados:`, finalTargets, '→', published.targets);
+
+          finalTargets = [...published.targets];
+          finalStop = published.stopLoss;
+          entry = published.entry;
+        }
+      }
+
       const monitor = {
         symbol,
-        entry,
-        targets: [...targets],
-        originalTargets: [...targets],
-        stopLoss,
+        entry: Number(entry),
+        targets: [...finalTargets],
+        originalTargets: [...finalTargets],
+        stopLoss: Number(finalStop),          // stop atual (poderá virar móvel)
+        stopLossOriginal: Number(finalStop),  // stop publicado no sinal (imutável p/ exibição)
         signalId,
         trend,
         startTime: new Date(),
         targetsHit: 0,
         status: 'ACTIVE',
         lastUpdate: new Date(),
+        // metadados
+        levelsHash: published?.levelsHash || this._levelsHash(entry, finalTargets, finalStop),
+        timeframe: published?.timeframe || '1h',
       };
 
       this.activeMonitors.set(symbol, monitor);
-      console.log(`✅ Monitor criado para ${symbol} (${targets.length} alvos)`);
+      console.log(`✅ Monitor criado para ${symbol} (${finalTargets.length} alvos) [hash=${monitor.levelsHash}]`);
 
       return monitor;
     } catch (error) {
@@ -435,30 +488,22 @@ ${counterTrendWarning}
   }
 
   /**
-   * Monitor com fallback:
-   * - Se binanceService tiver WS e BINANCE_WS_ENABLED=true, usa kline_1m (candle fechado)
-   * - Caso contrário, polling leve (default 9000ms) usando qualquer método de preço disponível
+   * Monitor de preço: usa SEMPRE os níveis do monitor (já reconciliados com o sinal).
    */
   async startPriceMonitoring(symbol, entry, targets, stopLoss, binanceService, signalData, app, adaptiveScoring) {
     try {
-      console.log(`📊 Iniciando monitoramento de ${symbol}...`);
-      console.log(`📊 Parâmetros do monitor:`);
-      console.log(`   💰 Entrada: $${entry}`);
-      console.log(`   🎯 Alvos: ${targets.map((t) => '$' + this.formatPrice(t)).join(', ')}`);
-      console.log(`   🛑 Stop: $${stopLoss}`);
-      console.log(`   📈 Trend: ${signalData.trend}`);
-
       const monitor = this.activeMonitors.get(symbol);
       if (!monitor) {
         console.error(`❌ Monitor não encontrado para ${symbol}`);
         return;
       }
 
-      console.log(`✅ Monitor encontrado para ${symbol}:`, {
-        status: monitor.status,
-        targetsRemaining: monitor.targets.length,
-        targetsHit: monitor.targetsHit,
-      });
+      console.log(`📊 Iniciando monitoramento de ${symbol}...`);
+      console.log(`   🧾 Hash níveis: ${monitor.levelsHash}`);
+      console.log(`   💰 Entrada (pub): $${this.formatPrice(monitor.entry)}`);
+      console.log(`   🎯 Alvos (pub): ${monitor.targets.map((t) => '$' + this.formatPrice(t)).join(', ')}`);
+      console.log(`   🛑 Stop (pub): $${this.formatPrice(monitor.stopLossOriginal)}`);
+      console.log(`   📈 Trend: ${monitor.trend}`);
 
       const wsEnabled = String(process.env.BINANCE_WS_ENABLED || '').toLowerCase() === 'true';
       const hasWS = binanceService && typeof binanceService.connectWebSocket === 'function' && typeof binanceService.stopWebSocketForSymbol === 'function';
@@ -500,7 +545,7 @@ ${counterTrendWarning}
         }
       };
 
-      // 1) Tenta WS se habilitado e implementado
+      // 1) WebSocket
       let pollTimer = null;
       if (wsEnabled && hasWS) {
         await binanceService.connectWebSocket(symbol, '1m', (candleData) => {
@@ -510,21 +555,15 @@ ${counterTrendWarning}
         return;
       }
 
-      // 2) Fallback por polling leve (evita rate limit)
+      // 2) Polling
       console.log('⚠️ WebSocket indisponível — ativando polling leve (6–10s)');
       const pollIntervalMs = Number(process.env.MONITOR_POLL_INTERVAL_MS || 9000);
 
       const safeGetLastPrice = async () => {
         try {
-          if (binanceService?.getLastPrice) {
-            return await binanceService.getLastPrice(symbol);
-          }
-          if (binanceService?.fetchTickerPrice) {
-            return await binanceService.fetchTickerPrice(symbol);
-          }
-          if (binanceService?.getPrice) {
-            return await binanceService.getPrice(symbol);
-          }
+          if (binanceService?.getLastPrice) return await binanceService.getLastPrice(symbol);
+          if (binanceService?.fetchTickerPrice) return await binanceService.fetchTickerPrice(symbol);
+          if (binanceService?.getPrice) return await binanceService.getPrice(symbol);
           if (binanceService?.getOHLCV) {
             const candles = await binanceService.getOHLCV(symbol, '1m', 1);
             const last = candles?.[0];
@@ -588,12 +627,10 @@ ${counterTrendWarning}
 
         console.log(`🎉 [${symbol}] ALVO ${targetNumber} ATINGIDO! $${targetPrice}`);
 
-        // remove e contabiliza
         monitor.targets.shift();
         monitor.targetsHit++;
         monitor.lastUpdate = new Date();
 
-        // PnL do alvo
         const pnlPercent = isLong
           ? ((targetPrice - monitor.entry) / monitor.entry) * 100
           : ((monitor.entry - targetPrice) / monitor.entry) * 100;
@@ -628,7 +665,7 @@ ${counterTrendWarning}
       switch (targetNumber) {
         case 1:
           // Após alvo 1, mantém stop original
-          return; // Não move o stop ainda
+          return;
         case 2:
           newStopPrice = monitor.entry;
           stopDescription = 'ponto de entrada';
@@ -652,7 +689,7 @@ ${counterTrendWarning}
       if (newStopPrice) {
         console.log(`🛡️ [${symbol}] Movendo stop para ${stopDescription}: $${newStopPrice}`);
 
-        monitor.stopLoss = newStopPrice;
+        monitor.stopLoss = newStopPrice;        // stop dinâmico
         monitor.isMobileStopActive = true;
         monitor.mobileStopLevel = stopDescription;
 
@@ -810,6 +847,9 @@ ${counterTrendWarning}
       const leveragedPnL = pnlPercent * 15;
       const duration = this.calculateDuration(monitor.startTime);
 
+      // 🧷 Exibir o stop publicado no sinal (stopLossOriginal)
+      const publishedStop = this.formatPrice(monitor.stopLossOriginal).replace('.', '․');
+
       let message;
 
       if (monitor.targetsHit === 0) {
@@ -821,7 +861,7 @@ ${counterTrendWarning}
 📌 *Motivo:* STOP LOSS ATIVADO
 
 📈 *Alvos atingidos:* Nenhum
-🛑 *Stop loss:* ${this.formatPrice(currentPrice).replace('.', '․')}
+🛑 *Stop loss:* ${publishedStop}
 📅 *Duração:* ${duration}
 
 💡 *GERENCIAMENTO DE RISCO:*
@@ -847,7 +887,7 @@ ${counterTrendWarning}
 📌 *Motivo:* STOP LOSS ATIVADO APÓS ALVO ${monitor.targetsHit}
 
 📈 *Alvos atingidos:* ${monitor.targetsHit}
-🛑 *Stop loss:* ${this.formatPrice(currentPrice).replace('.', '․')}
+🛑 *Stop loss:* ${publishedStop}
 📅 *Duração:* ${duration}
 
 💡 *GERENCIAMENTO DE RISCO:*
@@ -1027,11 +1067,9 @@ ${counterTrendWarning}
   getRealizationBreakdown(targetsHit) {
     const realizationPercentages = [50, 15, 10, 10, 10, 5];
     const breakdown = [];
-
     for (let i = 0; i < targetsHit; i++) {
       breakdown.push(`${realizationPercentages[i]}% no Alvo ${i + 1}`);
     }
-
     return breakdown.join(' + ');
   }
 }
