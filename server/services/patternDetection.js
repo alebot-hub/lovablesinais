@@ -1,8 +1,8 @@
 /**
- * PatternDetectionService — v3.2 (proto-safe + bind-lock)
- * Corrige:
- *  - "Método ausente no protótipo: detectHeadShoulders"
- *  - "this.detectCandlestickPatterns is not a function"
+ * PatternDetectionService — v3.3 (proto-safe + bind-lock + scoring-aligned)
+ * Alinhado com SignalScoring/AdaptiveScoring:
+ *  - Mantém campos existentes
+ *  - Adiciona reversalPatterns[] e continuationPatterns[] para consumo do scoring
  */
 
 class PatternDetectionService {
@@ -45,7 +45,7 @@ class PatternDetectionService {
     ]);
 
     if (this.config.debug) {
-      console.log('🔧 PatternDetectionService v3.2 (proto-safe + bind-lock)');
+      console.log('🔧 PatternDetectionService v3.3 (proto-safe + bind-lock + scoring-aligned)');
     }
   }
 
@@ -66,6 +66,9 @@ class PatternDetectionService {
       double: null,
       headShoulders: null,
       candlestick: [],
+      // ➕ campos esperados pelo SignalScoringService
+      reversalPatterns: [],
+      continuationPatterns: []
     };
   }
 
@@ -177,6 +180,8 @@ class PatternDetectionService {
         double: PatternDetectionService.prototype.detectDoublePatterns.call(this, recentData, support, resistance),
         headShoulders: PatternDetectionService.prototype.detectHeadShoulders.call(this, recentData),
         candlestick: [],
+        reversalPatterns: [],
+        continuationPatterns: []
       };
 
       try {
@@ -188,12 +193,53 @@ class PatternDetectionService {
         patterns.candlestick = [];
       }
 
+      // ➕ Mapeia para listas esperadas pelo scoring
+      this.mapPatternsForScoring(patterns);
+
       this.log('✅ Detecção concluída');
       return patterns;
     } catch (e) {
       console.error('❌ Erro ao detectar padrões:', e?.message);
       return this.getEmptyPatterns();
     }
+  }
+
+  /**
+   * Mapeia padrões detectados para reversalPatterns e continuationPatterns
+   * (consumidos pelo SignalScoringService.scorePatterns)
+   */
+  mapPatternsForScoring(patterns) {
+    const reversal = [];
+    const continuation = [];
+
+    // Estruturais — reversão
+    if (patterns.double?.type === 'DOUBLE_TOP') reversal.push('DOUBLE_TOP');
+    if (patterns.double?.type === 'DOUBLE_BOTTOM') reversal.push('DOUBLE_BOTTOM');
+    if (patterns.headShoulders?.type === 'HEAD_AND_SHOULDERS') reversal.push('HEAD_AND_SHOULDERS');
+    if (patterns.wedge?.type === 'RISING_WEDGE' || patterns.wedge?.type === 'FALLING_WEDGE') {
+      reversal.push(patterns.wedge.type);
+    }
+
+    // Estruturais — continuação
+    if (patterns.triangle?.type === 'ASCENDING_TRIANGLE' || patterns.triangle?.type === 'DESCENDING_TRIANGLE') {
+      continuation.push(patterns.triangle.type);
+    }
+    if (patterns.flag?.type === 'BULLISH_FLAG' || patterns.flag?.type === 'BEARISH_FLAG') {
+      continuation.push(patterns.flag.type);
+    }
+
+    // Candles com viés de reversão (não contamos DOJI como reversão direta)
+    if (Array.isArray(patterns.candlestick)) {
+      for (const c of patterns.candlestick) {
+        if (!c || !c.type) continue;
+        if (['BULLISH_ENGULFING', 'BEARISH_ENGULFING', 'HAMMER', 'HANGING_MAN'].includes(c.type)) {
+          reversal.push(c.type);
+        }
+      }
+    }
+
+    patterns.reversalPatterns = reversal;
+    patterns.continuationPatterns = continuation;
   }
 
   // ---------- Validações / auxiliares ----------
@@ -248,8 +294,7 @@ class PatternDetectionService {
     const w = Math.min(5, len - 1);
     if (w < 2) return 'NEUTRAL';
     const prices = data.close.slice(-w - 1, -1);
-    let up = 0,
-      down = 0;
+    let up = 0, down = 0;
     for (let i = 1; i < prices.length; i++) {
       if (prices[i] > prices[i - 1]) up++;
       else if (prices[i] < prices[i - 1]) down++;
@@ -376,8 +421,7 @@ class PatternDetectionService {
     const lows = data.low.slice(-w);
     const hr = PatternDetectionService.prototype.calculateLinearRegression.call(this, highs);
     const lr = PatternDetectionService.prototype.calculateLinearRegression.call(this, lows);
-    const hs = hr.slope,
-      ls = lr.slope;
+    const hs = hr.slope, ls = lr.slope;
     const conv = Math.abs(hs - ls) > this.config.tolerance;
 
     if (hs > 0 && ls > 0 && conv && hs < ls) {
@@ -413,9 +457,7 @@ class PatternDetectionService {
     if (data.high.length < min || data.low.length < min) return null;
     const h = data.high.slice(-min);
     const l = data.low.slice(-min);
-    const ls = h[1],
-      hd = h[3],
-      rs = h[5];
+    const ls = h[1], hd = h[3], rs = h[5];
     const neck = Math.min(l[2], l[4]);
     const tol = ls * this.config.tolerance;
 
@@ -448,7 +490,7 @@ class PatternDetectionService {
       out.push({ type: 'DOJI', bias: 'NEUTRAL', confidence: 70 });
     }
 
-    // Engolfo
+    // Engolfos
     if (prev.close < prev.open && cur.close > cur.open && cur.open < prev.close && cur.close > prev.open) {
       out.push({
         type: 'BULLISH_ENGULFING',
