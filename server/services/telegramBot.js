@@ -1,9 +1,10 @@
 /**
  * Serviço do Bot do Telegram
  * (Mantida sua estrutura original; adicionado monitor com fallback por polling)
- * Correções:
- *  - Usa SEMPRE os níveis publicados no sinal (se disponíveis) para emissão e monitor
- *  - Persiste níveis do sinal e força o monitor a respeitar esses números (sem recomputar)
+ * Correções/Travas:
+ *  - Níveis SEMPRE fixos: 6 alvos em +1.50% (ou -1.50% p/ short) e STOP em 4.50%
+ *  - Mesmo que o pipeline envie valores diferentes, normalizamos na emissão e no monitor
+ *  - Persiste níveis normalizados e força o monitor a respeitar esses números (sem recomputar fora do padrão)
  *  - Mantém "stopLossOriginal" para exibir exatamente o preço publicado no resultado
  *  - Adiciona hash de níveis para auditoria
  */
@@ -13,6 +14,14 @@ import crypto from 'crypto';
 import { Logger } from './logger.js';
 
 const logger = new Logger('TelegramBot');
+
+// 🔒 Parâmetros FIXOS de níveis
+const LEVELS = {
+  TARGET_STEP: 0.015,     // 1.50%
+  NUM_TARGETS: 6,
+  STOP_PCT: 0.045,        // 4.50%
+  EPS: 1e-10,             // tolerância numérica para comparações
+};
 
 class TelegramBotService {
   constructor() {
@@ -35,7 +44,6 @@ class TelegramBotService {
 
   // =============== UTILITÁRIOS DE ENVIO (Markdown Safe) ===============
 
-  /** Remove marcações Markdown para envio em texto puro */
   _stripAllMarkdown(text) {
     if (!text) return text;
     return String(text)
@@ -57,7 +65,6 @@ class TelegramBotService {
       .replace(/!/g, '');
   }
 
-  /** Escapa caracteres especiais do MarkdownV2 (para fallback) */
   _escapeMarkdownV2(text) {
     if (!text) return text;
     return String(text).replace(/([_*[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
@@ -109,19 +116,13 @@ class TelegramBotService {
 
   // =================== NÍVEIS (STOP E ALVOS) ===================
 
-  /**
-   * Calcula 6 alvos em degraus de 1.5% (até 9%) e stop de ~4.5% da entrada.
-   * Compra: alvos acima, stop abaixo. Venda: alvos abaixo, stop acima.
-   * (Usado apenas como fallback caso os níveis NÃO venham no signalData)
-   */
-  _buildLevelsForSignal(entry, isLong) {
+  /** Calcula os níveis FIXOS (1.50% × 6 e stop 4.50%) a partir da entrada e direção. */
+  _expectedLevels(entry, isLong) {
     const e = Number(entry);
     if (!isFinite(e) || e <= 0) return { targets: [], stopLoss: null };
-    const steps = [0.015, 0.03, 0.045, 0.06, 0.075, 0.09];
-    const stopPct = 0.045;
-
+    const steps = Array.from({ length: LEVELS.NUM_TARGETS }, (_, i) => LEVELS.TARGET_STEP * (i + 1));
     const targets = steps.map(pct => (isLong ? e * (1 + pct) : e * (1 - pct)));
-    const stopLoss = isLong ? e * (1 - stopPct) : e * (1 + stopPct);
+    const stopLoss = isLong ? e * (1 - LEVELS.STOP_PCT) : e * (1 + LEVELS.STOP_PCT);
     return { targets, stopLoss };
   }
 
@@ -136,12 +137,12 @@ class TelegramBotService {
   }
 
   /** Comparação com tolerância numérica */
-  _almostEqual(a, b, eps = 1e-10) {
+  _almostEqual(a, b, eps = LEVELS.EPS) {
     if (!isFinite(a) || !isFinite(b)) return false;
     const diff = Math.abs(a - b);
     return diff <= eps * Math.max(1, Math.abs(a), Math.abs(b));
   }
-  _arraysEqualWithin(a = [], b = [], eps = 1e-10) {
+  _arraysEqualWithin(a = [], b = [], eps = LEVELS.EPS) {
     if (!Array.isArray(a) || !Array.isArray(b)) return false;
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
@@ -150,13 +151,35 @@ class TelegramBotService {
     return true;
   }
 
+  /**
+   * Normaliza quaisquer níveis recebidos para SEMPRE respeitar:
+   * - 6 alvos em 1.50% cada (acumulado)
+   * - stop em 4.50% da entrada
+   */
+  _enforceFixedLevels(entry, isLong, maybeTargets, maybeStop) {
+    const { targets: expTargets, stopLoss: expStop } = this._expectedLevels(entry, isLong);
+
+    const haveTargets = Array.isArray(maybeTargets) && maybeTargets.length === LEVELS.NUM_TARGETS;
+    const haveStop = isFinite(maybeStop);
+
+    const needRecalc =
+      !haveTargets ||
+      !this._arraysEqualWithin(maybeTargets.map(Number), expTargets, LEVELS.EPS) ||
+      !haveStop ||
+      !this._almostEqual(Number(maybeStop), expStop, LEVELS.EPS);
+
+    if (needRecalc) {
+      console.log('🔒 Normalizando níveis para padrão fixo (1.50% & 4.50%).');
+      return { targets: expTargets, stopLoss: expStop, normalized: true };
+    }
+    return { targets: maybeTargets.map(Number), stopLoss: Number(maybeStop), normalized: false };
+  }
+
   // =================== EMISSÃO DO SINAL ===================
 
   /**
-   * Envia sinal de trading formatado
-   * Agora: se `signalData.targets/stopLoss` vierem preenchidos, eles são PRIORITÁRIOS.
-   * Só usamos _buildLevelsForSignal como fallback.
-   * Também persistimos os níveis publicados para o monitor usar exatamente os mesmos.
+   * Envia sinal de trading formatado.
+   * Níveis SEMPRE normalizados para 1.50%/4.50%.
    */
   async sendTradingSignal(signalData) {
     try {
@@ -168,16 +191,19 @@ class TelegramBotService {
       const isLong = signalData.trend === 'BULLISH';
       const entry = Number(signalData.entry);
 
-      // 1) Preferir níveis vindos do pipeline; fallback se ausentes
-      let targets = Array.isArray(signalData.targets) && signalData.targets.length > 0
-        ? signalData.targets.map(Number)
-        : null;
-      let stopLoss = Number(signalData.stopLoss);
+      // 1) Normaliza níveis (mesmo que venham do pipeline)
+      const normalization = this._enforceFixedLevels(
+        entry,
+        isLong,
+        signalData.targets,
+        signalData.stopLoss
+      );
 
-      if (!targets || !isFinite(stopLoss)) {
-        const built = this._buildLevelsForSignal(entry, isLong);
-        targets = targets || built.targets;
-        stopLoss = isFinite(stopLoss) ? stopLoss : built.stopLoss;
+      const targets = normalization.targets;
+      const stopLoss = normalization.stopLoss;
+
+      if (normalization.normalized) {
+        console.log('🧮 Níveis ajustados na emissão para o padrão fixo.');
       }
 
       // 2) Persistir níveis publicados (fonte de verdade do monitor)
@@ -198,7 +224,7 @@ class TelegramBotService {
       console.log(`🧩 [TelegramBot] Níveis publicados (${signalId}) hash=${published.levelsHash}`);
       console.log(`    Entry=${entry}  Stop=${stopLoss}  Targets=${targets.join(', ')}`);
 
-      // 3) Mensagem com exatamente os níveis publicados
+      // 3) Mensagem com exatamente os níveis normalizados
       const message = this.formatTradingSignal({
         ...signalData,
         entry,
@@ -328,8 +354,8 @@ ${counterTrendWarning}
     const btcCorrelation = signal.btcCorrelation || {};
 
     if (indicators.rsi !== undefined) {
-      if (isLong && indicators.rsi < 30) factors.push('RSI em sobrevenda favorável para compra');
-      else if (!isLong && indicators.rsi > 70) factors.push('RSI em sobrecompra favorável para venda');
+      if (isLong && indicators.rsi < 25) factors.push('RSI em sobrevenda favorável para compra');
+      else if (!isLong && indicators.rsi > 80) factors.push('RSI em sobrecompra favorável para venda');
       else if (indicators.rsi < 40) factors.push(isLong ? 'RSI em zona de compra' : 'RSI em sobrevenda');
       else if (indicators.rsi > 60) factors.push(isLong ? 'RSI em sobrecompra' : 'RSI em zona de venda');
     }
@@ -406,8 +432,9 @@ ${counterTrendWarning}
   // ====== Monitores ======
 
   /**
-   * Cria monitor SEMPRE com os níveis publicados no sinal (se existirem).
-   * Se o chamador passar níveis divergentes, serão sobrepostos pelo publicado.
+   * Cria monitor SEMPRE com os níveis normalizados (1.50%/4.50%).
+   * Se o chamador passar níveis divergentes ou o sinal publicado tiver sido alterado,
+   * normalizamos novamente aqui.
    */
   createMonitor(symbol, entry, targets, stopLoss, signalId, trend) {
     try {
@@ -416,38 +443,34 @@ ${counterTrendWarning}
         this.removeMonitor(symbol, 'REPLACED');
       }
 
-      // 1) Recupera níveis publicados
+      // 1) Recupera o último sinal publicado (já normalizado na emissão)
       const published =
         (signalId && this.lastSignalById.get(signalId)) ||
         this.lastSignalBySymbol.get(symbol);
+
+      const isLong = trend === 'BULLISH';
+      let entryNum = Number(entry);
 
       let finalTargets = Array.isArray(targets) ? targets.map(Number) : [];
       let finalStop = Number(stopLoss);
 
       if (published) {
-        const sameEntry = this._almostEqual(Number(entry), Number(published.entry), 1e-10);
-        const sameTargets = this._arraysEqualWithin(finalTargets, published.targets, 1e-10);
-        const sameStop = this._almostEqual(finalStop, published.stopLoss, 1e-10);
-
-        if (!sameEntry || !sameTargets || !sameStop) {
-          console.log(`🧷 Reconciliando níveis do monitor com o sinal publicado (hash=${published.levelsHash})`);
-          console.log(`    entry: ${entry} -> ${published.entry}`);
-          console.log(`    stop : ${finalStop} -> ${published.stopLoss}`);
-          console.log(`    targets(passados) vs publicados:`, finalTargets, '→', published.targets);
-
-          finalTargets = [...published.targets];
-          finalStop = published.stopLoss;
-          entry = published.entry;
-        }
+        entryNum = Number(published.entry); // garantir mesma entrada do sinal
+        finalTargets = [...published.targets];
+        finalStop = Number(published.stopLoss);
       }
+
+      // 2) Segurança extra: normaliza de novo para o padrão fixo
+      const { targets: normTargets, stopLoss: normStop } =
+        this._enforceFixedLevels(entryNum, isLong, finalTargets, finalStop);
 
       const monitor = {
         symbol,
-        entry: Number(entry),
-        targets: [...finalTargets],
-        originalTargets: [...finalTargets],
-        stopLoss: Number(finalStop),          // stop atual (poderá virar móvel)
-        stopLossOriginal: Number(finalStop),  // stop publicado no sinal (imutável p/ exibição)
+        entry: entryNum,
+        targets: [...normTargets],
+        originalTargets: [...normTargets],
+        stopLoss: normStop,                  // stop atual (poderá virar móvel)
+        stopLossOriginal: normStop,          // fixo para exibição
         signalId,
         trend,
         startTime: new Date(),
@@ -455,12 +478,12 @@ ${counterTrendWarning}
         status: 'ACTIVE',
         lastUpdate: new Date(),
         // metadados
-        levelsHash: published?.levelsHash || this._levelsHash(entry, finalTargets, finalStop),
+        levelsHash: this._levelsHash(entryNum, normTargets, normStop),
         timeframe: published?.timeframe || '1h',
       };
 
       this.activeMonitors.set(symbol, monitor);
-      console.log(`✅ Monitor criado para ${symbol} (${finalTargets.length} alvos) [hash=${monitor.levelsHash}]`);
+      console.log(`✅ Monitor criado para ${symbol} (${normTargets.length} alvos) [hash=${monitor.levelsHash}]`);
 
       return monitor;
     } catch (error) {
@@ -488,7 +511,7 @@ ${counterTrendWarning}
   }
 
   /**
-   * Monitor de preço: usa SEMPRE os níveis do monitor (já reconciliados com o sinal).
+   * Monitor de preço: usa SEMPRE os níveis do monitor (já normalizados).
    */
   async startPriceMonitoring(symbol, entry, targets, stopLoss, binanceService, signalData, app, adaptiveScoring) {
     try {
@@ -500,9 +523,9 @@ ${counterTrendWarning}
 
       console.log(`📊 Iniciando monitoramento de ${symbol}...`);
       console.log(`   🧾 Hash níveis: ${monitor.levelsHash}`);
-      console.log(`   💰 Entrada (pub): $${this.formatPrice(monitor.entry)}`);
-      console.log(`   🎯 Alvos (pub): ${monitor.targets.map((t) => '$' + this.formatPrice(t)).join(', ')}`);
-      console.log(`   🛑 Stop (pub): $${this.formatPrice(monitor.stopLossOriginal)}`);
+      console.log(`   💰 Entrada (fixa): $${this.formatPrice(monitor.entry)}`);
+      console.log(`   🎯 Alvos (fixos): ${monitor.targets.map((t) => '$' + this.formatPrice(t)).join(', ')}`);
+      console.log(`   🛑 Stop (fixo): $${this.formatPrice(monitor.stopLossOriginal)}`);
       console.log(`   📈 Trend: ${monitor.trend}`);
 
       const wsEnabled = String(process.env.BINANCE_WS_ENABLED || '').toLowerCase() === 'true';
@@ -847,7 +870,7 @@ ${counterTrendWarning}
       const leveragedPnL = pnlPercent * 15;
       const duration = this.calculateDuration(monitor.startTime);
 
-      // 🧷 Exibir o stop publicado no sinal (stopLossOriginal)
+      // 🧷 Exibir o stop publicado (fixo)
       const publishedStop = this.formatPrice(monitor.stopLossOriginal).replace('.', '․');
 
       let message;
