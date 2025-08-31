@@ -127,8 +127,10 @@ export async function analyzeSignals() {
           console.log(`${logPrefix} 📊 Detectando tendência do sinal...`);
           console.log(`🔍 ${logPrefix} Iniciando análise...`);
         
-          // Log da correlação com Bitcoin
-          const btcCorrelation = await bitcoinCorrelation.analyzeCorrelation(symbol, 'BULLISH', {}).catch(() => ({}));
+          // Log da correlação com Bitcoin (usa o MESMO timeframe)
+          const btcCorrelation = await bitcoinCorrelation
+            .analyzeCorrelation(symbol, 'BULLISH', {}, timeframe)
+            .catch(() => ({}));
           if (btcCorrelation.btcTrend) {
             console.log(`${logPrefix} ₿ Bitcoin: ${btcCorrelation.btcTrend} (força: ${btcCorrelation.btcStrength || 0})`);
             console.log(`${logPrefix} 🔗 Alinhamento: ${btcCorrelation.alignment || 'NEUTRAL'}`);
@@ -217,17 +219,19 @@ async function analyzeSymbolTimeframe(symbol, timeframe, logPrefix) {
     const signalTrend = signalScoring.detectSignalTrend(indicators, patterns);
     
     console.log(`${logPrefix} ₿ Analisando correlação BTC...`);
-    const btcCorrelation = await bitcoinCorrelation.analyzeCorrelation(symbol, signalTrend, data).catch(error => {
-      console.warn(`${logPrefix} ⚠️ Erro na correlação BTC: ${error.message}`);
-      return {
-        btcTrend: 'NEUTRAL',
-        btcStrength: 0,
-        correlation: 'NEUTRAL',
-        bonus: 0,
-        penalty: 0,
-        alignment: 'NEUTRAL'
-      };
-    });
+    const btcCorrelation = await bitcoinCorrelation
+      .analyzeCorrelation(symbol, signalTrend, data, timeframe)
+      .catch(error => {
+        console.warn(`${logPrefix} ⚠️ Erro na correlação BTC: ${error.message}`);
+        return {
+          btcTrend: 'NEUTRAL',
+          btcStrength: 0,
+          correlation: 'NEUTRAL',
+          bonus: 0,
+          penalty: 0,
+          alignment: 'NEUTRAL'
+        };
+      });
     
     console.log(`${logPrefix} 🎯 Calculando score...`);
     signalScoring.setCurrentTimeframe(timeframe);
@@ -624,7 +628,7 @@ process.on('SIGTERM', () => {
     binanceService.closeAllWebSockets();
     schedule.gracefulShutdown();
     console.log('✅ Bot encerrado graciosamente');
-    process.exit(0);
+    process.exit(1);
   } catch (error) {
     console.error('❌ Erro no shutdown:', error.message);
     process.exit(1);
