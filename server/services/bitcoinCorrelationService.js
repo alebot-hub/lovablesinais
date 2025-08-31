@@ -4,6 +4,8 @@
 
 import technicalAnalysis from './technicalAnalysis.js';
 
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
 class BitcoinCorrelationService {
   constructor(binanceService) {
     this.binanceService = binanceService;
@@ -14,9 +16,6 @@ class BitcoinCorrelationService {
     this.cacheTimeoutMs = 5 * 60 * 1000; // 5 minutos
   }
 
-  /**
-   * Lê item de cache por timeframe (se válido)
-   */
   _getFromCache(timeframe) {
     const entry = this.btcCache.get(timeframe);
     if (!entry) return null;
@@ -24,9 +23,6 @@ class BitcoinCorrelationService {
     return fresh ? entry : null;
   }
 
-  /**
-   * Grava item no cache por timeframe
-   */
   _setCache(timeframe, payload) {
     this.btcCache.set(timeframe, {
       ...payload,
@@ -66,7 +62,7 @@ class BitcoinCorrelationService {
         volume: btcData.volume || Array(btcData.close.length).fill(1)
       };
 
-      // Calcula indicadores do BTC no mesmo timeframe do ativo
+      // Indicadores do BTC no mesmo timeframe do ativo
       const btcIndicators = await this.technicalAnalysis.calculateIndicators(
         formattedData,
         'BTC/USDT',
@@ -75,13 +71,8 @@ class BitcoinCorrelationService {
 
       const lastPrice = btcData.close[btcData.close.length - 1];
 
-      // Guarda: se indicadores falharem, devolve neutro mas mantém cache básico
       if (!btcIndicators || typeof btcIndicators !== 'object') {
-        this._setCache(timeframe, {
-          data: btcData,
-          trend: 'NEUTRAL',
-          strength: 0
-        });
+        this._setCache(timeframe, { data: btcData, trend: 'NEUTRAL', strength: 0 });
         return { trend: 'NEUTRAL', strength: 0, price: lastPrice, cached: false, indicators: null };
       }
 
@@ -93,57 +84,44 @@ class BitcoinCorrelationService {
 
       let btcStrength = this.calculateTrendStrength(btcIndicators, btcData);
 
-      // Regras de reforço com MA200 (ajuste suave; mantém simetria)
+      // Regras com MA200 (e CAP contextual de força)
       const ma200 = Number(btcIndicators.ma200) || lastPrice;
       const priceVsMA = ma200 ? ((lastPrice - ma200) / ma200) * 100 : 0;
+      const absPVMA = Math.abs(priceVsMA);
 
       if (priceVsMA > 1.5) {
         btcTrend = 'BULLISH';
-        btcStrength = Math.max(btcStrength, 60);
+        btcStrength = Math.max(btcStrength, 60); // piso moderado
       } else if (priceVsMA < -1.5) {
         btcTrend = 'BEARISH';
-        btcStrength = Math.max(btcStrength, 60);
+        btcStrength = Math.max(btcStrength, 60); // piso moderado
       } else {
-        // quando perto da MA200, cap da força
-        btcStrength = Math.min(btcStrength, 55);
+        btcStrength = Math.min(btcStrength, 55); // perto da MA200 nunca é “muito forte”
       }
 
-      // 🔧 CAP EXTRA: consolidação (baixa vol + pouca direção) → limita força a 70
-      try {
-        const m = Math.min(20, btcData.close.length);
-        if (m >= 5) {
-          // proxy de ATR%: média do range relativo (H-L)/Close
-          let sum = 0;
-          for (let i = btcData.close.length - m; i < btcData.close.length; i++) {
-            const c = btcData.close[i];
-            const hl = btcData.high[i] - btcData.low[i];
-            if (c > 0 && Number.isFinite(hl)) sum += hl / c;
-          }
-          const atrPct = sum / m;
+      // 🎛️ CAP contextual (evita 100 em movimentos medianos)
+      let cap = 85;
+      if (absPVMA < 0.8) cap = 60;
+      else if (absPVMA < 1.5) cap = 70;
+      else if (absPVMA < 3.0) cap = 80;
 
-          // inclinação % entre o primeiro e o último dos m candles
-          const first = btcData.close[btcData.close.length - m];
-          const last  = btcData.close[btcData.close.length - 1];
-          const slopePct = (first > 0) ? Math.abs((last - first) / first) : 0;
+      // Só libera >88 com confluência extrema (longe da MA200 + RSI extremo + MACD forte)
+      const rsi = Number(btcIndicators.rsi);
+      const macdHist = Number(btcIndicators?.macd?.histogram);
+      const macdStrong = Number.isFinite(macdHist) && Math.abs(macdHist) >= 0.0008; // ~forte p/ BTC
+      const rsiExtreme = Number.isFinite(rsi) && (rsi <= 20 || rsi >= 80);
+      const extremeConfluence = (absPVMA >= 4) && rsiExtreme && macdStrong;
 
-          // Em consolidação (volatilidade <1.5% e slope <1%), força não deve ir a 100
-          if (atrPct < 0.015 && slopePct < 0.01) {
-            btcStrength = Math.min(btcStrength, 70);
-          }
-        }
-      } catch (_) { /* silencioso */ }
+      const hardCap = extremeConfluence ? 95 : 88; // 95 só em extremos de verdade
+      btcStrength = Math.min(btcStrength, cap, hardCap);
+      btcStrength = Math.round(clamp(btcStrength, 0, 100));
 
-      // Atualiza cache por timeframe
-      this._setCache(timeframe, {
-        data: btcData,
-        trend: btcTrend,
-        strength: btcStrength
-      });
+      // Atualiza cache
+      this._setCache(timeframe, { data: btcData, trend: btcTrend, strength: btcStrength });
 
       console.log(
-        `₿ Bitcoin ${timeframe}: ${btcTrend} (força: ${btcStrength}) - $${lastPrice.toFixed(
-          2
-        )} vs MA200(${ma200.toFixed(2)}) ${priceVsMA > 0 ? '+' : ''}${priceVsMA.toFixed(2)}%`
+        `₿ Bitcoin ${timeframe}: ${btcTrend} (força: ${btcStrength}) - $${lastPrice.toFixed(2)} vs MA200(${ma200.toFixed(2)}) ` +
+        `${priceVsMA > 0 ? '+' : ''}${priceVsMA.toFixed(2)}% | cap=${cap}, extreme=${extremeConfluence}`
       );
 
       return {
@@ -160,34 +138,35 @@ class BitcoinCorrelationService {
   }
 
   /**
-   * Calcula força da tendência do Bitcoin (simétrica para alta/baixa)
+   * Calcula força da tendência do Bitcoin (simétrica para alta/baixa) — suavizada
    */
   calculateTrendStrength(indicators, data) {
     let strength = 50;
 
     try {
-      // RSI — extremos (alta OU baixa) => mais força
+      // RSI — extremos dão força, mas pesos suavizados
       if (typeof indicators.rsi === 'number') {
-        if (indicators.rsi > 70) strength += 20;
-        else if (indicators.rsi > 60) strength += 12;
-        else if (indicators.rsi < 30) strength += 20;
-        else if (indicators.rsi < 40) strength += 12;
+        const r = indicators.rsi;
+        if (r >= 80 || r <= 20) strength += 14;
+        else if (r >= 70 || r <= 30) strength += 9;
+        else if (r >= 60 || r <= 40) strength += 5;
       }
 
-      // MACD — magnitude do histograma via dif MACD-sinal (clamp ±20)
+      // MACD — usa diferença MACD-sinal (magnitude), cap ±12
       if (indicators.macd && indicators.macd.MACD != null && indicators.macd.signal != null) {
         const macdDiff = indicators.macd.MACD - indicators.macd.signal;
-        const macdAdj = Math.max(-20, Math.min(20, macdDiff * 1000));
+        // escala mais conservadora
+        const macdAdj = clamp(macdDiff * 1200, -12, 12);
         strength += macdAdj;
       }
 
-      // MAs — distância relativa (simétrica)
+      // MAs — distância relativa entre MA21 e MA200 (cap 18)
       if (typeof indicators.ma21 === 'number' && typeof indicators.ma200 === 'number' && indicators.ma200 !== 0) {
         const maDiff = ((indicators.ma21 - indicators.ma200) / indicators.ma200) * 100;
-        if (maDiff > 2) strength += 25;
-        else if (maDiff > 0.5) strength += 15;
-        else if (maDiff < -2) strength += 25;
-        else if (maDiff < -0.5) strength += 15;
+        if (maDiff > 2) strength += 18;
+        else if (maDiff > 0.5) strength += 10;
+        else if (maDiff < -2) strength += 18;
+        else if (maDiff < -0.5) strength += 10;
       }
 
       // Volume — confirma (baixo volume reduz um pouco a convicção)
@@ -195,20 +174,19 @@ class BitcoinCorrelationService {
         const current = data.volume[data.volume.length - 1];
         const avg = data.volume.slice(-20).reduce((a, b) => a + b, 0) / 20;
         const ratio = avg > 0 ? current / avg : 1;
-        if (ratio > 1.5) strength += 8;
-        else if (ratio < 0.7) strength -= 5;
+        if (ratio > 1.8) strength += 6;
+        else if (ratio > 1.2) strength += 3;
+        else if (ratio < 0.7) strength -= 4;
       }
 
-      return Math.round(Math.max(0, Math.min(100, strength)));
+      // Clamp “macio”: a maior parte do tempo ficará entre 20 e 88
+      return Math.round(clamp(strength, 20, 100));
     } catch (e) {
       console.error('Erro ao calcular força da tendência BTC:', e.message);
       return 50;
     }
   }
 
-  /**
-   * Analisa correlação entre ativo e Bitcoin (timeframe alinhado ao do ativo)
-   */
   async analyzeCorrelation(symbol, assetTrend, assetData, timeframe = '1h') {
     try {
       console.log(`🔗 Analisando correlação ${symbol} vs Bitcoin (${timeframe})...`);
@@ -223,7 +201,6 @@ class BitcoinCorrelationService {
         timeframe
       });
 
-      // Só aplica se BTC tiver força mínima
       if (!btcAnalysis || btcAnalysis.strength < 30) {
         console.log(`ℹ️ Correlação não aplicada - Força insuficiente (${btcAnalysis?.strength || 0} < 30)`);
         return {
@@ -236,18 +213,13 @@ class BitcoinCorrelationService {
         };
       }
 
-      // Correlação de preços (últimos 20 períodos)
       const priceCorrelation = await this.calculatePriceCorrelation(symbol, assetData, timeframe);
-
-      // Alinhamento de tendência (bônus/penalidade “base”)
       const alignmentBase = this.analyzeTrendAlignment(assetTrend, btcAnalysis.trend, btcAnalysis.strength);
 
-      // ➕ Escala o impacto base pelo |ρ| (0.5x a 1.0x), para refletir força de co-movimento
       const corrScale = 0.5 + 0.5 * Math.min(1, Math.abs(priceCorrelation));
       let bonus = Math.round((alignmentBase.bonus || 0) * corrScale);
-      let penalty = Math.round((alignmentBase.penalty || 0) * corrScale); // negativo ou zero
+      let penalty = Math.round((alignmentBase.penalty || 0) * corrScale);
 
-      // Log do ajuste
       if (bonus) console.log(`🎯 Bônus ajustado por correlação: ${alignmentBase.bonus} → ${bonus} (ρ=${priceCorrelation.toFixed(2)})`);
       if (penalty) console.log(`⚠️ Penalidade ajustada por correlação: ${alignmentBase.penalty} → ${penalty} (ρ=${priceCorrelation.toFixed(2)})`);
 
@@ -259,7 +231,7 @@ class BitcoinCorrelationService {
         btcTrend: btcAnalysis.trend,
         btcStrength: btcAnalysis.strength,
         alignment: alignmentBase.alignment,   // 'ALIGNED' | 'AGAINST' | 'NEUTRAL'
-        type: alignmentBase.type,             // ex.: 'ALIGNED_BULLISH', 'AGAINST_BEARISH'
+        type: alignmentBase.type,
         bonus,
         penalty,
         recommendation: alignmentBase.recommendation,
@@ -278,9 +250,6 @@ class BitcoinCorrelationService {
     }
   }
 
-  /**
-   * Correlação de preços entre ativo e Bitcoin
-   */
   async calculatePriceCorrelation(symbol, assetData, timeframe = '1h') {
     try {
       let btcData = this._getFromCache(timeframe)?.data;
@@ -314,9 +283,6 @@ class BitcoinCorrelationService {
     }
   }
 
-  /**
-   * Retornos percentuais
-   */
   calculateReturns(prices) {
     if (!Array.isArray(prices) || prices.length < 2) {
       console.warn('⚠️ Dados insuficientes para calcular retornos');
@@ -330,9 +296,6 @@ class BitcoinCorrelationService {
     return returns;
   }
 
-  /**
-   * Correlação de Pearson (alinha últimos n pontos)
-   */
   pearsonCorrelation(x, y) {
     if (!Array.isArray(x) || !Array.isArray(y) || x.length === 0 || y.length === 0) {
       console.warn('⚠️ Arrays inválidos para correlação de Pearson');
@@ -359,9 +322,6 @@ class BitcoinCorrelationService {
     return den === 0 ? 0 : num / den;
   }
 
-  /**
-   * Alinhamento de tendências (gera base de impacto; escala vem depois pela |ρ|)
-   */
   analyzeTrendAlignment(assetTrend, btcTrend, btcStrength) {
     console.log(`🔗 Analisando alinhamento: Asset=${assetTrend} vs BTC=${btcTrend} (força: ${btcStrength})`);
 
@@ -412,7 +372,6 @@ class BitcoinCorrelationService {
         alignment.penalty = -8;
         alignment.recommendation = `RISCO MODERADO: Bitcoin em tendência ${btcTrend} oposta`;
       } else if (isWeakBtc) {
-        // oposição com BTC fraco: leve bônus (compatível com lógica existente)
         alignment.bonus = 3;
         alignment.recommendation = `Bitcoin com tendência fraca - sinal independente viável`;
       }
@@ -421,9 +380,6 @@ class BitcoinCorrelationService {
     }
   }
 
-  /**
-   * Confiança (não usada atualmente)
-   */
   calculateConfidence(btcStrength, priceCorrelation) {
     let confidence = 50;
     confidence += (btcStrength - 50) * 0.5;
@@ -431,9 +387,6 @@ class BitcoinCorrelationService {
     return Math.max(30, Math.min(95, Math.round(confidence)));
   }
 
-  /**
-   * Resumo para logs
-   */
   generateCorrelationSummary(symbol, correlation) {
     if (!correlation || correlation.alignment === 'NEUTRAL') {
       return `${symbol}: Correlação neutra com Bitcoin`;
@@ -443,9 +396,6 @@ class BitcoinCorrelationService {
     return `${symbol}: ${direction} sinal (${impact > 0 ? '+' : ''}${impact}) - ${correlation.recommendation}`;
   }
 
-  /**
-   * Limpa todos os caches
-   */
   clearCache() {
     this.btcCache.clear();
     console.log('🗑️ Cache do Bitcoin limpo (todos timeframes)');
