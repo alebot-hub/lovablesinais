@@ -36,7 +36,7 @@ export const INDICATORS_CONFIG = {
   VOLUME_MA: { period: 14 }
 };
 
-// Configurações de pontuação (mantidas)
+// Configurações de pontuação (mantidas + compat fix)
 export const SCORING_WEIGHTS = {
   RSI_OVERSOLD: 35,
   RSI_OVERBOUGHT: -45,
@@ -51,7 +51,11 @@ export const SCORING_WEIGHTS = {
   PATTERN_BREAKOUT: 25,
   PATTERN_REVERSAL: 40,
   VOLUME_CONFIRMATION: 30,
-  ML_WEIGHT: 0.6
+  // Usado como multiplicador de probabilidade (0–1) × 100
+  ML_WEIGHT: 0.6,
+  // ➕ Compatibilidade com AdaptiveScoring.getIndicatorPerformanceReport
+  // (evita this.weights[indicator] undefined ao trackear correlação BTC)
+  BITCOIN_CORRELATION: 0
 };
 
 // Configurações de trading (mantidas)
