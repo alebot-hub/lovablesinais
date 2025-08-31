@@ -183,18 +183,36 @@ class SignalScoringService {
       }
       score += regimeAdj;
 
-      // Ajuste por alinhamento BTC (se fornecido)
-      if (bitcoinCorrelation?.alignment) {
-        const align = bitcoinCorrelation.alignment; // 'ALIGNED' | 'MISALIGNED' | 'NEUTRAL' (ou similar)
-        const strength = Number.isFinite(bitcoinCorrelation?.btcStrength) ? bitcoinCorrelation.btcStrength : 50; // 0..100
-        let btcAdj = 0;
-        if (align === 'ALIGNED') {
-          btcAdj = Math.min(8, 2 + strength * 0.05); // até ~7–8 pontos
-        } else if (align === 'MISALIGNED') {
-          btcAdj = -Math.min(10, 2 + strength * 0.06); // penaliza mais se muito forte
-        }
-        if (btcAdj !== 0) {
-          score += addScoreComponent('Alinhamento BTC', btcAdj, 1, `${align} (força: ${strength})`);
+      // ✅ AJUSTE CORRIGIDO — Alinhamento BTC
+      // - Se o serviço de BTC já trouxe bonus/penalty, usa diretamente.
+      // - Caso contrário, usa alignment ('ALIGNED' | 'AGAINST' | 'MISALIGNED' | 'NEUTRAL').
+      if (bitcoinCorrelation) {
+        const strength = Number.isFinite(bitcoinCorrelation.btcStrength) ? bitcoinCorrelation.btcStrength : 50;
+        const rho = Number.isFinite(bitcoinCorrelation.priceCorrelation) ? bitcoinCorrelation.priceCorrelation : 0;
+
+        const hasImpact = Number.isFinite(bitcoinCorrelation.bonus) || Number.isFinite(bitcoinCorrelation.penalty);
+        if (hasImpact) {
+          const impact = (bitcoinCorrelation.bonus || 0) + (bitcoinCorrelation.penalty || 0);
+          if (impact !== 0) {
+            score += addScoreComponent(
+              'Alinhamento BTC',
+              impact,
+              1,
+              `${bitcoinCorrelation.alignment || 'N/A'} (ρ=${rho.toFixed(2)}, força: ${strength})`
+            );
+          }
+        } else if (bitcoinCorrelation.alignment) {
+          // Normaliza MISALIGNED -> AGAINST (compat com serviços antigos/novos)
+          const rawAlign = bitcoinCorrelation.alignment;
+          const align = (rawAlign === 'MISALIGNED') ? 'AGAINST' : rawAlign; // 'ALIGNED' | 'AGAINST' | 'NEUTRAL'
+          if (align === 'ALIGNED') {
+            const btcAdj = Math.min(8, 2 + strength * 0.05);
+            score += addScoreComponent('Alinhamento BTC', btcAdj, 1, `ALIGNED (força: ${strength})`);
+          } else if (align === 'AGAINST') {
+            const btcAdj = -Math.min(10, 2 + strength * 0.06);
+            score += addScoreComponent('Alinhamento BTC', btcAdj, 1, `AGAINST (força: ${strength})`);
+          }
+          // NEUTRAL → sem ajuste
         }
       }
 
@@ -510,12 +528,26 @@ class SignalScoringService {
       });
     }
 
-    // Volume confirma
-    if (Number.isFinite(indicators?.volumeMA) && indicators.volumeMA > 0 && Number.isFinite(indicators?.volume)) {
-      const ratio = indicators.volume / indicators.volumeMA;
-      if (ratio > 1.5) {
-        if (bullishScore > bearishScore) { bullishScore += 1; console.log(`  Volume: Alto volume confirmando tendência BULLISH`); }
-        else if (bearishScore > bullishScore) { bearishScore += 1; console.log(`  Volume: Alto volume confirmando tendência BEARISH`); }
+    // ✅ CONFIRMAÇÃO DE VOLUME CORRIGIDA (aceita volume como número ou objeto)
+    {
+      const volMA = Number.isFinite(indicators?.volumeMA) ? indicators.volumeMA : null;
+      const volCur = Number.isFinite(indicators?.volume)
+        ? indicators.volume
+        : Number.isFinite(indicators?.volume?.currentVolume)
+          ? indicators.volume.currentVolume
+          : null;
+
+      if (volMA && volMA > 0 && Number.isFinite(volCur)) {
+        const ratio = volCur / volMA;
+        if (ratio > 1.5) {
+          if (bullishScore > bearishScore) {
+            bullishScore++;
+            console.log(`  Volume: Alto volume confirmando tendência BULLISH`);
+          } else if (bearishScore > bullishScore) {
+            bearishScore++;
+            console.log(`  Volume: Alto volume confirmando tendência BEARISH`);
+          }
+        }
       }
     }
 
