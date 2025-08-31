@@ -1,240 +1,285 @@
 /**
- * Serviço de pontuação de sinais
+ * Serviço de pontuação de sinais (revisto)
+ * - Mantém compatibilidade com o sistema atual
+ * - Mais robusto a dados ausentes/inconsistentes
+ * - Logs explicativos padronizados
+ * - Integração opcional com correlação BTC e regime
+ * - Menos aleatoriedade (jitter controlado por config)
  */
 
 import { SCORING_WEIGHTS, TRADING_CONFIG } from '../config/constants.js';
 
+const DEFAULTS = {
+  MIN_SCORE: (TRADING_CONFIG?.MIN_SIGNAL_PROBABILITY ?? 70),
+  ML_WEIGHT: (SCORING_WEIGHTS?.ML_WEIGHT ?? 1.0),
+  JITTER_PCT: (TRADING_CONFIG?.SCORING?.JITTER_PCT ?? 0), // 0 = determinístico
+  QUALITY: {
+    MIN_VOLUME_RATIO: TRADING_CONFIG?.QUALITY_FILTERS?.MIN_VOLUME_RATIO ?? 0.8,
+    MIN_CONFIRMATIONS: TRADING_CONFIG?.QUALITY_FILTERS?.MIN_CONFIRMATIONS ?? 2,
+    REQUIRE_MULTIPLE_CONFIRMATIONS: TRADING_CONFIG?.QUALITY_FILTERS?.REQUIRE_MULTIPLE_CONFIRMATIONS ?? false,
+    MIN_PATTERN_CONFIDENCE: TRADING_CONFIG?.QUALITY_FILTERS?.MIN_PATTERN_CONFIDENCE ?? 0,
+    MIN_MACD_STRENGTH: TRADING_CONFIG?.QUALITY_FILTERS?.MIN_MACD_STRENGTH ?? 0,
+    MIN_RSI_EXTREME: TRADING_CONFIG?.QUALITY_FILTERS?.MIN_RSI_EXTREME ?? 0,   // permitido 0..100
+    MAX_RSI_EXTREME: TRADING_CONFIG?.QUALITY_FILTERS?.MAX_RSI_EXTREME ?? 100
+  },
+  VOLUME_MA_PERIOD: 20, // se TA não prover volumeMA, calculamos com 20 candles
+};
+
+// Bound simples para evitar números fora do range
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
 class SignalScoringService {
+  constructor() {
+    this.currentTimeframe = '1h';
+    // Histerese/cooldown leve para evitar flip-flop próximo ao threshold
+    this._lastDecisions = new Map(); // key: symbol:timeframe -> { ts, score, valid }
+  }
+
   /**
-   * Calcula pontuação total do sinal
+   * Calcula pontuação total do sinal (compatível)
    */
   calculateSignalScore(data, indicators, patterns, mlProbability, marketTrend = null, bitcoinCorrelation = null) {
-    const symbol = data.symbol || 'UNKNOWN';
+    const symbol = data?.symbol || 'UNKNOWN';
+    const tf = this.currentTimeframe || '1h';
+    const lastClose = Array.isArray(data?.close) ? data.close[data.close.length - 1] : data?.close;
     console.log(`\n🔍 [${symbol}] INÍCIO DA ANÁLISE DE SINAL`);
-    
-    // Log do regime de mercado
     console.log(`🌐 [${symbol}] REGIME: ${marketTrend || 'Não especificado'}`);
     if (bitcoinCorrelation) {
       console.log(`₿ [${symbol}] Correlação BTC: ${bitcoinCorrelation.alignment || 'N/A'}`);
     }
 
+    // Guard-rails
+    if (!data || !indicators) {
+      const reason = '❌ Dados ou indicadores ausentes';
+      console.error(reason);
+      return { totalScore: 0, details: {}, isValid: false, isMLDriven: false, reason, scoreComponents: [] };
+    }
+
+    // Assegurar features de volume caso TA não tenha fornecido
+    const volumeFeatures = this._ensureVolumeFeatures(data, indicators);
+    const safeIndicators = { ...indicators, ...volumeFeatures.inject };
+
     let score = 0;
     const details = {};
     let isMLDriven = false;
     let confirmations = 0;
-    let strengthFactors = [];
+    const strengthFactors = [];
     const scoreComponents = [];
-    
-    // Inicializa o contador de ativos analisados se não existir
-    if (!global.assetsAnalyzed) {
-      global.assetsAnalyzed = 0;
-      global.bestSignals = [];
-    }
-    global.assetsAnalyzed++;
+
+    const addScoreComponent = (name, value, weight = 1, description = '') => {
+      const val = Number.isFinite(value) ? value : 0;
+      const w = Number.isFinite(weight) ? weight : 1;
+      const weightedValue = val * w;
+      const component = { name, value: val, weight: w, weightedValue, description };
+      scoreComponents.push(component);
+
+      // Log amigável
+      const valueStr = val.toFixed(2).padStart(6);
+      const weightedStr = weightedValue.toFixed(2).padStart(6);
+      const weightStr = w.toFixed(2).padStart(4);
+      let logLine = `  • ${name.padEnd(25)}: ${valueStr} × ${weightStr} = ${weightedStr}`;
+      if (description) logLine += ` (${description})`;
+      console.log(logLine);
+
+      return weightedValue;
+    };
 
     try {
-      // Validação básica
-      if (!data || !indicators) {
-        const errorMsg = '❌ Dados ou indicadores ausentes';
-        console.error(errorMsg);
-        return { totalScore: 0, details: {}, isValid: false, isMLDriven: false, reason: errorMsg };
-      }
-
-      // Função auxiliar para adicionar e logar componentes de pontuação
-      const addScoreComponent = (name, value, weight = 1, description = '') => {
-        const weightedValue = value * weight;
-        const component = { name, value, weight, weightedValue, description };
-        scoreComponents.push(component);
-        
-        // Formata a saída para melhor legibilidade
-        const valueStr = value.toFixed(2).padStart(6);
-        const weightedStr = weightedValue.toFixed(2).padStart(6);
-        const weightStr = weight.toFixed(2).padStart(4);
-        
-        let logLine = `  • ${name.padEnd(25)}: ${valueStr} × ${weightStr} = ${weightedStr}`;
-        if (description) logLine += ` (${description})`;
-        console.log(logLine);
-        
-        return weightedValue;
-      };
-
       console.log(`📈 [${symbol}] ANALISANDO INDICADORES`);
-      const indicatorScore = this.scoreIndicators(indicators);
-      score += addScoreComponent('Indicadores Técnicos', indicatorScore.total, 1, 
-        `RSI: ${indicators.rsi?.toFixed(2) || 'N/A'}, ` +
-        `MACD: ${indicators.macd?.histogram?.toFixed(6) || 'N/A'}`);
-      
+      const indicatorScore = this.scoreIndicators(safeIndicators);
+      score += addScoreComponent(
+        'Indicadores Técnicos',
+        indicatorScore.total,
+        1,
+        `RSI: ${safeIndicators.rsi?.toFixed?.(2) ?? 'N/A'}, MACD.h: ${safeIndicators.macd?.histogram?.toFixed?.(6) ?? 'N/A'}`
+      );
       details.indicators = indicatorScore.details;
       confirmations += indicatorScore.confirmations || 0;
       strengthFactors.push(...(indicatorScore.strengthFactors || []));
       console.log(`📊 [${symbol}] Confirmações indicadores: ${indicatorScore.confirmations || 0}`);
-      
-      // Análise detalhada dos indicadores
-      if (indicators.rsi !== undefined) {
-        let rsiAnalysis = '';
-        if (indicators.rsi < 30) rsiAnalysis = 'SOBREVENDA';
-        else if (indicators.rsi > 70) rsiAnalysis = 'SOBRECOMPRA';
-        if (rsiAnalysis) console.log(`📊 [${symbol}] ${rsiAnalysis}: RSI ${indicators.rsi.toFixed(2)}`);
+
+      // Logs de leitura rápida
+      if (Number.isFinite(safeIndicators.rsi)) {
+        if (safeIndicators.rsi < 30) console.log(`📊 [${symbol}] SOBREVENDA (RSI ${safeIndicators.rsi.toFixed(2)})`);
+        else if (safeIndicators.rsi > 70) console.log(`📊 [${symbol}] SOBRECOMPRA (RSI ${safeIndicators.rsi.toFixed(2)})`);
       }
-      
-      if (indicators.macd?.histogram !== undefined) {
-        if (Math.abs(indicators.macd.histogram) > 0.000001) {
-          console.log(`📊 [${symbol}] MACD: ${indicators.macd.histogram > 0 ? 'COMPRA' : 'VENDA'} ` + 
-                     `(${Math.abs(indicators.macd.histogram).toFixed(8)})`);
-        }
+      if (Number.isFinite(safeIndicators.macd?.histogram)) {
+        const dir = safeIndicators.macd.histogram > 0 ? 'COMPRA' : 'VENDA';
+        console.log(`📊 [${symbol}] MACD: ${dir} (${Math.abs(safeIndicators.macd.histogram).toFixed(8)})`);
       }
 
       console.log(`🔍 [${symbol}] ANALISANDO PADRÕES`);
       const patternScore = this.scorePatterns(patterns || {});
-      score += addScoreComponent('Padrões Gráficos', patternScore.total, 1, 
-        `Reversão: ${patterns?.reversalPatterns?.length || 0}, ` +
-        `Continuação: ${patterns?.continuationPatterns?.length || 0}`);
-      
+      score += addScoreComponent(
+        'Padrões Gráficos',
+        patternScore.total,
+        1,
+        `Reversão: ${patterns?.reversalPatterns?.length || 0}, Continuação: ${patterns?.continuationPatterns?.length || 0}`
+      );
       details.patterns = patternScore.details;
       confirmations += patternScore.confirmations || 0;
       strengthFactors.push(...(patternScore.strengthFactors || []));
       console.log(`🔍 [${symbol}] Confirmações padrões: ${patternScore.confirmations || 0}`);
 
       console.log(`📊 [${symbol}] ANALISANDO VOLUME`);
-      const volumeScore = this.scoreVolume(data, indicators);
-      const volumeRatio = indicators.volumeMA ? (data.volume / indicators.volumeMA).toFixed(2) : 0;
-      score += addScoreComponent('Volume', volumeScore, 1, 
-        `Atual: ${data.volume?.toFixed(2) || 'N/A'}, ` +
-        `Média: ${indicators.volumeMA?.toFixed(2) || 'N/A'} (${volumeRatio}x)`);
-      
-      details.volume = volumeScore;
-      if (volumeScore > 0) confirmations++;
-      if (volumeScore > 15) strengthFactors.push('VOLUME_HIGH');
-      if (volumeScore > 25) strengthFactors.push('VOLUME_EXTREME');
+      const volScore = this.scoreVolume(
+        { volume: volumeFeatures.currentVolume },
+        { volumeMA: volumeFeatures.volumeMA }
+      );
+      const volumeRatioStr = volumeFeatures.volumeMA > 0 ? (volumeFeatures.currentVolume / volumeFeatures.volumeMA).toFixed(2) : 'N/A';
+      score += addScoreComponent(
+        'Volume',
+        volScore,
+        1,
+        `Atual: ${Number.isFinite(volumeFeatures.currentVolume) ? volumeFeatures.currentVolume.toFixed(2) : 'N/A'}, ` +
+          `Média(${DEFAULTS.VOLUME_MA_PERIOD}): ${Number.isFinite(volumeFeatures.volumeMA) ? volumeFeatures.volumeMA.toFixed(2) : 'N/A'} (${volumeRatioStr}x)`
+      );
+      details.volume = volScore;
+      if (volScore > 0) confirmations++;
+      if (volScore > 15) strengthFactors.push('VOLUME_HIGH');
+      if (volScore > 25) strengthFactors.push('VOLUME_EXTREME');
 
       console.log(`✅ [${symbol}] VERIFICANDO FILTROS`);
-      const qualityCheck = this.applyQualityFilters(data, indicators, patterns, confirmations);
+      const qualityCheck = this.applyQualityFilters(
+        { ...data, lastClose, symbol },
+        { ...safeIndicators, volume: { currentVolume: volumeFeatures.currentVolume, averageVolume: volumeFeatures.volumeMA, volumeRatio: (volumeFeatures.volumeMA ? volumeFeatures.currentVolume / volumeFeatures.volumeMA : 0) } },
+        patterns,
+        confirmations
+      );
+
       if (!qualityCheck.passed) {
         console.log(`❌ [${symbol}] REJEITADO: ${qualityCheck.reason}`);
-        return { 
-          totalScore: 0, 
-          details: { ...details, qualityCheck }, 
-          isValid: false, 
+        return {
+          totalScore: 0,
+          details: { ...details, qualityCheck },
+          isValid: false,
           isMLDriven: false,
           reason: qualityCheck.reason,
           scoreComponents
         };
       }
-      
-      console.log(`🏁 [${symbol}] RESULTADO FINAL`);
-      console.log(`📊 [${symbol}] Score bruto: ${score.toFixed(2)}`);
-      console.log(`📊 [${symbol}] Confirmações: ${confirmations}`);
-      
-      // Bônus por múltiplas confirmações
-      if (confirmations >= TRADING_CONFIG.QUALITY_FILTERS.MIN_CONFIRMATIONS) {
-        const confirmationBonus = (confirmations - 1) * 5; // Ajustado para começar do primeiro
-        if (confirmationBonus > 0) {
-          score += addScoreComponent('Bônus Confirmações', confirmationBonus, 1, 
-            `${confirmations} confirmações`);
-        }
-      }
 
-      // Pontuação do Machine Learning
-      const mlScore = (mlProbability || 0) * SCORING_WEIGHTS.ML_WEIGHT * 100;
+      // Machine Learning
+      const mlProb = Number.isFinite(mlProbability) ? clamp(mlProbability, 0, 1) : 0;
+      const mlScore = mlProb * DEFAULTS.ML_WEIGHT * 100;
       if (mlScore > 0) {
-        score += addScoreComponent('Machine Learning', mlScore, 1, 
-          `Probabilidade: ${(mlProbability * 100).toFixed(1)}%`);
+        score += addScoreComponent('Machine Learning', mlScore, 1, `Probabilidade: ${(mlProb * 100).toFixed(1)}%`);
         details.machineLearning = mlScore;
-        if (mlProbability > 0.6) confirmations++;
-        
-        if (mlScore > score * 0.4 && mlProbability > 0.7) {
+        if (mlProb > 0.60) confirmations++;
+        if (mlScore > score * 0.4 && mlProb > 0.70) {
           isMLDriven = true;
           console.log('  🔥 Sinal impulsionado por ML');
         }
       }
 
-      // Ajuste final baseado no regime de mercado
-      let marketRegimeAdjustment = 0;
+      // Ajustes por Regime
+      let regimeAdj = 0;
       if (marketTrend === 'BEARISH') {
-        marketRegimeAdjustment = score * 0.1; // Bônus de 10% em mercados de baixa
-        console.log(`  🐻 Ajuste para mercado em baixa: +${marketRegimeAdjustment.toFixed(2)}`);
+        regimeAdj = score * 0.10; // bônus de resiliência para sinais com filtros passados em baixa
+        console.log(`  🐻 Ajuste para mercado em baixa: +${regimeAdj.toFixed(2)}`);
       } else if (marketTrend === 'VOLATILE') {
-        marketRegimeAdjustment = -score * 0.05; // Redução de 5% em mercados voláteis
-        console.log(`  ⚡ Ajuste para mercado volátil: ${marketRegimeAdjustment.toFixed(2)}`);
+        regimeAdj = -score * 0.05; // leve contenção
+        console.log(`  ⚡ Ajuste para mercado volátil: ${regimeAdj.toFixed(2)}`);
       }
-      
-      score += marketRegimeAdjustment;
-      
-      // Detecção de tendência de baixa
-      const downtrendAnalysis = this.detectDowntrend(indicators);
+      score += regimeAdj;
+
+      // Ajuste por alinhamento BTC (se fornecido)
+      if (bitcoinCorrelation?.alignment) {
+        const align = bitcoinCorrelation.alignment; // 'ALIGNED' | 'MISALIGNED' | 'NEUTRAL' (ou similar)
+        const strength = Number.isFinite(bitcoinCorrelation?.btcStrength) ? bitcoinCorrelation.btcStrength : 50; // 0..100
+        let btcAdj = 0;
+        if (align === 'ALIGNED') {
+          btcAdj = Math.min(8, 2 + strength * 0.05); // até ~7–8 pontos
+        } else if (align === 'MISALIGNED') {
+          btcAdj = -Math.min(10, 2 + strength * 0.06); // penaliza mais se muito forte
+        }
+        if (btcAdj !== 0) {
+          score += addScoreComponent('Alinhamento BTC', btcAdj, 1, `${align} (força: ${strength})`);
+        }
+      }
+
+      // Bônus por múltiplas confirmações
+      if (confirmations >= DEFAULTS.QUALITY.MIN_CONFIRMATIONS) {
+        const confirmationBonus = (confirmations - 1) * 5;
+        if (confirmationBonus > 0) {
+          score += addScoreComponent('Bônus Confirmações', confirmationBonus, 1, `${confirmations} confirmações`);
+        }
+      }
+
+      // Detecção de downtrend (para sinais de venda) — mantém compatível e opcional
+      const downtrendAnalysis = this.detectDowntrend(safeIndicators);
       if (downtrendAnalysis.isDowntrend) {
-        // Bônus para sinais de venda em tendência de baixa
         const downtrendBonus = 15;
         score += downtrendBonus;
         console.log(`   🎯 Bônus de tendência de baixa: +${downtrendBonus} pontos`);
-        details.downtrendAnalysis = {
-          ...downtrendAnalysis,
-          bonusApplied: downtrendBonus
-        };
+        details.downtrendAnalysis = { ...downtrendAnalysis, bonusApplied: downtrendBonus };
       }
 
-      // Verificação de score final
-      // Adiciona variação realista baseada em múltiplos fatores
-      let finalScore = Math.min(100, Math.max(0, score));
-      
-      // Adiciona variação baseada na qualidade dos indicadores
-      const qualityVariation = this.calculateQualityVariation(indicators, patterns, mlProbability);
-      finalScore += qualityVariation;
-      
-      // Adiciona variação baseada no timeframe
-      const timeframeVariation = this.calculateTimeframeVariation(this.currentTimeframe);
-      finalScore += timeframeVariation;
-      
-      // Adiciona variação baseada na força dos sinais
-      const strengthVariation = this.calculateStrengthVariation(confirmations, strengthFactors);
-      finalScore += strengthVariation;
-      
-      // Adiciona pequena variação aleatória para evitar repetição
-      const randomVariation = (Math.random() - 0.5) * 3; // ±1.5%
-      finalScore += randomVariation;
-      
-      // Arredonda para 3 casas decimais para maior precisão
-      finalScore = Math.min(100, Math.max(0, Math.round(finalScore * 1000) / 1000));
-      const isValid = finalScore >= TRADING_CONFIG.MIN_SIGNAL_PROBABILITY;
-      
+      // Score bruto antes de variações
+      console.log(`🏁 [${symbol}] RESULTADO PARCIAL`);
+      console.log(`📊 [${symbol}] Score bruto: ${score.toFixed(2)}`);
+      console.log(`📊 [${symbol}] Confirmações: ${confirmations}`);
+
+      // Variações controladas (determinísticas se JITTER=0)
+      let finalScore = score;
+
+      // Qualidade (sem aleatoriedade)
+      finalScore += this._qualityVariationDeterministic(safeIndicators, patterns, mlProb);
+
+      // Timeframe (sem aleatoriedade — faixas fixas)
+      finalScore += this._timeframeVariationDeterministic(this.currentTimeframe);
+
+      // Força (sem aleatoriedade, só degraus)
+      finalScore += this._strengthVariationDeterministic(confirmations, strengthFactors);
+
+      // Jitter opcional muito pequeno (±JITTER_PCT do score atual)
+      if (DEFAULTS.JITTER_PCT > 0) {
+        const jitter = (Math.random() * 2 - 1) * (DEFAULTS.JITTER_PCT * finalScore);
+        finalScore += jitter;
+      }
+
+      finalScore = clamp(Math.round(finalScore * 1000) / 1000, 0, 100);
+
+      // Histerese leve próximo ao threshold (evita flip-flop)
+      const finalWithHysteresis = this._applyHysteresis(symbol, tf, finalScore, DEFAULTS.MIN_SCORE);
+
+      const isValid = finalWithHysteresis >= DEFAULTS.MIN_SCORE;
+
       console.log(`📊 [${symbol}] DETALHAMENTO DO SCORE:`);
-      
       scoreComponents.forEach(comp => {
         console.log(`📊 [${symbol}] ${comp.name}: ${comp.value.toFixed(2)} × ${comp.weight.toFixed(2)} = ${comp.weightedValue.toFixed(2)}`);
       });
-      
-      console.log(`🎯 [${symbol}] SCORE FINAL: ${finalScore.toFixed(1)}/${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY}`);
-      
+      console.log(`🎯 [${symbol}] SCORE FINAL: ${finalWithHysteresis.toFixed(1)}/${DEFAULTS.MIN_SCORE}`);
+
       // Log resumido
       const logPrefix = isValid ? '✅ SINAL VÁLIDO' : '❌ SINAL INVÁLIDO';
-      console.log(`${logPrefix} [${symbol}] Score: ${finalScore.toFixed(1)}/100`);
-      
+      console.log(`${logPrefix} [${symbol}] Score: ${finalWithHysteresis.toFixed(1)}/100`);
       if (!isValid) {
-        const missingPoints = (TRADING_CONFIG.MIN_SIGNAL_PROBABILITY - finalScore).toFixed(1);
-        console.log(`❌ [${symbol}] Insuficiente: ${finalScore.toFixed(1)} < ${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY} (faltam ${missingPoints})`);
+        const missing = (DEFAULTS.MIN_SCORE - finalWithHysteresis).toFixed(1);
+        console.log(`❌ [${symbol}] Insuficiente: ${finalWithHysteresis.toFixed(1)} < ${DEFAULTS.MIN_SCORE} (faltam ${missing})`);
       } else {
         console.log(`🏆 [${symbol}] SINAL VÁLIDO ENCONTRADO!`);
       }
-      
+
       return {
-        totalScore: finalScore,
+        totalScore: finalWithHysteresis,
         details: { ...details, scoreComponents },
         isValid,
         isMLDriven,
         confirmations,
         strengthFactors,
-        reason: isValid ? 'Sinal válido' : `Pontuação insuficiente (${finalScore.toFixed(1)}/${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY})`
+        reason: isValid ? 'Sinal válido' : `Pontuação insuficiente (${finalWithHysteresis.toFixed(1)}/${DEFAULTS.MIN_SCORE})`
       };
-      
+
     } catch (error) {
       console.error('❌ Erro ao calcular pontuação do sinal:', error);
-      return { 
-        totalScore: 0, 
-        details: { error: error.message }, 
-        isValid: false, 
+      return {
+        totalScore: 0,
+        details: { error: error.message },
+        isValid: false,
         isMLDriven: false,
         reason: `Erro: ${error.message}`,
-        scoreComponents: []
+        scoreComponents
       };
     }
   }
@@ -243,38 +288,37 @@ class SignalScoringService {
    * Detecta tendência de baixa com base em múltiplos indicadores
    */
   detectDowntrend(indicators) {
-    const { rsi, macd, bollingerBands } = indicators;
+    const { rsi, macd, bollingerBands } = indicators || {};
     let trendScore = 0;
     const details = [];
-    
-    // Análise RSI
-    if (rsi > 70) {
-      trendScore += 0.4;
-      details.push(`RSI alto (${rsi.toFixed(2)})`);
-    } else if (rsi > 60) {
-      trendScore += 0.2;
-      details.push(`RSI moderado (${rsi.toFixed(2)})`);
+
+    // RSI
+    if (Number.isFinite(rsi)) {
+      if (rsi > 70) { trendScore += 0.4; details.push(`RSI alto (${rsi.toFixed(2)})`); }
+      else if (rsi > 60) { trendScore += 0.2; details.push(`RSI moderado (${rsi.toFixed(2)})`); }
     }
-    
-    // Análise MACD
-    if (macd?.histogram < 0 && macd?.macd < macd?.signal) {
-      trendScore += 0.3;
-      details.push('MACD cruzamento para baixo');
-    } else if (macd?.histogram < 0) {
-      trendScore += 0.15;
-      details.push('MACD negativo');
+
+    // MACD (usa campo 'MACD' correto)
+    if (macd && Number.isFinite(macd.histogram)) {
+      if (macd.histogram < 0 && Number.isFinite(macd.MACD) && Number.isFinite(macd.signal) && macd.MACD < macd.signal) {
+        trendScore += 0.3; details.push('MACD cruzamento para baixo');
+      } else if (macd.histogram < 0) {
+        trendScore += 0.15; details.push('MACD negativo');
+      }
     }
-    
-    // Análise Bandas de Bollinger
-    if (bollingerBands?.upper && bollingerBands?.middle) {
+
+    // BB (opcional)
+    if (bollingerBands?.upper && bollingerBands?.middle && Number.isFinite(bollingerBands.close)) {
       const price = bollingerBands.close;
-      const upperBand = bollingerBands.upper;
-      const middleBand = bollingerBands.middle;
-      const distanceToUpper = (price - middleBand) / (upperBand - middleBand);
-      
-      if (distanceToUpper > 0.7) {
-        trendScore += 0.3;
-        details.push(`Preço próximo à banda superior (${(distanceToUpper * 100).toFixed(1)}%)`);
+      const upper = bollingerBands.upper;
+      const mid = bollingerBands.middle;
+      const denom = (upper - mid);
+      if (denom > 0) {
+        const distanceToUpper = (price - mid) / denom;
+        if (distanceToUpper > 0.7) {
+          trendScore += 0.3;
+          details.push(`Preço próximo à banda superior (${(distanceToUpper * 100).toFixed(1)}%)`);
+        }
       }
     }
 
@@ -283,352 +327,219 @@ class SignalScoringService {
       console.log(`📉 TENDÊNCIA DE BAIXA DETECTADA (Score: ${(trendScore * 100).toFixed(1)}/100)`);
       console.log(`   Fatores: ${details.join(', ')}`);
     }
-    
     return { isDowntrend, score: trendScore, details };
   }
 
   /**
-   * Calcula variação baseada na qualidade dos indicadores
+   * Variação determinística por qualidade (sem aleatoriedade)
    */
-  calculateQualityVariation(indicators, patterns, mlProbability) {
+  _qualityVariationDeterministic(indicators, patterns, mlProbability) {
     let variation = 0;
-    
-    // Variação baseada na força do RSI
-    if (indicators.rsi !== undefined) {
-      const rsiExtreme = Math.min(indicators.rsi, 100 - indicators.rsi); // Distância do centro
-      if (rsiExtreme < 20) {
-        variation += 5 + (20 - rsiExtreme) * 0.3; // Bônus para RSI extremo
-      } else if (rsiExtreme < 30) {
-        variation += 2 + (30 - rsiExtreme) * 0.2;
+
+    // RSI extremo (proximidade de 0/100)
+    if (Number.isFinite(indicators?.rsi)) {
+      const dist = Math.min(indicators.rsi, 100 - indicators.rsi); // 0..50
+      if (dist < 15) variation += 6;           // muito extremo
+      else if (dist < 25) variation += 3;      // extremo moderado
+      else if (dist > 35) variation -= 2;      // sem informação
+    }
+
+    // Força do MACD (escala original do projeto)
+    if (Number.isFinite(indicators?.macd?.histogram)) {
+      const strength = Math.abs(indicators.macd.histogram) * 1e6; // 0..?
+      if (strength > 10) variation += 8;
+      else if (strength > 5) variation += 5;
+      else if (strength < 1) variation -= 2;
+    }
+
+    // Padrões
+    if (patterns?.breakout) variation += clamp((patterns.breakout.confidence ?? 20) * 0.15, 2, 7);
+    const nCandles = Array.isArray(patterns?.candlestick) ? patterns.candlestick.length : 0;
+    if (nCandles > 0) variation += clamp(2 + (nCandles * 0.8), 2, 6);
+
+    // ML
+    if (Number.isFinite(mlProbability)) {
+      if (mlProbability > 0.65) variation += clamp((mlProbability - 0.5) * 12, 0, 6);
+      else if (mlProbability < 0.40) variation -= clamp((0.5 - mlProbability) * 10, 0, 5);
+    }
+
+    return variation;
+  }
+
+  /**
+   * Variação determinística por timeframe (sem aleatoriedade)
+   */
+  _timeframeVariationDeterministic(timeframe) {
+    const table = {
+      '5m': -1.5,
+      '15m': 0,
+      '1h': 2,
+      '4h': 4,
+      '1d': 6
+    };
+    return table[timeframe] ?? 0;
+  }
+
+  /**
+   * Variação determinística pela força/confirm. (sem aleatoriedade)
+   */
+  _strengthVariationDeterministic(confirmations, strengthFactors) {
+    let v = 0;
+    if (confirmations >= 4) v += 6;
+    else if (confirmations === 3) v += 3;
+    else if (confirmations === 2) v += 1;
+    else v -= 2;
+
+    v += Math.min(5, (strengthFactors?.length || 0) * 1.2);
+    return v;
+  }
+
+  /**
+   * Leve histerese próximo ao threshold para evitar flip-flop
+   */
+  _applyHysteresis(symbol, timeframe, score, threshold) {
+    const key = `${symbol}:${timeframe}`;
+    const last = this._lastDecisions.get(key);
+    const margin = 2.0; // pontos
+
+    let adjusted = score;
+    if (last) {
+      // Se antes era válido e agora caiu um pouco abaixo, segura dentro da margem
+      if (last.valid && score < threshold && score >= threshold - margin) {
+        adjusted = threshold; // mantém válido
+      }
+      // Se antes era inválido e agora subiu um pouco acima, exige passinho a mais
+      if (!last.valid && score >= threshold && score < threshold + margin) {
+        adjusted = threshold - 0.1; // mantém inválido até romper com folga
       }
     }
-    
-    // Variação baseada na força do MACD
-    if (indicators.macd && indicators.macd.histogram !== undefined) {
-      const macdStrength = Math.abs(indicators.macd.histogram) * 1000000;
-      variation += Math.min(8, macdStrength * 2); // Máximo 8 pontos
-    }
-    
-    // Variação baseada nos padrões
-    if (patterns.breakout) {
-      variation += 3 + Math.random() * 4; // 3-7 pontos para breakouts
-    }
-    
-    if (patterns.candlestick && patterns.candlestick.length > 0) {
-      variation += 2 + Math.random() * 3; // 2-5 pontos para padrões candlestick
-    }
-    
-    // Variação baseada no ML
-    if (mlProbability > 0.6) {
-      variation += (mlProbability - 0.5) * 10; // Até 5 pontos para ML forte
-    } else if (mlProbability < 0.4) {
-      variation -= (0.5 - mlProbability) * 8; // Penalidade para ML fraco
-    }
-    
-    return variation;
-  }
-  
-  /**
-   * Calcula variação baseada no timeframe
-   */
-  calculateTimeframeVariation(timeframe) {
-    const timeframeBonus = {
-      '5m': -2 + Math.random() * 2,   // -2 a 0 (menos confiável)
-      '15m': -1 + Math.random() * 3,  // -1 a +2
-      '1h': 0 + Math.random() * 4,    // 0 a +4 (timeframe padrão)
-      '4h': 2 + Math.random() * 4,    // +2 a +6 (mais confiável)
-      '1d': 3 + Math.random() * 5     // +3 a +8 (mais confiável)
-    };
-    
-    return timeframeBonus[timeframe] || 0;
-  }
-  
-  /**
-   * Calcula variação baseada na força dos sinais
-   */
-  calculateStrengthVariation(confirmations, strengthFactors) {
-    let variation = 0;
-    
-    // Bônus por confirmações múltiplas
-    if (confirmations >= 4) {
-      variation += 4 + Math.random() * 3; // +4 a +7
-    } else if (confirmations >= 3) {
-      variation += 2 + Math.random() * 2; // +2 a +4
-    } else if (confirmations >= 2) {
-      variation += Math.random() * 2; // 0 a +2
-    } else {
-      variation -= 1 + Math.random() * 2; // -1 a -3 (poucas confirmações)
-    }
-    
-    // Bônus por fatores de força
-    const strengthBonus = strengthFactors.length * (1 + Math.random() * 0.5);
-    variation += strengthBonus;
-    
-    return variation;
+
+    const valid = adjusted >= threshold;
+    this._lastDecisions.set(key, { ts: Date.now(), score: adjusted, valid });
+    return adjusted;
   }
 
   /**
-   * Define o timeframe atual para uso nos cálculos de pontuação
-   * @param {string} timeframe - O timeframe atual (ex: '1h', '4h', '1d')
+   * Garante features de volume mesmo quando TA não as fornece
    */
-  setCurrentTimeframe(timeframe) {
-    this.currentTimeframe = timeframe;
-    console.log(`[SignalScoring] Timeframe atual definido para: ${timeframe}`);
-    return this.currentTimeframe;
-  }
+  _ensureVolumeFeatures(data, indicators) {
+    // currentVolume
+    let currentVolume = 0;
+    if (Array.isArray(data?.volume)) currentVolume = data.volume[data.volume.length - 1];
+    else if (Number.isFinite(data?.volume)) currentVolume = data.volume;
 
-  /**
-   * Calcula níveis de trading (entrada, alvos, stop loss)
-   */
-  calculateTradingLevels(entryPrice, trend = 'BULLISH') {
-    const entry = entryPrice;
-    const isLong = trend === 'BULLISH';
-    
-    // Alvos ajustados para maior sensibilidade
-    const targetPercentages = [1.2, 2.4, 3.6, 4.8, 6.0, 7.2]; // Reduzido de [1.5, 3.0, ...]
-    const stopLossPercentage = 2.5; // Reduzido de 3.0
-    
-    let targets, stopLoss;
-    
-    if (isLong) {
-      targets = targetPercentages.map(pct => entry * (1 + pct / 100));
-      stopLoss = entry * (1 - stopLossPercentage / 100);
-    } else {
-      targets = targetPercentages.map(pct => entry * (1 - pct / 100));
-      stopLoss = entry * (1 + stopLossPercentage / 100);
+    // volumeMA
+    let volumeMA = Number.isFinite(indicators?.volumeMA) ? indicators.volumeMA : null;
+    if (!Number.isFinite(volumeMA) && Array.isArray(data?.volume) && data.volume.length >= DEFAULTS.VOLUME_MA_PERIOD) {
+      const tail = data.volume.slice(-DEFAULTS.VOLUME_MA_PERIOD).filter(v => Number.isFinite(v));
+      if (tail.length) {
+        volumeMA = tail.reduce((a, b) => a + b, 0) / tail.length;
+      }
     }
-    
-    const riskRewardRatio = targetPercentages[0] / stopLossPercentage;
-    
+    if (!Number.isFinite(volumeMA)) volumeMA = 0;
+
     return {
-      entry,
-      targets,
-      stopLoss,
-      riskRewardRatio
+      currentVolume: Number.isFinite(currentVolume) ? currentVolume : 0,
+      volumeMA,
+      inject: { volumeMA } // mantém compatibilidade com scoreVolume()
     };
   }
 
   /**
-   * Aplica filtros de qualidade ao sinal
-   */
-  applyQualityFilters(data, indicators, patterns, confirmations) {
-    const reasons = [];
-    const result = { passed: true, reason: '' };
-
-    // Verificação de volume
-    if (indicators.volume && indicators.volume.volumeRatio < TRADING_CONFIG.QUALITY_FILTERS.MIN_VOLUME_RATIO) {
-      reasons.push(`Volume (${indicators.volume.volumeRatio.toFixed(2)}x) abaixo do mínimo (${TRADING_CONFIG.QUALITY_FILTERS.MIN_VOLUME_RATIO}x)`);
-    }
-
-    // Verificação de RSI
-    if (indicators.rsi) {
-      if (indicators.rsi < TRADING_CONFIG.QUALITY_FILTERS.MIN_RSI_EXTREME || 
-          indicators.rsi > TRADING_CONFIG.QUALITY_FILTERS.MAX_RSI_EXTREME) {
-        reasons.push(`RSI (${indicators.rsi.toFixed(2)}) fora da faixa aceitável [${TRADING_CONFIG.QUALITY_FILTERS.MIN_RSI_EXTREME}-${TRADING_CONFIG.QUALITY_FILTERS.MAX_RSI_EXTREME}]`);
-      }
-    }
-
-    // Verificação de confirmações
-    if (TRADING_CONFIG.QUALITY_FILTERS.REQUIRE_MULTIPLE_CONFIRMATIONS && 
-        confirmations < TRADING_CONFIG.QUALITY_FILTERS.MIN_CONFIRMATIONS) {
-      reasons.push(`Apenas ${confirmations} de ${TRADING_CONFIG.QUALITY_FILTERS.MIN_CONFIRMATIONS} confirmações necessárias`);
-    }
-
-    // Verificação de padrões
-    if (patterns) {
-      const validPatterns = Object.entries(patterns)
-        .filter(([_, p]) => p && p.confidence >= TRADING_CONFIG.QUALITY_FILTERS.MIN_PATTERN_CONFIDENCE);
-      
-      if (validPatterns.length === 0) {
-        reasons.push(`Nenhum padrão válido encontrado (mínimo ${TRADING_CONFIG.QUALITY_FILTERS.MIN_PATTERN_CONFIDENCE}% de confiança)`);
-      }
-    }
-
-    // Verificação de força do MACD
-    if (indicators.macd && Math.abs(indicators.macd.histogram) < TRADING_CONFIG.QUALITY_FILTERS.MIN_MACD_STRENGTH) {
-      reasons.push(`Força do MACD (${indicators.macd.histogram.toFixed(6)}) abaixo do mínimo (${TRADING_CONFIG.QUALITY_FILTERS.MIN_MACD_STRENGTH})`);
-    }
-
-    // Se houver razões de rejeição, monta a mensagem
-    if (reasons.length > 0) {
-      result.passed = false;
-      result.reason = `Filtros de qualidade não atendidos:\n  • ${reasons.join('\n  • ')}`;
-      
-      // Log detalhado
-      console.log('\n❌ Sinal rejeitado - Motivos:');
-      console.log(`  • ${reasons.join('\n  • ')}`);
-      console.log('\n📊 DETALHES DO SINAL:');
-      console.log(`  • Preço atual: ${data.close[data.close.length - 1]}`);
-      console.log(`  • Volume: ${indicators.volume?.currentVolume || 'N/A'}`);
-      console.log(`  • Volume Média: ${indicators.volume?.averageVolume || 'N/A'}`);
-      console.log(`  • Volume Ratio: ${indicators.volume?.volumeRatio?.toFixed(2) || 'N/A'}`);
-      console.log(`  • RSI: ${indicators.rsi?.toFixed(2) || 'N/A'}`);
-      console.log(`  • MACD: ${indicators.macd ? JSON.stringify({
-        histogram: indicators.macd.histogram?.toFixed(6),
-        signal: indicators.macd.signal?.toFixed(6),
-        macd: indicators.macd.macd?.toFixed(6)
-      }) : 'N/A'}`);
-    } else {
-      console.log('✅ Sinal aprovado em todos os filtros de qualidade');
-    }
-
-    return result;
-  }
-
-  /**
-   * Detecta a tendência do mercado com base nos indicadores e padrões
-   * @param {Object} indicators - Objeto contendo os indicadores técnicos
-   * @param {Object} patterns - Objeto contendo os padrões detectados
-   * @returns {string} - 'BULLISH', 'BEARISH' ou 'NEUTRAL'
+   * Detecta a tendência do sinal (compatível)
    */
   detectSignalTrend(indicators, patterns = {}) {
-    if (!indicators) return 'neutral';
-    
+    if (!indicators) return 'NEUTRAL';
+
     let bullishScore = 0;
     let bearishScore = 0;
     let totalFactors = 0;
-    
+
     console.log('🔍 Detectando tendência do sinal...');
-    
-    // Análise RSI - BALANCEADO para compra E venda
-    if (indicators.rsi !== undefined) {
+
+    // RSI
+    if (Number.isFinite(indicators.rsi)) {
       totalFactors++;
-      if (indicators.rsi <= 25) {
-        bullishScore += 2; // Sobrevenda extrema - COMPRA
-        console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BULLISH EXTREMO (sobrevenda)`);
-      } else if (indicators.rsi <= 35) {
-        bullishScore++; // Sobrevenda - COMPRA
-        console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BULLISH (sobrevenda)`);
-      } else if (indicators.rsi >= 75) {
-        bearishScore += 2; // Sobrecompra extrema - VENDA
-        console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BEARISH EXTREMO (sobrecompra)`);
-      } else if (indicators.rsi >= 65) {
-        bearishScore++; // Sobrecompra - VENDA
-        console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BEARISH (sobrecompra)`);
+      if (indicators.rsi <= 25) { bullishScore += 2; console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BULLISH EXTREMO (sobrevenda)`); }
+      else if (indicators.rsi <= 35) { bullishScore += 1; console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BULLISH (sobrevenda)`); }
+      else if (indicators.rsi >= 75) { bearishScore += 2; console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BEARISH EXTREMO (sobrecompra)`); }
+      else if (indicators.rsi >= 65) { bearishScore += 1; console.log(`  RSI: ${indicators.rsi.toFixed(2)} → BEARISH (sobrecompra)`); }
+      else { console.log(`  RSI: ${indicators.rsi.toFixed(2)} → NEUTRAL`); }
+    }
+
+    // MACD
+    if (Number.isFinite(indicators?.macd?.histogram)) {
+      totalFactors++;
+      const h = indicators.macd.histogram;
+      const strength = Math.abs(h) * 1e6;
+      if (h > 0.000001) {
+        if (strength > 5) bullishScore += 2; else bullishScore += 1;
+        console.log(`  MACD: ${h.toFixed(8)} → BULLISH (força: ${strength.toFixed(2)})`);
+      } else if (h < -0.000001) {
+        if (strength > 5) bearishScore += 2; else bearishScore += 1;
+        console.log(`  MACD: ${h.toFixed(8)} → BEARISH (força: ${strength.toFixed(2)})`);
       } else {
-        console.log(`  RSI: ${indicators.rsi.toFixed(2)} → NEUTRAL`);
+        console.log(`  MACD: ${h.toFixed(8)} → NEUTRAL (muito fraco)`);
       }
     }
-    
-    // Análise MACD - BALANCEADO para compra E venda
-    if (indicators.macd && indicators.macd.histogram !== undefined) {
-      totalFactors++;
-      const histogramStrength = Math.abs(indicators.macd.histogram) * 1000000;
-      
-      if (indicators.macd.histogram > 0.000001) {
-        if (histogramStrength > 5) {
-          bullishScore += 2; // MACD muito forte - COMPRA
-        } else {
-          bullishScore++; // MACD moderado - COMPRA
-        }
-        console.log(`  MACD: ${indicators.macd.histogram.toFixed(8)} → BULLISH (força: ${histogramStrength.toFixed(2)})`);
-      } else if (indicators.macd.histogram < -0.000001) {
-        if (histogramStrength > 5) {
-          bearishScore += 2; // MACD muito forte - VENDA
-        } else {
-          bearishScore++; // MACD moderado - VENDA
-        }
-        console.log(`  MACD: ${indicators.macd.histogram.toFixed(8)} → BEARISH (força: ${histogramStrength.toFixed(2)})`);
-      } else {
-        console.log(`  MACD: ${indicators.macd.histogram.toFixed(8)} → NEUTRAL (muito fraco)`);
-      }
-    }
-    
-    // Análise Médias Móveis - BALANCEADO para compra E venda
-    if (indicators.ma21 !== undefined && indicators.ma200 !== undefined) {
+
+    // MAs
+    if (Number.isFinite(indicators?.ma21) && Number.isFinite(indicators?.ma200) && indicators.ma200 !== 0) {
       totalFactors++;
       const maDiff = ((indicators.ma21 - indicators.ma200) / indicators.ma200) * 100;
-      
-      if (maDiff >= 2) {
-        bullishScore += 2; // Forte tendência de alta - COMPRA
-        console.log(`  MA: ${maDiff.toFixed(2)}% → BULLISH FORTE`);
-      } else if (maDiff >= 0.5) {
-        bullishScore++; // Tendência de alta moderada - COMPRA
-        console.log(`  MA: ${maDiff.toFixed(2)}% → BULLISH`);
-      } else if (maDiff <= -2) {
-        bearishScore += 2; // Forte tendência de baixa - VENDA
-        console.log(`  MA: ${maDiff.toFixed(2)}% → BEARISH FORTE`);
-      } else if (maDiff <= -0.5) {
-        bearishScore++; // Tendência de baixa moderada - VENDA
-        console.log(`  MA: ${maDiff.toFixed(2)}% → BEARISH`);
-      } else {
-        console.log(`  MA: ${maDiff.toFixed(2)}% → NEUTRAL`);
-      }
+      if (maDiff >= 2) { bullishScore += 2; console.log(`  MA: ${maDiff.toFixed(2)}% → BULLISH FORTE`); }
+      else if (maDiff >= 0.5) { bullishScore += 1; console.log(`  MA: ${maDiff.toFixed(2)}% → BULLISH`); }
+      else if (maDiff <= -2) { bearishScore += 2; console.log(`  MA: ${maDiff.toFixed(2)}% → BEARISH FORTE`); }
+      else if (maDiff <= -0.5) { bearishScore += 1; console.log(`  MA: ${maDiff.toFixed(2)}% → BEARISH`); }
+      else { console.log(`  MA: ${maDiff.toFixed(2)}% → NEUTRAL`); }
     }
-    
-    // Análise de padrões - BALANCEADO para compra E venda
-    if (patterns.breakout) {
+
+    // Breakouts
+    if (patterns?.breakout) {
       totalFactors++;
-      if (patterns.breakout.type === 'BULLISH_BREAKOUT') {
-        bullishScore += 2; // Rompimento de alta - COMPRA
-        console.log(`  Breakout: BULLISH_BREAKOUT`);
-      } else if (patterns.breakout.type === 'BEARISH_BREAKOUT') {
-        bearishScore += 2; // Rompimento de baixa - VENDA
-        console.log(`  Breakout: BEARISH_BREAKOUT`);
-      }
+      if (patterns.breakout.type === 'BULLISH_BREAKOUT') { bullishScore += 2; console.log(`  Breakout: BULLISH_BREAKOUT`); }
+      else if (patterns.breakout.type === 'BEARISH_BREAKOUT') { bearishScore += 2; console.log(`  Breakout: BEARISH_BREAKOUT`); }
     }
-    
-    if (patterns.candlestick && Array.isArray(patterns.candlestick)) {
-      patterns.candlestick.forEach(pattern => {
+
+    // Candlesticks
+    if (Array.isArray(patterns?.candlestick)) {
+      patterns.candlestick.forEach(p => {
         totalFactors++;
-        if (pattern.bias === 'BULLISH') {
-          bullishScore++; // Padrão de alta - COMPRA
-          console.log(`  Candlestick: ${pattern.type} (BULLISH)`);
-        } else if (pattern.bias === 'BEARISH') {
-          bearishScore++; // Padrão de baixa - VENDA
-          console.log(`  Candlestick: ${pattern.type} (BEARISH)`);
-        }
+        if (p?.bias === 'BULLISH') { bullishScore += 1; console.log(`  Candlestick: ${p.type} (BULLISH)`); }
+        else if (p?.bias === 'BEARISH') { bearishScore += 1; console.log(`  Candlestick: ${p.type} (BEARISH)`); }
       });
     }
-    
-    // Volume como confirmação - BALANCEADO
-    if (indicators.volume && indicators.volume.volumeRatio > 1.5) {
-      // Volume alto confirma a direção predominante
-      if (bullishScore > bearishScore) {
-        bullishScore++;
-        console.log(`  Volume: Alto volume confirmando tendência BULLISH`);
-      } else if (bearishScore > bullishScore) {
-        bearishScore++;
-        console.log(`  Volume: Alto volume confirmando tendência BEARISH`);
+
+    // Volume confirma
+    if (Number.isFinite(indicators?.volumeMA) && indicators.volumeMA > 0 && Number.isFinite(indicators?.volume)) {
+      const ratio = indicators.volume / indicators.volumeMA;
+      if (ratio > 1.5) {
+        if (bullishScore > bearishScore) { bullishScore += 1; console.log(`  Volume: Alto volume confirmando tendência BULLISH`); }
+        else if (bearishScore > bullishScore) { bearishScore += 1; console.log(`  Volume: Alto volume confirmando tendência BEARISH`); }
       }
     }
-    
-    // Evita divisão por zero
+
     if (totalFactors === 0) {
       console.log('  ⚠️ Nenhum fator de tendência detectado');
       return 'NEUTRAL';
     }
-    
+
     const bullishRatio = bullishScore / totalFactors;
     const bearishRatio = bearishScore / totalFactors;
-    
-    console.log(`🎯 Pontuação de tendência: BULLISH=${bullishScore}/${totalFactors} (${(bullishRatio*100).toFixed(1)}%), BEARISH=${bearishScore}/${totalFactors} (${(bearishRatio*100).toFixed(1)}%)`);
-    
-    // Threshold balanceado para detectar COMPRA E VENDA
-    if (bullishRatio >= 0.55) {
-      console.log('✅ Tendência BULLISH detectada');
-      return 'BULLISH';
-    }
-    if (bearishRatio >= 0.55) {
-      console.log('✅ Tendência BEARISH detectada');
-      return 'BEARISH';
-    }
-    
-    // Se há diferença pequena, considera o mais forte
-    if (bullishScore > bearishScore && bullishRatio >= 0.4) {
-      console.log('⚖️ Leve tendência BULLISH');
-      return 'BULLISH';
-    } else if (bearishScore > bullishScore && bearishRatio >= 0.4) {
-      console.log('⚖️ Leve tendência BEARISH');
-      return 'BEARISH';
-    }
-    
+    console.log(`🎯 Pontuação de tendência: BULLISH=${bullishScore}/${totalFactors} (${(bullishRatio * 100).toFixed(1)}%), BEARISH=${bearishScore}/${totalFactors} (${(bearishRatio * 100).toFixed(1)}%)`);
+
+    if (bullishRatio >= 0.55) { console.log('✅ Tendência BULLISH detectada'); return 'BULLISH'; }
+    if (bearishRatio >= 0.55) { console.log('✅ Tendência BEARISH detectada'); return 'BEARISH'; }
+
+    if (bullishScore > bearishScore && bullishRatio >= 0.4) { console.log('⚖️ Leve tendência BULLISH'); return 'BULLISH'; }
+    if (bearishScore > bullishScore && bearishRatio >= 0.4) { console.log('⚖️ Leve tendência BEARISH'); return 'BEARISH'; }
+
     console.log('⚖️ Tendência NEUTRAL');
     return 'NEUTRAL';
   }
 
   /**
-   * Pontua indicadores técnicos
+   * Pontua indicadores técnicos (compatível)
    */
   scoreIndicators(indicators) {
     let total = 0;
@@ -637,86 +548,47 @@ class SignalScoringService {
     const strengthFactors = [];
 
     // RSI
-    if (indicators.rsi !== undefined) {
+    if (Number.isFinite(indicators?.rsi)) {
       let score = 0;
       let reason = '';
-      
-      if (indicators.rsi <= 30) {
-        score = 25;
-        reason = 'Sobrevenda';
-        confirmations++;
-        if (indicators.rsi <= 20) strengthFactors.push('RSI_EXTREME');
-      } else if (indicators.rsi >= 70) {
-        score = 25;
-        reason = 'Sobrecompra';
-        confirmations++;
-        if (indicators.rsi >= 80) strengthFactors.push('RSI_EXTREME');
-      } else if (indicators.rsi <= 40) {
-        score = 15;
-        reason = 'Sobrevenda moderada';
-      } else if (indicators.rsi >= 60) {
-        score = 15;
-        reason = 'Sobrecompra moderada';
-      }
-      
+      if (indicators.rsi <= 30) { score = 25; reason = 'Sobrevenda'; confirmations++; if (indicators.rsi <= 20) strengthFactors.push('RSI_EXTREME'); }
+      else if (indicators.rsi >= 70) { score = 25; reason = 'Sobrecompra'; confirmations++; if (indicators.rsi >= 80) strengthFactors.push('RSI_EXTREME'); }
+      else if (indicators.rsi <= 40) { score = 15; reason = 'Sobrevenda moderada'; }
+      else if (indicators.rsi >= 60) { score = 15; reason = 'Sobrecompra moderada'; }
       total += score;
       details.rsi = { score, reason };
     }
 
-    // MACD
-    if (indicators.macd && indicators.macd.histogram !== undefined) {
+    // MACD (usa campos corretos)
+    if (Number.isFinite(indicators?.macd?.histogram)) {
       let score = 0;
       let reason = '';
-      const histogramStrength = Math.abs(indicators.macd.histogram) * 1000000;
-      
+      const strength = Math.abs(indicators.macd.histogram) * 1e6;
       if (Math.abs(indicators.macd.histogram) > 0.000001) {
-        if (histogramStrength > 10) {
-          score = 30;
-          reason = 'Sinal muito forte';
-          confirmations++;
-          strengthFactors.push('MACD_STRONG');
-        } else if (histogramStrength > 5) {
-          score = 20;
-          reason = 'Sinal forte';
-          confirmations++;
-        } else if (histogramStrength > 1) {
-          score = 10;
-          reason = 'Sinal moderado';
-        }
+        if (strength > 10) { score = 30; reason = 'Sinal muito forte'; confirmations++; strengthFactors.push('MACD_STRONG'); }
+        else if (strength > 5) { score = 20; reason = 'Sinal forte'; confirmations++; }
+        else if (strength > 1) { score = 10; reason = 'Sinal moderado'; }
       }
-      
       total += score;
-      details.macd = { score, reason, strength: histogramStrength };
+      details.macd = { score, reason, strength };
     }
 
-    // Médias Móveis
-    if (indicators.ma21 !== undefined && indicators.ma200 !== undefined) {
+    // Médias móveis
+    if (Number.isFinite(indicators?.ma21) && Number.isFinite(indicators?.ma200) && indicators.ma200 !== 0) {
       let score = 0;
       let reason = '';
       const maDiff = ((indicators.ma21 - indicators.ma200) / indicators.ma200) * 100;
-      
-      if (Math.abs(maDiff) > 2) {
-        score = 20;
-        reason = `Tendência forte (${maDiff.toFixed(2)}%)`;
-        confirmations++;
-        strengthFactors.push('MA_STRONG');
-      } else if (Math.abs(maDiff) > 0.5) {
-        score = 10;
-        reason = `Tendência moderada (${maDiff.toFixed(2)}%)`;
-      }
-      
+      if (Math.abs(maDiff) > 2) { score = 20; reason = `Tendência forte (${maDiff.toFixed(2)}%)`; confirmations++; strengthFactors.push('MA_STRONG'); }
+      else if (Math.abs(maDiff) > 0.5) { score = 10; reason = `Tendência moderada (${maDiff.toFixed(2)}%)`; }
       total += score;
       details.movingAverages = { score, reason, difference: maDiff };
     }
-
-    // Divergência RSI - REMOVIDO (causava erros)
-    // Sistema funciona sem divergências
 
     return { total, details, confirmations, strengthFactors };
   }
 
   /**
-   * Pontua padrões gráficos
+   * Pontua padrões gráficos (compatível)
    */
   scorePatterns(patterns) {
     let total = 0;
@@ -725,38 +597,36 @@ class SignalScoringService {
     const strengthFactors = [];
 
     // Breakouts
-    if (patterns.breakout) {
-      const score = patterns.breakout.confidence || 20;
+    if (patterns?.breakout) {
+      const score = patterns.breakout.confidence ?? 20;
       total += score;
       details.breakout = { score, type: patterns.breakout.type };
       confirmations++;
       if (score > 25) strengthFactors.push('BREAKOUT_STRONG');
     }
 
-    // Padrões de candlestick
-    if (patterns.candlestick && Array.isArray(patterns.candlestick)) {
-      patterns.candlestick.forEach(pattern => {
-        const score = pattern.confidence || 15;
+    // Candlestick
+    if (Array.isArray(patterns?.candlestick)) {
+      const arr = patterns.candlestick;
+      arr.forEach(p => {
+        const score = p?.confidence ?? 15;
         total += score;
         confirmations++;
         if (score > 20) strengthFactors.push('CANDLESTICK_STRONG');
       });
-      details.candlestick = { 
-        count: patterns.candlestick.length,
-        patterns: patterns.candlestick 
-      };
+      details.candlestick = { count: arr.length, patterns: arr };
     }
 
-    // Padrões de reversão
-    if (patterns.reversalPatterns && patterns.reversalPatterns.length > 0) {
+    // Reversão
+    if (Array.isArray(patterns?.reversalPatterns) && patterns.reversalPatterns.length > 0) {
       const score = patterns.reversalPatterns.length * 10;
       total += score;
       details.reversal = { score, count: patterns.reversalPatterns.length };
       confirmations++;
     }
 
-    // Padrões de continuação
-    if (patterns.continuationPatterns && patterns.continuationPatterns.length > 0) {
+    // Continuação
+    if (Array.isArray(patterns?.continuationPatterns) && patterns.continuationPatterns.length > 0) {
       const score = patterns.continuationPatterns.length * 8;
       total += score;
       details.continuation = { score, count: patterns.continuationPatterns.length };
@@ -767,30 +637,153 @@ class SignalScoringService {
   }
 
   /**
-   * Pontua volume
+   * Pontua volume (compatível)
+   * data.volume: número atual de volume
+   * indicators.volumeMA: média de volume
    */
   scoreVolume(data, indicators) {
-    if (!data.volume || !indicators.volumeMA) return 0;
+    const vol = Number.isFinite(data?.volume) ? data.volume : 0;
+    const vma = Number.isFinite(indicators?.volumeMA) ? indicators.volumeMA : 0;
+    if (vol <= 0 || vma <= 0) return 0;
 
-    const volumeRatio = data.volume / indicators.volumeMA;
-    let score = 0;
-
-    if (volumeRatio > 3) {
-      score = 30; // Volume extremamente alto
-    } else if (volumeRatio > 2) {
-      score = 20; // Volume muito alto
-    } else if (volumeRatio > 1.5) {
-      score = 15; // Volume alto
-    } else if (volumeRatio > 1.2) {
-      score = 10; // Volume moderadamente alto
-    } else if (volumeRatio < 0.5) {
-      score = -10; // Volume muito baixo (penalidade)
-    }
-
-    return score;
+    const ratio = vol / vma;
+    if (ratio > 3) return 30;       // extremamente alto
+    if (ratio > 2) return 20;       // muito alto
+    if (ratio > 1.5) return 15;     // alto
+    if (ratio > 1.2) return 10;     // moderado
+    if (ratio < 0.5) return -10;    // muito baixo
+    return 0;
   }
 
-  // Restante do código...
+  /**
+   * Aplica filtros de qualidade (compatível, mais robusto)
+   */
+  applyQualityFilters(data, indicators, patterns, confirmations) {
+    const reasons = [];
+    const result = { passed: true, reason: '' };
+
+    // Volume
+    const volumeRatio = Number.isFinite(indicators?.volume?.volumeRatio)
+      ? indicators.volume.volumeRatio
+      : (Number.isFinite(indicators?.volumeMA) && indicators.volumeMA > 0 && Number.isFinite(indicators?.volume))
+        ? indicators.volume / indicators.volumeMA
+        : 0;
+
+    if (volumeRatio > 0 && volumeRatio < DEFAULTS.QUALITY.MIN_VOLUME_RATIO) {
+      reasons.push(`Volume (${volumeRatio.toFixed(2)}x) abaixo do mínimo (${DEFAULTS.QUALITY.MIN_VOLUME_RATIO}x)`);
+    }
+
+    // RSI
+    if (Number.isFinite(indicators?.rsi)) {
+      const rsi = indicators.rsi;
+      const minR = DEFAULTS.QUALITY.MIN_RSI_EXTREME;
+      const maxR = DEFAULTS.QUALITY.MAX_RSI_EXTREME;
+      if (rsi < minR || rsi > maxR) {
+        reasons.push(`RSI (${rsi.toFixed(2)}) fora da faixa aceitável [${minR}-${maxR}]`);
+      }
+    }
+
+    // Confirmações
+    if (DEFAULTS.QUALITY.REQUIRE_MULTIPLE_CONFIRMATIONS && confirmations < DEFAULTS.QUALITY.MIN_CONFIRMATIONS) {
+      reasons.push(`Apenas ${confirmations} de ${DEFAULTS.QUALITY.MIN_CONFIRMATIONS} confirmações necessárias`);
+    }
+
+    // Padrões
+    if (patterns) {
+      // Normaliza para { key: { confidence } } quando vier em outro formato
+      const flat = [];
+      Object.values(patterns).forEach(p => {
+        if (!p) return;
+        if (Array.isArray(p)) flat.push(...p);
+        else if (typeof p === 'object') flat.push(p);
+      });
+      const validPatterns = flat.filter(p => Number.isFinite(p?.confidence) ? p.confidence >= DEFAULTS.QUALITY.MIN_PATTERN_CONFIDENCE : true);
+      if (flat.length > 0 && validPatterns.length === 0) {
+        reasons.push(`Nenhum padrão válido encontrado (mínimo ${DEFAULTS.QUALITY.MIN_PATTERN_CONFIDENCE}% de confiança)`);
+      }
+    }
+
+    // MACD mínimo
+    if (Number.isFinite(indicators?.macd?.histogram) && Math.abs(indicators.macd.histogram) < DEFAULTS.QUALITY.MIN_MACD_STRENGTH) {
+      reasons.push(`Força do MACD (${indicators.macd.histogram.toFixed(6)}) abaixo do mínimo (${DEFAULTS.QUALITY.MIN_MACD_STRENGTH})`);
+    }
+
+    if (reasons.length > 0) {
+      result.passed = false;
+      result.reason = `Filtros de qualidade não atendidos:\n  • ${reasons.join('\n  • ')}`;
+
+      console.log('\n❌ Sinal rejeitado - Motivos:');
+      console.log(`  • ${reasons.join('\n  • ')}`);
+      console.log('\n📊 DETALHES DO SINAL:');
+      const lastPrice = Array.isArray(data?.close) ? data.close[data.close.length - 1] : data?.lastClose || 'N/A';
+      console.log(`  • Preço atual: ${lastPrice}`);
+      console.log(`  • Volume: ${indicators.volume?.currentVolume ?? 'N/A'}`);
+      console.log(`  • Volume Média: ${indicators.volume?.averageVolume ?? 'N/A'}`);
+      console.log(`  • Volume Ratio: ${Number.isFinite(volumeRatio) ? volumeRatio.toFixed(2) : 'N/A'}`);
+      console.log(`  • RSI: ${Number.isFinite(indicators.rsi) ? indicators.rsi.toFixed(2) : 'N/A'}`);
+      console.log(`  • MACD: ${indicators.macd ? JSON.stringify({
+        histogram: Number.isFinite(indicators.macd.histogram) ? indicators.macd.histogram.toFixed(6) : undefined,
+        signal: Number.isFinite(indicators.macd.signal) ? indicators.macd.signal.toFixed(6) : undefined,
+        MACD: Number.isFinite(indicators.macd.MACD) ? indicators.macd.MACD.toFixed(6) : undefined
+      }) : 'N/A'}`);
+    } else {
+      console.log('✅ Sinal aprovado em todos os filtros de qualidade');
+    }
+
+    return result;
+  }
+
+  /**
+   * Define timeframe atual (compatível)
+   */
+  setCurrentTimeframe(timeframe) {
+    this.currentTimeframe = timeframe;
+    console.log(`[SignalScoring] Timeframe atual definido para: ${timeframe}`);
+    return this.currentTimeframe;
+  }
+
+  /**
+   * Calcula níveis de trading (compatível)
+   * - Usa ATR se disponível; caso contrário, percentuais
+   */
+  calculateTradingLevels(entryPrice, trend = 'BULLISH', indicators = null) {
+    const entry = entryPrice;
+    const isLong = trend === 'BULLISH';
+
+    // Preferência: ATR -> múltiplos (R)
+    const atr = Number.isFinite(indicators?.atr) ? indicators.atr : null;
+
+    let targets, stopLoss, riskRewardRatio;
+
+    if (atr && atr > 0) {
+      // R-multiples: 1R..6R
+      const r = 1.2 * atr;                 // 1R base levemente conservador
+      const targetR = [1, 2, 3, 4, 5, 6];  // 6 alvos
+      if (isLong) {
+        targets = targetR.map(m => entry + m * r);
+        stopLoss = entry - 1.5 * r;        // ~1.5R
+      } else {
+        targets = targetR.map(m => entry - m * r);
+        stopLoss = entry + 1.5 * r;
+      }
+      riskRewardRatio = (targetR[0] * r) / (1.5 * r); // ~0.67, mas primeiros alvos são rápidos
+    } else {
+      // Percentuais (compatível com o sistema)
+      const targetPercentages = [1.2, 2.4, 3.6, 4.8, 6.0, 7.2];
+      const stopLossPercentage = 2.5;
+
+      if (isLong) {
+        targets = targetPercentages.map(pct => entry * (1 + pct / 100));
+        stopLoss = entry * (1 - stopLossPercentage / 100);
+      } else {
+        targets = targetPercentages.map(pct => entry * (1 - pct / 100));
+        stopLoss = entry * (1 + stopLossPercentage / 100);
+      }
+      riskRewardRatio = targetPercentages[0] / stopLossPercentage;
+    }
+
+    return { entry, targets, stopLoss, riskRewardRatio };
+  }
 }
 
 export default SignalScoringService;
