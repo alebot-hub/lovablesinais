@@ -436,6 +436,7 @@ export default class BinanceService {
     }
 
     const stream = this._streamName(symbol, tf);
+    the_url:
     const url = `${this.wsEndpoint}/${stream}`;
     const ws = new WS(url);
 
