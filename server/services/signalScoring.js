@@ -7,7 +7,7 @@
  * - Menos aleatoriedade (jitter controlado por config)
  */
 
-import { SCORING_WEIGHTS, TRADING_CONFIG } from '../config/constants.js';
+import { SCORING_WEIGHTS, TRADING_CONFIG, CORRELATION_CONFIG } from '../config/constants.js';
 
 const DEFAULTS = {
   MIN_SCORE: (TRADING_CONFIG?.MIN_SIGNAL_PROBABILITY ?? 70),
@@ -183,12 +183,12 @@ class SignalScoringService {
       }
       score += regimeAdj;
 
-      // ✅ AJUSTE CORRIGIDO — Alinhamento BTC
-      // - Se o serviço de BTC já trouxe bonus/penalty, usa diretamente.
-      // - Caso contrário, usa alignment ('ALIGNED' | 'AGAINST' | 'MISALIGNED' | 'NEUTRAL').
+      // ✅ AJUSTE ALINHADO — Alinhamento BTC (centralizado com CORRELATION_CONFIG)
       if (bitcoinCorrelation) {
-        const strength = Number.isFinite(bitcoinCorrelation.btcStrength) ? bitcoinCorrelation.btcStrength : 50;
+        const strength = Number.isFinite(bitcoinCorrelation.btcStrength) ? bitcoinCorrelation.btcStrength : 0;
         const rho = Number.isFinite(bitcoinCorrelation.priceCorrelation) ? bitcoinCorrelation.priceCorrelation : 0;
+        const absRho = Math.abs(rho);
+        const corrScale = 0.5 + 0.5 * Math.min(1, absRho); // 0.5..1.0, igual ao serviço
 
         const hasImpact = Number.isFinite(bitcoinCorrelation.bonus) || Number.isFinite(bitcoinCorrelation.penalty);
         if (hasImpact) {
@@ -202,17 +202,30 @@ class SignalScoringService {
             );
           }
         } else if (bitcoinCorrelation.alignment) {
-          // Normaliza MISALIGNED -> AGAINST (compat com serviços antigos/novos)
+          // fallback quando o serviço só entrega 'alignment'
           const rawAlign = bitcoinCorrelation.alignment;
-          const align = (rawAlign === 'MISALIGNED') ? 'AGAINST' : rawAlign; // 'ALIGNED' | 'AGAINST' | 'NEUTRAL'
-          if (align === 'ALIGNED') {
-            const btcAdj = Math.min(8, 2 + strength * 0.05);
-            score += addScoreComponent('Alinhamento BTC', btcAdj, 1, `ALIGNED (força: ${strength})`);
-          } else if (align === 'AGAINST') {
-            const btcAdj = -Math.min(10, 2 + strength * 0.06);
-            score += addScoreComponent('Alinhamento BTC', btcAdj, 1, `AGAINST (força: ${strength})`);
+          const align = (rawAlign === 'MISALIGNED') ? 'AGAINST' : rawAlign; // normaliza
+
+          // aplica apenas se a força do BTC for suficiente para justificar ajuste
+          if (strength >= (CORRELATION_CONFIG?.MIN_STRENGTH_APPLY ?? 30)) {
+            const strong = strength >= (CORRELATION_CONFIG?.STRONG_STRENGTH ?? 70);
+            const moderate = strength >= (CORRELATION_CONFIG?.MODERATE_STRENGTH ?? 50);
+
+            if (align === 'ALIGNED') {
+              // baseado na força e escalado por |ρ|
+              let base = strong ? 25 : (moderate ? 15 : 8);
+              const btcAdj = Math.round(base * corrScale);
+              score += addScoreComponent('Alinhamento BTC', btcAdj, 1, `ALIGNED (ρ=${rho.toFixed(2)}, força: ${strength})`);
+            } else if (align === 'AGAINST') {
+              let base = strong ? -15 : (moderate ? -8 : 0);
+              const btcAdj = Math.round(base * corrScale);
+              if (btcAdj !== 0) {
+                score += addScoreComponent('Alinhamento BTC', btcAdj, 1, `AGAINST (ρ=${rho.toFixed(2)}, força: ${strength})`);
+              }
+            }
+          } else {
+            console.log(`ℹ️ [${symbol}] Alinhamento BTC ignorado (força ${strength} < ${(CORRELATION_CONFIG?.MIN_STRENGTH_APPLY ?? 30)})`);
           }
-          // NEUTRAL → sem ajuste
         }
       }
 
@@ -238,7 +251,7 @@ class SignalScoringService {
       console.log(`📊 [${symbol}] Score bruto: ${score.toFixed(2)}`);
       console.log(`📊 [${symbol}] Confirmações: ${confirmations}`);
 
-      // Variações controladas (determinísticas se JITTER=0)
+      // Variações determinísticas (sem aleatoriedade)
       let finalScore = score;
 
       // Qualidade (sem aleatoriedade)
@@ -776,7 +789,7 @@ class SignalScoringService {
 
   /**
    * Calcula níveis de trading (compatível)
-   * - Usa ATR se disponível; caso contrário, percentuais
+   * - Usa ATR se disponível; caso contrário, percentuais do TRADING_CONFIG
    */
   calculateTradingLevels(entryPrice, trend = 'BULLISH', indicators = null) {
     const entry = entryPrice;
@@ -800,18 +813,23 @@ class SignalScoringService {
       }
       riskRewardRatio = (targetR[0] * r) / (1.5 * r); // ~0.67, mas primeiros alvos são rápidos
     } else {
-      // Percentuais (compatível com o sistema)
-      const targetPercentages = [1.2, 2.4, 3.6, 4.8, 6.0, 7.2];
-      const stopLossPercentage = 2.5;
+      // Percentuais (usando TRADING_CONFIG)
+      const tpPercents = Array.isArray(TRADING_CONFIG?.TARGET_PERCENTAGES) && TRADING_CONFIG.TARGET_PERCENTAGES.length
+        ? TRADING_CONFIG.TARGET_PERCENTAGES
+        : [1.2, 2.4, 3.6, 4.8, 6.0, 7.2];
+
+      const slPercent = Number.isFinite(TRADING_CONFIG?.STOP_LOSS_PERCENTAGE)
+        ? TRADING_CONFIG.STOP_LOSS_PERCENTAGE
+        : 2.5;
 
       if (isLong) {
-        targets = targetPercentages.map(pct => entry * (1 + pct / 100));
-        stopLoss = entry * (1 - stopLossPercentage / 100);
+        targets = tpPercents.map(pct => entry * (1 + pct / 100));
+        stopLoss = entry * (1 - slPercent / 100);
       } else {
-        targets = targetPercentages.map(pct => entry * (1 - pct / 100));
-        stopLoss = entry * (1 + stopLossPercentage / 100);
+        targets = tpPercents.map(pct => entry * (1 - pct / 100));
+        stopLoss = entry * (1 + slPercent / 100);
       }
-      riskRewardRatio = targetPercentages[0] / stopLossPercentage;
+      riskRewardRatio = (tpPercents[0] ?? 1.2) / slPercent;
     }
 
     return { entry, targets, stopLoss, riskRewardRatio };
