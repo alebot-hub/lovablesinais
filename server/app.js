@@ -83,15 +83,15 @@ export const TRADING_CONFIG = {
     BONUS_EXTREME_REVERSAL: 1.4,
     SIDEWAYS_BREAKOUT_BONUS: 1.3,
     MAX_COUNTER_TREND_PER_DAY: 8,
-    COUNTER_TREND_COOLDOWN: 30 * 60 * 1000,
+schedule.scheduleJob('0 */2 * * *', async () => {
     SHORT_TERM_TIMEFRAMES: ['5m', '15m', '30m'],
-    SHORT_TERM_BONUS: 1.3,
+    console.log('\n🔍 ===== INICIANDO ANÁLISE DE SCALPING (2H) =====');
     MIN_SHORT_TERM_RSI_EXTREME: 20,
-    MAX_SHORT_TERM_RSI_EXTREME: 80,
+    console.log('📊 Analisando 72 símbolos em scalping (1m/5m)...');
     REQUIRE_VOLUME_SPIKE: true,
     MIN_VOLUME_SPIKE: 1.5,
     DIVERGENCE_BONUS: 35,
-    PATTERN_REVERSAL_BONUS: 30
+    console.error('❌ Erro na análise de scalping:', error);
   }
 };
 
