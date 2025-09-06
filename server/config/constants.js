@@ -29,7 +29,7 @@ export const CRYPTO_SYMBOLS = [
 // Timeframes para análise (mantidos)
 export const TIMEFRAMES = ['1m', '5m'];
 
-// Configurações de indicadores técnicos (mantidas)
+// Configurações de indicadores técnicos (mantidas, com VOLUME_MA alinhado ao scorer: 20)
 export const INDICATORS_CONFIG = {
   RSI: { period: 10 },
   MACD: { fastPeriod: 10, slowPeriod: 22, signalPeriod: 7 },
@@ -37,7 +37,7 @@ export const INDICATORS_CONFIG = {
   MA_SHORT: { period: 14 },
   MA_LONG: { period: 180 },
   BOLLINGER: { period: 18, stdDev: 1.8 },
-  VOLUME_MA: { period: 14 }
+  VOLUME_MA: { period: 20 } // scorer usa fallback 20 se precisar calcular internamente
 };
 
 // Configurações de pontuação (mantidas + compat fix)
@@ -78,7 +78,7 @@ export const TRADING_CONFIG = {
   VOLATILITY_THRESHOLD: 1.2,
 
   QUALITY_FILTERS: {
-    // Volume atual vs. média(14). Mais alto evita rompimento “oco”.
+    // Volume atual vs. média(20). Mais alto evita rompimento “oco”.
     MIN_VOLUME_RATIO: 0.8,
 
     // RSI extremos padrão; ajuste dinâmico pode ser aplicado no runtime conforme regime.
@@ -127,7 +127,23 @@ export const TRADING_CONFIG = {
 
     DIVERGENCE_BONUS: 35,
     PATTERN_REVERSAL_BONUS: 30
+  },
+
+  // 🔧 Config SCORING explícita para o SignalScoringService (mantém determinístico por padrão)
+  SCORING: {
+    JITTER_PCT: 0
   }
+};
+
+/**
+ * ⚙️ Configuração de correlação com o Bitcoin (usada pelo BitcoinCorrelationService)
+ * - Ajuste os limiares conforme sua preferência.
+ * - Se deseja que força 55 já “conte” para aplicar correlação, defina MIN_STRENGTH_APPLY = 55.
+ */
+export const CORRELATION_CONFIG = {
+  MIN_STRENGTH_APPLY: 30, // força mínima do BTC para aplicar bônus/penalidades de correlação
+  MODERATE_STRENGTH: 55,  // fronteira “moderado”
+  STRONG_STRENGTH: 70     // fronteira “forte”
 };
 
 // 🔒 Rate limit lógico para emissão de sinais (garante no máximo 1 sinal/2h)
