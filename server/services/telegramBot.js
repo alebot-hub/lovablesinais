@@ -2,7 +2,11 @@
  * Serviço do Bot do Telegram
  * (Mantida sua estrutura original; adicionado monitor com fallback por polling)
  * Correções/Travas:
- *  - Níveis SEMPRE fixos: 6 alvos em +1.50% (ou -1.50% p/ short) e STOP em 4.50%
+ *  - Branding atualizado: LOBO SCALPING + rodapé "Sinais Lobo Scalping"
+ *  - Destaque de SCALPING (operação rápida) no corpo da emissão
+ *  - Níveis FIXOS ajustados para scalping:
+ *      • 6 alvos em +0.80% (ou -0.80% p/ short)
+ *      • STOP em 1.30%
  *  - Mesmo que o pipeline envie valores diferentes, normalizamos na emissão e no monitor
  *  - Persiste níveis normalizados e força o monitor a respeitar esses números (sem recomputar fora do padrão)
  *  - Mantém "stopLossOriginal" para exibir exatamente o preço publicado no resultado
@@ -34,11 +38,11 @@ const envNum = (key, def) => Number((process.env[key] ?? def).toString().trim())
 const SEND_TIMEOUT_MS = envNum('TELEGRAM_SEND_TIMEOUT_MS', 8000);
 const MAX_CONSECUTIVE_SEND_FAILS = envNum('TELEGRAM_MAX_FAILS', 3);
 
-// 🔒 Parâmetros FIXOS de níveis (não mexer)
+// 🔒 Parâmetros FIXOS de níveis (Ajustados p/ SCALPING)
 const LEVELS = {
-  TARGET_STEP: 0.015, // 1.50%
+  TARGET_STEP: 0.008, // 0.80% por alvo — SCALPING
   NUM_TARGETS: 6,
-  STOP_PCT: 0.045, // 4.50%
+  STOP_PCT: 0.013, // 1.30% — SCALPING
   EPS: 1e-10,
 };
 
@@ -178,7 +182,7 @@ class TelegramBotService {
     }
   }
 
-  // =================== NÍVEIS (mantidos) ===================
+  // =================== NÍVEIS (SCALPING) ===================
   _expectedLevels(entry, isLong) {
     const e = Number(entry);
     if (!isFinite(e) || e <= 0) return { targets: [], stopLoss: null };
@@ -218,7 +222,7 @@ class TelegramBotService {
       !this._almostEqual(Number(maybeStop), expStop, LEVELS.EPS);
 
     if (needRecalc) {
-      console.log('🔒 Normalizando níveis para 1.50% & 4.50%.');
+      console.log('🔒 Normalizando níveis para 0.80% (TP) & 1.30% (SL) — SCALPING.');
       return { targets: expTargets, stopLoss: expStop, normalized: true };
     }
     return { targets: maybeTargets.map(Number), stopLoss: Number(maybeStop), normalized: false };
@@ -286,9 +290,7 @@ class TelegramBotService {
 
     if (tfCorr && tfCorr !== tfSignal) {
       console.log(
-        `⚠️ btcCorrelation.timeframe=${tfCorr} difere do sinal=${tfSignal} — alinhamento ${
-          confident ? 'aceito' : 'descartado'
-        } (${reason || 'ok'}).`
+        `⚠️ btcCorrelation.timeframe=${tfCorr} difere do sinal=${tfSignal} — alinhamento ${confident ? 'aceito' : 'descartado'} (${reason || 'ok'}).`
       );
     }
 
@@ -345,7 +347,7 @@ class TelegramBotService {
       const targets = normalization.targets;
       const stopLoss = normalization.stopLoss;
 
-      if (normalization.normalized) console.log('🧮 Níveis ajustados na emissão para o padrão fixo.');
+      if (normalization.normalized) console.log('🧮 Níveis ajustados na emissão para o padrão SCALPING.');
 
       const guard = this._shouldEmitSignal(signalData, entry, targets, stopLoss);
       if (!guard.ok) {
@@ -417,9 +419,11 @@ class TelegramBotService {
       ? `\n${this.getCounterTrendWarning(signal, isLong, btc)}\n`
       : '';
 
-    return `🚨 *LOBO PREMIUM #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*${
+    // 🔁 Branding + mensagem de SCALPING
+    return `🚨 *LOBO SCALPING #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*${
       isCounterTrend ? ' ⚡️' : ''
     }
+⚡️ *SCALPING — operação rápida (1m/5m). Execução ágil e gestão de risco obrigatória.*
 
 💰 *#${signal.symbol.split('/')[0]} Futures*
 📊 *TEMPO GRÁFICO:* ${signal.timeframe || '1h'}
@@ -436,7 +440,7 @@ ${factorsText}
 ${targets}
 
 🛑 *Stop Loss:* ${this.formatPrice(signal.stopLoss).replace('.', '․')}
-${counterTrendWarning}👑 *Sinais Lobo Premium*
+${counterTrendWarning}👑 *Sinais Lobo Scalping*
 ⏰ ${this.formatNowSP()}`;
   }
 
@@ -467,9 +471,7 @@ ${counterTrendWarning}👑 *Sinais Lobo Premium*
         ? `₿ *Tendência:* indefinida neste tempo gráfico (${tf}) (força: ${strengthLine})\n🎯 *Operação:* ${operationType} com Bitcoin indefinido`
         : `₿ *Bitcoin:* Tendência *indefinida* neste tempo gráfico (${tf}) (força: ${strengthLine})\n🎯 *Operação:* ${operationType} com Bitcoin indefinido`
       : base === 'BTC'
-      ? `₿ *Tendência:* ${btcTrendWord} neste tempo gráfico (${tf}) (força: ${strengthLine})\n🎯 *Operação:* ${operationType} contra a tendência ${
-          base === 'BTC' ? 'neste tempo gráfico' : 'do BTC'
-        }`
+      ? `₿ *Tendência:* ${btcTrendWord} neste tempo gráfico (${tf}) (força: ${strengthLine})\n🎯 *Operação:* ${operationType} contra a tendência ${base === 'BTC' ? 'neste tempo gráfico' : 'do BTC'}`
       : `₿ *Bitcoin:* Tendência de *${btcTrendWord}* neste tempo gráfico (${tf})\n🎯 *Operação:* ${operationType} contra a tendência do BTC`;
 
     return `${icon} *SINAL CONTRA-TENDÊNCIA*
@@ -505,7 +507,6 @@ ${header}
       } else if (!isLong && macd.histogram < 0) {
         factors.push('MACD com momentum bearish confirmado');
       }
-      // se não favorece, não adiciona nada
     }
 
     if (rsi !== undefined) {
@@ -869,13 +870,13 @@ ${header}
 🛡️ *Novo stop:* ${this.formatPrice(newStopPrice).replace('.', '․')}
 ⏱️ *Duração:* ${duration}
 
-💡 *PROTEÇÃO ATIVADA:*
+💡 *PROTEÇÃO ATIVADA (SCALPING):*
 • Stop móvel protegendo lucros parciais
-• Operação sem risco de perda
+• Operação rápida — preservando ganhos
 • Gestão de risco funcionando perfeitamente
 • Continue seguindo a estratégia!
 
-👑 *Sinais Lobo Premium*`;
+👑 *Sinais Lobo Scalping*`;
 
       await this._sendMessageSafe(message);
     } catch (error) {
@@ -943,7 +944,7 @@ ${header}
 
 🔍 *Alvo ${targetNumber} atingido no par #${symbol.split('/')[0]}*
 💰 *Lucro atual:* +${leveragedPnL.toFixed(1)}% (Alv. 15×)
-⚡️ *Posição parcial realizada*
+⚡️ *SCALPING:* operação rápida — realize parcial conforme plano
 📊 *Entrada:* ${this.formatPrice(monitor.entry).replace('.', '․')}
 💵 *Preço do alvo:* ${this.formatPrice(targetPrice).replace('.', '․')}
 ⏱️ *Tempo até o alvo:* ${timeElapsed}
@@ -951,7 +952,7 @@ ${header}
 
 💰 *Recomendação:* ${this.getTargetRecommendation(targetNumber)}
 
-👑 *Sinais Lobo Premium*`;
+👑 *Sinais Lobo Scalping*`;
 
       await this._sendMessageSafe(message);
     } catch (error) {
@@ -979,19 +980,13 @@ ${header}
 🛑 *Stop loss:* ${publishedStop}
 📅 *Duração:* ${duration}
 
-💡 *GERENCIAMENTO DE RISCO:*
+💡 *GERENCIAMENTO (SCALPING):*
 - Stop loss ativado sem alvos atingidos
 - Perda limitada conforme estratégia
-- Gestão de risco protegeu o capital total
+- Execução rápida preservou capital
 - Aguarde próxima oportunidade
-- Mantenha disciplina!
 
-📊 *ANÁLISE:*
-- Mercado se moveu contra nossa operação
-- Stop loss protegeu de perdas maiores
-- Próxima operação pode ser mais favorável
-
-👑 Sinais Lobo Premium
+👑 Sinais Lobo Scalping
 ⏰ ${this.formatNowSP()}`;
       } else {
         message = `❌ *#${symbol.split('/')[0]} - OPERAÇÃO FINALIZADA* ❌
@@ -1005,19 +1000,12 @@ ${header}
 🛑 *Stop loss:* ${publishedStop}
 📅 *Duração:* ${duration}
 
-💡 *GERENCIAMENTO DE RISCO:*
-- Stop loss ativado após realização parcial no Alvo ${monitor.targetsHit}
-- ${monitor.targetsHit > 0 ? '50% da posição foi realizada com lucro' : 'Perda limitada conforme estratégia'}
+💡 *GERENCIAMENTO (SCALPING):*
+- Stop ativado após realização parcial
 - Perda reduzida na posição restante
 - Estratégia de proteção funcionou
-- Aguarde próxima oportunidade
 
-📊 *ANÁLISE:*
-- Mercado reverteu após atingir o${monitor.targetsHit > 1 ? 's' : ''} primeiro${monitor.targetsHit > 1 ? 's' : ''} alvo${monitor.targetsHit > 1 ? 's' : ''}
-- Realização parcial garantiu lucro na operação
-- Stop móvel protegeu os ganhos parciais
-
-👑 Sinais Lobo Premium
+👑 Sinais Lobo Scalping
 ⏰ ${this.formatNowSP()}`;
       }
 
@@ -1043,7 +1031,7 @@ ${header}
 👑 Aí é Loucura!!
 📅 *Duração:* ${duration}
 
-👑 *Sinais Lobo Premium*
+👑 *Sinais Lobo Scalping*
 ⏰ ${this.formatNowSP()}`;
 
       await this._sendMessageSafe(message);
@@ -1070,13 +1058,12 @@ ${header}
 💵 *Preço atual:* ${this.formatPrice(currentPrice).replace('.', '․')}
 ⏱️ *Duração:* ${duration}
 
-🎉 *EXCELENTE RESULTADO!*
+🎉 *SCALPING BEM-SUCEDIDO!*
 • Operação finalizada sem perdas
 • Stop de lucro protegeu os ganhos
 • Gestão de risco funcionou perfeitamente
-• Parabéns pela disciplina!
 
-👑 *Sinais Lobo Premium*`;
+👑 *Sinais Lobo Scalping*`;
 
       await this._sendMessageSafe(message);
 
