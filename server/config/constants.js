@@ -7,7 +7,7 @@
 export const CRYPTO_SYMBOLS = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'XRP/USDT', 'ADA/USDT',
   'DOGE/USDT', 'SOL/USDT', 'TRX/USDT', 'DOT/USDT', 'POL/USDT',
-  'LTC/USDT', '1000SHIB/USDT', 'AVAX/USDT', 'UNI/USDT', 'ATOM/USDT',
+  'LTC/USDT', '1000SHIB/USDT', 'UNI/USDT', 'ATOM/USDT',
   'LINK/USDT', 'ETC/USDT', 'XLM/USDT', 'BCH/USDT', 'NEAR/USDT',
   'ALGO/USDT', 'VET/USDT', 'ICP/USDT', 'FIL/USDT', 'APE/USDT',
   'MANA/USDT', 'SAND/USDT', 'LRC/USDT', 'AXS/USDT', 'THETA/USDT',
@@ -22,7 +22,7 @@ export const CRYPTO_SYMBOLS = [
   'BLUR/USDT', 'PENDLE/USDT', 'STRK/USDT', 'MEME/USDT', 'NOT/USDT',
 
   // ➕ Ativos adicionais sugeridos para scalping (boa liquidez em perp):
-  'FLOKI/USDT', 'ENA/USDT', 'AEVO/USDT', 'ONDO/USDT', 'JASMY/USDT'
+  '1000FLOKI/USDT', 'ENA/USDT', 'AEVO/USDT', 'ONDO/USDT', 'JASMY/USDT'
   // Observação: mantenha apenas se houver suporte na(s) exchange(s) alvo do bot.
 ];
 
