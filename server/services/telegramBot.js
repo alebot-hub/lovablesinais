@@ -2,20 +2,22 @@
  * Serviço do Bot do Telegram
  * (Mantida sua estrutura original; adicionado monitor com fallback por polling)
  * Correções/Travas:
- *  - Branding atualizado: LOBO SCALPING + rodapé "Sinais Lobo Scalping"
- *  - Destaque de SCALPING (operação rápida) no corpo da emissão
- *  - Níveis FIXOS ajustados para scalping:
+ *  - Branding: LOBO SCALPING + rodapé "Sinais Lobo Scalping"
+ *  - Destaque: SCALPING (operação rápida) no corpo da emissão
+ *  - Níveis FIXOS (SCALPING):
  *      • 6 alvos em +0.80% (ou -0.80% p/ short)
  *      • STOP em 1.30%
- *  - Mesmo que o pipeline envie valores diferentes, normalizamos na emissão e no monitor
- *  - Persiste níveis normalizados e força o monitor a respeitar esses números (sem recomputar fora do padrão)
+ *  - Pré-check de preço (anti-late-entry / anti-chase):
+ *      • Bloqueia se faltarem ≤0.16% para o TP1 (≥80% do caminho já percorrido)
+ *      • Bloqueia se preço já passou o TP1
+ *      • Bloqueia se desvio adverso ≥0.30% da entrada
+ *  - Mesmo que o pipeline envie outros níveis, normalizamos na emissão e no monitor
+ *  - Persiste níveis normalizados e força o monitor a respeitar esses números
  *  - Mantém "stopLossOriginal" para exibir exatamente o preço publicado no resultado
  *  - Adiciona hash de níveis para auditoria
- *  - Mensagens coerentes: RSI só quando favorece a direção; candles apenas se alinhados; "neste tempo gráfico" nas menções ao BTC
- *  - Gate de confiança do BTC (força mínima + timeframe coerente), com comportamento ajustável por .env:
- *      - REQUIRE_EXPLICIT_ALIGNMENT: se false, permite inferir por btcTrend
- *      - SHOW_UNCERTAIN_BTC_FACTOR: se false, não exibe “Bitcoin indefinido…”
- *  - Guarda de emissão para sinais contra-tendência (configurável por env)
+ *  - Mensagens coerentes e mais informativas (interpretação/sentimento/fatores)
+ *  - Gate de confiança do BTC (força mínima + timeframe coerente), ajustável por .env
+ *  - Guarda de emissão contra-tendência
  *
  * Robustez de envio:
  *  - Timeout configurável, fila, fallback Markdown→MarkdownV2→texto puro e circuit breaker
@@ -38,11 +40,11 @@ const envNum = (key, def) => Number((process.env[key] ?? def).toString().trim())
 const SEND_TIMEOUT_MS = envNum('TELEGRAM_SEND_TIMEOUT_MS', 8000);
 const MAX_CONSECUTIVE_SEND_FAILS = envNum('TELEGRAM_MAX_FAILS', 3);
 
-// 🔒 Parâmetros FIXOS de níveis (Ajustados p/ SCALPING)
+// 🔒 Parâmetros FIXOS de níveis (SCALPING)
 const LEVELS = {
-  TARGET_STEP: 0.008, // 0.80% por alvo — SCALPING
+  TARGET_STEP: 0.008, // 0.80% por alvo
   NUM_TARGETS: 6,
-  STOP_PCT: 0.013, // 1.30% — SCALPING
+  STOP_PCT: 0.013, // 1.30%
   EPS: 1e-10,
 };
 
@@ -60,6 +62,13 @@ const BTC_TREND_GUARD = {
   ENFORCE_TF_MATCH: envBool('BTC_TREND_ENFORCE_TF', 'true'),
   REQUIRE_EXPLICIT_ALIGNMENT: envBool('BTC_ALIGNMENT_REQUIRE_EXPLICIT', 'true'),
   SHOW_UNCERTAIN_BTC_FACTOR: envBool('SHOW_UNCERTAIN_BTC_FACTOR', 'false'),
+};
+
+// 🔎 Pré-check (limiares)
+const PRECHECK = {
+  TP1_PROXIMITY_OK_REMAINING: 0.002, // 0.20% restante até o TP1 (ou menos) → evita chase (0.2% ≈ 25% do step? Aqui 0.16% seria 20% de 0.8%; usamos 0.20% conservador)
+  TP1_STEP: LEVELS.TARGET_STEP,      // 0.80%
+  ADV_SLIPPAGE_MAX: 0.003,           // 0.30% adverso máximo tolerado na entrada
 };
 
 class TelegramBotService {
@@ -332,6 +341,57 @@ class TelegramBotService {
     return { ok: true };
   }
 
+  // ---------- PRÉ-CHECK DE PREÇO ----------
+  async _preEmissionPriceCheck(symbol, isLong, entry, targets, providedPrice, priceProvider) {
+    try {
+      let live = Number(providedPrice);
+      if (!isFinite(live) && typeof priceProvider === 'function') {
+        try {
+          live = Number(await priceProvider());
+        } catch (_) {}
+      }
+      if (!isFinite(live)) {
+        console.warn(`[PreCheck] Sem preço ao vivo para ${symbol}. Pré-check pulado.`);
+        return { ok: true, reason: 'NO_LIVE_PRICE' };
+      }
+
+      const tp1 = Number(targets?.[0]);
+      if (!isFinite(tp1)) return { ok: true, reason: 'NO_TP1' };
+
+      const step = PRECHECK.TP1_STEP; // 0.008
+      const advMax = PRECHECK.ADV_SLIPPAGE_MAX; // 0.003
+      const remainOk = PRECHECK.TP1_PROXIMITY_OK_REMAINING; // 0.002
+
+      // distância até TP1 (sempre positiva)
+      const distToTp1 = isLong ? (tp1 - live) / entry : (live - tp1) / entry;
+      const alreadyBeyondTp1 = isLong ? live >= tp1 : live <= tp1;
+
+      if (alreadyBeyondTp1) {
+        return { ok: false, reason: 'TP1_ALREADY_HIT', details: { live, tp1 } };
+      }
+
+      // Quanto do caminho (entry→TP1) já foi feito? (progresso ∈ [0,1])
+      const totalStep = step * entry;
+      const progressed = isLong ? (live - entry) / totalStep : (entry - live) / totalStep;
+
+      // Muito tarde se já percorreu >= 80% (resta <= 20% do caminho).
+      if (progressed >= 0.8) {
+        return { ok: false, reason: 'TOO_CLOSE_TO_TP1', details: { live, tp1, progressed } };
+      }
+
+      // Desvio adverso: preço contra a entrada mais que 0.30%
+      const adverse = isLong ? (entry - live) / entry : (live - entry) / entry;
+      if (adverse >= advMax) {
+        return { ok: false, reason: 'ADVERSE_SLIPPAGE', details: { live, entry, adverse } };
+      }
+
+      return { ok: true, reason: 'PASS', details: { live, tp1, progressed, adverse } };
+    } catch (e) {
+      console.warn('[PreCheck] Erro inesperado:', e.message);
+      return { ok: true, reason: 'ERROR_SKIP' };
+    }
+  }
+
   // =================== EMISSÃO DO SINAL ===================
   async sendTradingSignal(signalData) {
     try {
@@ -349,6 +409,21 @@ class TelegramBotService {
 
       if (normalization.normalized) console.log('🧮 Níveis ajustados na emissão para o padrão SCALPING.');
 
+      // 🔎 Pré-check de preço (se possível)
+      const pre = await this._preEmissionPriceCheck(
+        signalData.symbol,
+        isLong,
+        entry,
+        targets,
+        signalData.livePrice,
+        signalData.priceProvider
+      );
+      if (!pre.ok) {
+        console.log(`🚫 Sinal NÃO emitido (${signalData.symbol}) — PreCheck: ${pre.reason}`, pre.details || '');
+        return false;
+      }
+
+      // Guarda contra-tendência
       const guard = this._shouldEmitSignal(signalData, entry, targets, stopLoss);
       if (!guard.ok) {
         console.log(`🚫 Sinal NÃO emitido (${signalData.symbol}) — motivo: ${guard.reason}`);
@@ -392,6 +467,24 @@ class TelegramBotService {
     return Number(price).toFixed(6);
   }
 
+  _renderSentimentBlock(signal) {
+    const s = signal?.sentiment || {};
+    const regime = signal?.marketRegime || {};
+    const parts = [];
+
+    if (s?.overall) {
+      const label = String(s.overall).toUpperCase();
+      const fgi = isFinite(s.fearGreedIndex) ? ` (F&G: ${s.fearGreedIndex})` : '';
+      parts.push(`📣 *Sentimento de Mercado:* ${label}${fgi}`);
+    }
+    if (regime?.label) {
+      const vol = isFinite(regime.volatility) ? ` — vol: ${regime.volatility}` : '';
+      parts.push(`🌊 *Regime Atual:* ${regime.label}${vol}`);
+    }
+    if (parts.length === 0) return '';
+    return parts.join('\n') + '\n';
+  }
+
   formatTradingSignal(signal) {
     const isLong = signal.trend === 'BULLISH';
     const direction = isLong ? 'COMPRA' : 'VENDA';
@@ -415,18 +508,16 @@ class TelegramBotService {
       })
       .join('\n');
 
-    const counterTrendWarning = isCounterTrend
-      ? `\n${this.getCounterTrendWarning(signal, isLong, btc)}\n`
-      : '';
+    const counterTrendWarning = isCounterTrend ? `\n${this.getCounterTrendWarning(signal, isLong, btc)}\n` : '';
+    const sentimentBlock = this._renderSentimentBlock(signal);
 
     // 🔁 Branding + mensagem de SCALPING
-    return `🚨 *LOBO SCALPING #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*${
-      isCounterTrend ? ' ⚡️' : ''
-    }
-⚡️ *SCALPING — operação rápida (1m/5m). Execução ágil e gestão de risco obrigatória.*
+    return `🚨 *LOBO SCALPING #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*${isCounterTrend ? ' ⚡️' : ''}
 
-💰 *#${signal.symbol.split('/')[0]} Futures*
-📊 *TEMPO GRÁFICO:* ${signal.timeframe || '1h'}
+⚡️ *SCALPING — operação rápida (1m/5m).* Execução ágil e *gestão de risco obrigatória*.
+
+${sentimentBlock}💰 *#${signal.symbol.split('/')[0]} Futures*
+📊 *Tempo gráfico:* ${signal.timeframe || '1h'}
 📈 *Alavancagem sugerida:* 15x
 🎯 *Probabilidade:* ${displayProbability.toFixed(1)}%
 
@@ -500,7 +591,7 @@ ${header}
     const ma21 = indicators.ma21;
     const ma200 = indicators.ma200;
 
-    // MACD: só adiciona quando favorece a direção do sinal
+    // MACD: só quando favorece a direção
     if (macd && macd.histogram !== undefined) {
       if (isLong && macd.histogram > 0) {
         factors.push('MACD com momentum bullish confirmado');
@@ -511,19 +602,19 @@ ${header}
 
     if (rsi !== undefined) {
       if (isLong) {
-        if (rsi < 25) factors.push('RSI em sobrevenda extrema favorável para compra');
+        if (rsi < 25) factors.push('RSI em sobrevenda extrema (reversão propícia)');
         else if (rsi < 40) factors.push('RSI em zona de compra');
       } else {
-        if (rsi > 75) factors.push('RSI em sobrecompra extrema favorável para venda');
+        if (rsi > 75) factors.push('RSI em sobrecompra extrema (reversão propícia)');
         else if (rsi > 60) factors.push('RSI em zona de venda');
       }
     }
 
     if (patterns.breakout) {
       if (isLong && patterns.breakout.type === 'BULLISH_BREAKOUT')
-        factors.push('Rompimento bullish de resistência confirmado');
+        factors.push('Rompimento de resistência confirmado');
       else if (!isLong && patterns.breakout.type === 'BEARISH_BREAKOUT')
-        factors.push('Rompimento bearish de suporte confirmado');
+        factors.push('Rompimento de suporte confirmado');
     }
 
     if (Array.isArray(patterns.candlestick) && patterns.candlestick.length > 0) {
@@ -531,12 +622,12 @@ ${header}
       const bias = String(p.bias || '').toUpperCase();
       const aligned = (isLong && bias === 'BULLISH') || (!isLong && bias === 'BEARISH');
       if (aligned)
-        factors.push(`Padrão ${String(p.type || '').toLowerCase()} confirmado (${bias === 'BULLISH' ? 'bullish' : 'bearish'})`);
+        factors.push(`Padrão ${String(p.type || '').toLowerCase()} alinhado (${bias === 'BULLISH' ? 'bullish' : 'bearish'})`);
     }
 
     if (volume && volume.volumeRatio !== undefined) {
       if (volume.volumeRatio > 1.2)
-        factors.push(isLong ? 'Volume alto confirmando movimento de compra' : 'Volume alto confirmando pressão vendedora');
+        factors.push(isLong ? 'Volume forte confirmando compras' : 'Volume forte confirmando vendas');
       else factors.push('Volume moderado sustentando o movimento');
     }
 
@@ -544,7 +635,7 @@ ${header}
     if (btc.confident) {
       if (btc.alignment === 'ALIGNED') {
         const word = btc.btcTrend === 'BULLISH' ? 'bullish' : 'bearish';
-        factors.push(`Alinhado com tendência ${word} do Bitcoin neste tempo gráfico`);
+        factors.push(`Alinhado com tendência ${word} do Bitcoin no ${this._tfLabel(signal)}`);
       } else if (btc.alignment === 'AGAINST') {
         factors.push(
           base === 'BTC'
@@ -553,12 +644,12 @@ ${header}
         );
       }
     } else if (BTC_TREND_GUARD.SHOW_UNCERTAIN_BTC_FACTOR) {
-      factors.push('Bitcoin indefinido neste tempo gráfico');
+      factors.push('Tendência do Bitcoin indefinida no mesmo timeframe');
     }
 
     if (ma21 && ma200) {
-      if (isLong && ma21 > ma200) factors.push('Médias móveis em configuração bullish');
-      else if (!isLong && ma21 < ma200) factors.push('Médias móveis em configuração bearish');
+      if (isLong && ma21 > ma200) factors.push('Médias móveis em configuração bullish (curto acima do longo)');
+      else if (!isLong && ma21 < ma200) factors.push('Médias móveis em configuração bearish (curto abaixo do longo)');
     }
 
     const unique = [...new Set(factors)];
@@ -571,8 +662,8 @@ ${header}
     const btc = btcResolved || this._resolveBtcAlignment(signal, isLong);
 
     if (indicators.rsi !== undefined) {
-      if (isLong && indicators.rsi < 25) return 'RSI em sobrevenda extrema favorável para compra';
-      if (!isLong && indicators.rsi > 75) return 'RSI em sobrecompra extrema favorável para venda';
+      if (isLong && indicators.rsi < 25) return 'RSI em sobrevenda extrema favorece pullback de compra';
+      if (!isLong && indicators.rsi > 75) return 'RSI em sobrecompra extrema favorece pullback de venda';
     }
 
     if (indicators.macd && Math.abs(indicators.macd.histogram) > 0.001) {
@@ -580,10 +671,10 @@ ${header}
     }
 
     if (btc.confident && btc.alignment === 'ALIGNED') {
-      return 'Análise técnica alinhada com a tendência do Bitcoin neste tempo gráfico';
+      return 'Sinal alinhado com a tendência do Bitcoin no mesmo timeframe';
     }
 
-    return `Análise técnica favorável para ${isLong ? 'compra' : 'venda'}`;
+    return `Confluência favorável para ${isLong ? 'compra' : 'venda'} no curto prazo`;
   }
 
   // ---------- Probabilidade para exibição ----------
