@@ -188,7 +188,7 @@ class SignalScoringService {
         const strength = Number.isFinite(bitcoinCorrelation.btcStrength) ? bitcoinCorrelation.btcStrength : 0;
         const rho = Number.isFinite(bitcoinCorrelation.priceCorrelation) ? bitcoinCorrelation.priceCorrelation : 0;
         const absRho = Math.abs(rho);
-        const corrScale = 0.5 + 0.5 * Math.min(1, absRho); // 0.5..1.0, igual ao serviço
+        const corrScale = 0.5 + 0.5 * Math.min(1, absRho); // 0.5..1.0
 
         const hasImpact = Number.isFinite(bitcoinCorrelation.bonus) || Number.isFinite(bitcoinCorrelation.penalty);
         if (hasImpact) {
