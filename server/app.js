@@ -498,12 +498,12 @@ app.use('/api/signals', signalRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/notifications', notificationRoutes);
 
-schedule.scheduleJob(SCHEDULE_CONFIG.SIGNAL_ANALYSIS, () => {
+schedule.scheduleJob('0 */2 * * *', () => {
   console.log('\n⏰ Agendamento: Iniciando análise de sinais...');
   analyzeSignals();
 });
 
-schedule.scheduleJob(SCHEDULE_CONFIG.MARKET_SENTIMENT, () => {
+schedule.scheduleJob('0 11,23 * * *', () => {
   console.log('\n⏰ Agendamento: Iniciando análise de sentimento...');
   analyzeMarketSentiment();
 });
