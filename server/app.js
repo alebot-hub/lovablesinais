@@ -49,8 +49,10 @@ const marketAnalysis = new MarketAnalysisService(binanceService, technicalAnalys
 const backtesting = new BacktestingService();
 const chartGenerator = new ChartGeneratorService();
 const riskManagement = new RiskManagementService();
-// Passamos sem Telegram para evitar auto-start do timer interno e duplicidade de relatório
-const performanceTracker = new PerformanceTrackerService();
+
+// ⚠️ Desativa o timer interno do PerformanceTracker para evitar relatório semanal duplicado
+const performanceTracker = new PerformanceTrackerService(telegramBot, { autoStart: false });
+
 const adaptiveScoring = new AdaptiveScoringService();
 const alertSystem = new AlertSystemService(telegramBot);
 const socialSentiment = new SocialSentimentService();
@@ -680,7 +682,7 @@ process.on('SIGTERM', () => {
     binanceService.closeAllWebSockets();
     schedule.gracefulShutdown();
     console.log('✅ Bot encerrado graciosamente');
-    process.exit(1);
+    process.exit(0);
   } catch (error) {
     console.error('❌ Erro no shutdown:', error.message);
     process.exit(1);
