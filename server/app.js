@@ -49,6 +49,7 @@ const marketAnalysis = new MarketAnalysisService(binanceService, technicalAnalys
 const backtesting = new BacktestingService();
 const chartGenerator = new ChartGeneratorService();
 const riskManagement = new RiskManagementService();
+// Passamos sem Telegram para evitar auto-start do timer interno e duplicidade de relatório
 const performanceTracker = new PerformanceTrackerService();
 const adaptiveScoring = new AdaptiveScoringService();
 const alertSystem = new AlertSystemService(telegramBot);
@@ -282,7 +283,7 @@ async function processBestSignal(signal) {
     console.log(`   🎯 Alvos: ${levels.targets.map(t => '$' + t.toFixed(8)).join(', ')}`);
     console.log(`   🛑 Stop: $${levels.stopLoss.toFixed(8)}`);
 
-    // Enriquecimento opcional: sentimento e regime (com timeout curto para não travar emissão)
+    // Enriquecimento opcional: sentimento e regime (timeout curto)
     const [sentiment, marketRegime] = await Promise.all([
       Promise.race([
         marketAnalysis.analyzeMarketSentiment().catch(() => null),
@@ -383,6 +384,11 @@ async function analyzeMarketSentiment() {
 }
 
 // ===== ROTAS DA API =====
+
+app.use('/api/binance', binanceRoutes);
+app.use('/api/signals', signalRoutes);
+app.use('/api/system', systemRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.get('/api/status', (req, res) => {
   try {
@@ -538,14 +544,10 @@ app.post('/api/telegram/test', async (req, res) => {
   }
 });
 
+// SPA fallback — definido APÓS as rotas /api para não interceptar a API
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
-
-app.use('/api/binance', binanceRoutes);
-app.use('/api/signals', signalRoutes);
-app.use('/api/system', systemRoutes);
-app.use('/api/notifications', notificationRoutes);
 
 // Agendamentos (respeitam SCHEDULE_CONFIG, mas mantive explícito)
 schedule.scheduleJob('0 */2 * * *', () => {
