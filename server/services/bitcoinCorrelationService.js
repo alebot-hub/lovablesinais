@@ -4,6 +4,35 @@
 
 import technicalAnalysis from './technicalAnalysis.js';
 
+// Tenta ler thresholds da sua constants.js, mas funciona mesmo sem ela
+let CORRELATION_CONFIG = {};
+try {
+  // caminho típico do seu projeto – ajuste se necessário
+  const mod = await import('../config/constants.js');
+  CORRELATION_CONFIG = mod?.CORRELATION_CONFIG || {};
+} catch (_) {
+  // segue com defaults
+}
+
+const DEFAULT_THRESHOLDS = {
+  // força mínima do BTC para APLICAR a correlação/ajustes no sinal
+  MIN_STRENGTH_APPLY: 30,
+  // classificação de força para bônus/penalidade
+  MODERATE_STRENGTH: 55,
+  STRONG_STRENGTH: 70,
+};
+
+function getThresholds() {
+  return {
+    MIN_STRENGTH_APPLY:
+      Number(CORRELATION_CONFIG.MIN_STRENGTH_APPLY) || DEFAULT_THRESHOLDS.MIN_STRENGTH_APPLY,
+    MODERATE_STRENGTH:
+      Number(CORRELATION_CONFIG.MODERATE_STRENGTH) || DEFAULT_THRESHOLDS.MODERATE_STRENGTH,
+    STRONG_STRENGTH:
+      Number(CORRELATION_CONFIG.STRONG_STRENGTH) || DEFAULT_THRESHOLDS.STRONG_STRENGTH,
+  };
+}
+
 class BitcoinCorrelationService {
   constructor(binanceService) {
     this.binanceService = binanceService;
@@ -162,9 +191,7 @@ class BitcoinCorrelationService {
 
       // ⚖️ Limites realistas no diário
       if (timeframe === '1d') {
-        // se consenso foi BEARISH e preço < MA200, nunca reportar força absurda
         if (btcTrend === 'BEARISH' && lastPrice < ma200) btcStrength = Math.min(btcStrength, 72);
-        // no 1D, não permitir 90+ (evita “100” em movimentos laterais)
         btcStrength = Math.min(btcStrength, 80);
       }
 
@@ -234,6 +261,7 @@ class BitcoinCorrelationService {
     try {
       console.log(`🔗 Analisando correlação ${symbol} vs Bitcoin (${timeframe})...`);
 
+      const T = getThresholds();
       const btcAnalysis = await this.getBitcoinTrend(timeframe);
 
       console.log('🔍 Análise BTC:', {
@@ -244,21 +272,27 @@ class BitcoinCorrelationService {
         timeframe
       });
 
-      if (!btcAnalysis || btcAnalysis.strength < 30) {
-        console.log(`ℹ️ Correlação não aplicada - Força insuficiente (${btcAnalysis?.strength || 0} < 30)`);
+      // Gate único para aplicar correlação/bônus/penalidades
+      if (!btcAnalysis || btcAnalysis.strength < T.MIN_STRENGTH_APPLY) {
+        console.log(`ℹ️ Correlação não aplicada - Força insuficiente (${btcAnalysis?.strength || 0} < ${T.MIN_STRENGTH_APPLY})`);
         return {
           btcTrend: 'NEUTRAL',
-          btcStrength: 0,
-          correlation: 'NEUTRAL',
+          btcStrength: btcAnalysis?.strength || 0,
+          alignment: 'NEUTRAL',
+          type: 'NEUTRAL',
           bonus: 0,
           penalty: 0,
-          recommendation: 'Tendência do Bitcoin muito fraca - foco na análise técnica do ativo'
+          recommendation: 'Tendência do Bitcoin muito fraca - foco na análise técnica do ativo',
+          reasonCode: 'LOW_STRENGTH',
+          minStrengthUsed: T.MIN_STRENGTH_APPLY,
+          timeframe
         };
       }
 
       const priceCorrelation = await this.calculatePriceCorrelation(symbol, assetData, timeframe);
       const alignmentBase = this.analyzeTrendAlignment(assetTrend, btcAnalysis.trend, btcAnalysis.strength);
 
+      // Escala por correlação de preços (0.5–1.0)
       const corrScale = 0.5 + 0.5 * Math.min(1, Math.abs(priceCorrelation));
       let bonus = Math.round((alignmentBase.bonus || 0) * corrScale);
       let penalty = Math.round((alignmentBase.penalty || 0) * corrScale);
@@ -278,17 +312,20 @@ class BitcoinCorrelationService {
         bonus,
         penalty,
         recommendation: alignmentBase.recommendation,
-        priceCorrelation
+        priceCorrelation,
+        timeframe
       };
     } catch (error) {
       console.error(`❌ Erro ao analisar correlação ${symbol}:`, error);
       return {
         btcTrend: 'NEUTRAL',
         btcStrength: 0,
-        correlation: 'NEUTRAL',
+        alignment: 'NEUTRAL',
+        type: 'NEUTRAL',
         bonus: 0,
         penalty: 0,
-        recommendation: 'Erro na análise de correlação'
+        recommendation: 'Erro na análise de correlação',
+        reasonCode: 'ERROR'
       };
     }
   }
@@ -361,11 +398,12 @@ class BitcoinCorrelationService {
 
   // ================== Alinhamento ==================
   analyzeTrendAlignment(assetTrend, btcTrend, btcStrength) {
+    const T = getThresholds();
     console.log(`🔗 Analisando alinhamento: Asset=${assetTrend} vs BTC=${btcTrend} (força: ${btcStrength})`);
 
-    const isStrongBtc = btcStrength > 70;
-    const isModerateBtc = btcStrength > 50;
-    const isWeakBtc = btcStrength <= 50;
+    const isStrongBtc = btcStrength > T.STRONG_STRENGTH;
+    const isModerateBtc = btcStrength > T.MODERATE_STRENGTH;
+    const isWeakBtc = btcStrength <= T.MODERATE_STRENGTH;
 
     if (assetTrend === btcTrend) {
       const alignment = {
