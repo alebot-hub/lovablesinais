@@ -498,6 +498,23 @@ class TelegramBotService {
     return parts.join('\n') + '\n';
   }
 
+  // ➕ NOVO: tag concisa de risco (quando contra-tendência)
+  getRiskTag(signal, isLong, btc) {
+    const alignedAgainst = btc?.confident && btc.alignment === 'AGAINST';
+    if (!alignedAgainst) return '';
+    const reversalType = String(signal?.details?.counterTrendAdjustments?.reversalType || 'MODERATE').toUpperCase();
+    let risk = 'ELEVADO';
+    if (reversalType === 'STRONG') risk = 'MODERADO';
+    if (reversalType === 'EXTREME') risk = 'CONTROLADO';
+    const reason =
+      btc?.btcTrend === 'BULLISH'
+        ? 'contra a tendência do BTC (alta)'
+        : btc?.btcTrend === 'BEARISH'
+        ? 'contra a tendência do BTC (baixa)'
+        : 'contra a tendência do BTC';
+    return `⚖️ <b>Risco:</b> ${this._escapeHtml(risk)} — ${this._escapeHtml(reason)}`;
+  }
+
   formatTradingSignal(signal) {
     const isLong = signal.trend === 'BULLISH';
     const direction = isLong ? 'COMPRA' : 'VENDA';
@@ -524,6 +541,7 @@ class TelegramBotService {
 
     const counterTrendWarning = isCounterTrend ? `\n${this.getCounterTrendWarning(signal, isLong, btc)}\n` : '';
     const sentimentBlock = this._renderSentimentBlock(signal);
+    const riskTagLine = this.getRiskTag(signal, isLong, btc);
 
     // Espaçador garantido abaixo do Stop
     const spacerAfterStop = '\n';
@@ -536,8 +554,7 @@ ${sentimentBlock}💰 <b>#${base} Futures</b>
 📊 <b>Tempo gráfico:</b> ${this._escapeHtml(signal.timeframe || '1h')}
 📈 <b>Alavancagem sugerida:</b> 15x
 🎯 <b>Probabilidade:</b> ${this._escapeHtml(displayProbability.toFixed(1))}%
-
-💡 <b>Interpretação:</b> ${this._escapeHtml(this.getInterpretation(signal, isLong, btc))}
+${riskTagLine ? riskTagLine + '\n' : ''}💡 <b>Interpretação:</b> ${this._escapeHtml(this.getInterpretation(signal, isLong, btc))}
 🔍 <b>Fatores-chave:</b>
 ${factorsText}
 
