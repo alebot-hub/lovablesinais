@@ -16,7 +16,7 @@ function resolveAlias(symbol) {
 class MarketAnalysisService {
   constructor(binanceService, technicalAnalysis) {
     this.binanceService = binanceService;
-    this.technicalAnalysis = technicalAnalysis;
+    this.technicalAnalysis = technicalAnalysis; // mantido para compatibilidade (não usado aqui)
     this.cache = new Map();
     this.cacheTimeout = 10 * 60 * 1000; // 10 minutos
   }
@@ -437,12 +437,12 @@ class MarketAnalysisService {
       
       const volume24h = btcData.volume.slice(-24).reduce((s, v) => s + v, 0);
       const avgVolume = btcData.volume.reduce((s, v) => s + v, 0) / btcData.volume.length;
-      const volumeRatio = volume24h / (avgVolume * 24);
+      const volumeRatio = avgVolume > 0 ? (volume24h / (avgVolume * 24)) : 1;
       
       const prices = btcData.close.slice(-24);
       const returns = [];
       for (let i = 1; i < prices.length; i++) returns.push((prices[i] - prices[i-1]) / prices[i-1]);
-      const volatility = Math.sqrt(returns.reduce((s, r) => s + r * r, 0) / returns.length) * 100;
+      const volatility = Math.sqrt(returns.reduce((s, r) => s + r * r, 0) / (returns.length || 1)) * 100;
       
       let btcScore = 50;
       if (change24h > 5) btcScore += 25;
@@ -460,9 +460,11 @@ class MarketAnalysisService {
       else if (volatility < 1) btcScore -= 5;
 
       const recent = btcData.close.slice(-6);
-      const momentum = (recent[recent.length - 1] - recent[0]) / recent[0] * 100;
-      if (momentum > 1) btcScore += 8;
-      else if (momentum < -1) btcScore -= 8;
+      if (recent.length >= 2) {
+        const momentum = (recent[recent.length - 1] - recent[0]) / recent[0] * 100;
+        if (momentum > 1) btcScore += 8;
+        else if (momentum < -1) btcScore -= 8;
+      }
 
       btcScore = Math.max(15, Math.min(85, btcScore));
 
@@ -479,9 +481,8 @@ class MarketAnalysisService {
         volume24h,
         volumeRatio,
         volatility,
-        momentum,
-        factors,
-        isRealData: true
+        isRealData: true,
+        factors
       };
     } catch (error) {
       console.error('❌ Erro no sentimento Bitcoin:', error.message);
@@ -585,12 +586,13 @@ class MarketAnalysisService {
 
   /**
    * Cálculo do sentimento final (sem Coinglass)
+   * overall padronizado para 'NEUTRAL' | 'BULLISH' | 'BEARISH'
    */
   calculateSentiment(marketOverview, fearGreedData, newsAnalysis, socialSentiment, btcSentiment, ethSentiment) {
     const fearGreedIndex = fearGreedData?.index ?? 50;
     const isRealFearGreed = fearGreedData?.isReal ?? false;
     
-    let overall = 'NEUTRO';
+    let overall = 'NEUTRAL';
     const totalVolume = marketOverview?.totalVolume ?? 0;
     const assetsUp = marketOverview?.assetsUp ?? 0;
     const assetsDown = marketOverview?.assetsDown ?? 0;
@@ -629,8 +631,8 @@ class MarketAnalysisService {
     // Normaliza 0–100
     sentimentScore = Math.max(0, Math.min(100, sentimentScore));
 
-    if (sentimentScore > 60) overall = 'OTIMISTA';
-    else if (sentimentScore < 40) overall = 'PESSIMISTA';
+    if (sentimentScore > 60) overall = 'BULLISH';
+    else if (sentimentScore < 40) overall = 'BEARISH';
 
     return {
       overall,
@@ -696,7 +698,7 @@ class MarketAnalysisService {
 
   getFallbackSentiment() {
     return {
-      overall: 'NEUTRO',
+      overall: 'NEUTRAL',
       fearGreedIndex: 50,
       fearGreedLabel: 'Neutro',
       isRealFearGreed: false,
