@@ -280,7 +280,7 @@ class TelegramBotService {
 
   _resolveBtcAlignment(signal, isLong) {
     const corr = signal?.btcCorrelation || {};
-    the:
+    
     const trendRaw = String(corr.btcTrend || '').toUpperCase();
     const rawAlignment = String(corr.alignment || '').toUpperCase();
     const tfSignal = this._tfLabel(signal);
