@@ -1,34 +1,61 @@
 // server/services/binanceService.js
-// Serviço de integração com a Binance (REST + WS opcional)
+// Serviço de integração com a Binance (REST + WS) com fallback para Bybit (perp USDT)
 // ✅ Exporta apenas a CLASSE (default). NÃO instancia aqui!
 
 import ccxt from 'ccxt';
 
-const WS_ENDPOINT = 'wss://stream.binance.com:9443/ws';
-
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Mapeia símbolo padrão (ex.: BTC/USDT) para o contrato perp USDT linear na Bybit (ex.: BTC/USDT:USDT)
+ */
+function toBybitLinear(symbol) {
+  // Muitos pares em Bybit linear são "BASE/USDT:USDT"
+  if (symbol.includes(':')) return symbol; // já está mapeado
+  const [base, quote] = symbol.split('/');
+  if (!quote) return symbol;
+  return `${base}/${quote}:USDT`;
 }
 
 export default class BinanceService {
   constructor() {
     const apiKey = process.env.BINANCE_API_KEY || '';
     const secret = process.env.BINANCE_SECRET || '';
-    const defaultType = (process.env.BINANCE_DEFAULT_TYPE || 'spot').toLowerCase(); // 'spot' ou 'future'
+    const defaultType = (process.env.BINANCE_DEFAULT_TYPE || 'future').toLowerCase(); // 'future' por padrão
     const enableRateLimit = true;
 
-    this.exchange = new ccxt.binance({
+    // ===== EXCHANGES =====
+    this.binance = new ccxt.binance({
       apiKey,
       secret,
       enableRateLimit,
       options: {
-        defaultType, // spot por padrão
+        defaultType, // 'future' para perp USDT
+        adjustForTimeDifference: true,
       },
       timeout: 15_000,
     });
 
+    // Bybit como fallback (swap linear)
+    this.bybit = new ccxt.bybit({
+      enableRateLimit: true,
+      options: {
+        defaultType: 'swap',
+      },
+      timeout: 15_000,
+    });
+
+    // Carregamento lazy de markets (evita travar boot)
+    this._marketsLoaded = false;
+
     // Cache simples de OHLCV (por símbolo+timeframe)
-    this.ohlcvCache = new Map(); // key: `${symbol}|${timeframe}` => { ts, data }
+    this.ohlcvCache = new Map(); // key: `${symbol}|${timeframe}|primary` ou `...|bybit`
 
     // WebSockets
     this.wsEnabled = String(process.env.BINANCE_WS_ENABLED || 'false').toLowerCase() === 'true';
@@ -38,16 +65,32 @@ export default class BinanceService {
 
     // Limites
     this.maxOhlcvLimit = 1500;
+
+    // WS endpoint correto para o mercado
+    this.wsEndpoint =
+      defaultType === 'future'
+        ? 'wss://fstream.binance.com/ws'
+        : 'wss://stream.binance.com:9443/ws';
   }
 
   // ===== Util =====
 
-  _key(symbol, timeframe) {
-    return `${symbol}|${timeframe}`;
+  async _ensureMarkets() {
+    if (this._marketsLoaded) return;
+    try {
+      await Promise.allSettled([this.binance.loadMarkets(), this.bybit.loadMarkets()]);
+    } catch (_) {}
+    this._marketsLoaded = true;
+  }
+
+  _key(symbol, timeframe, venue = 'primary') {
+    return `${symbol}|${timeframe}|${venue}`;
   }
 
   _normalizeTimeframe(tf) {
-    const allowed = new Set(['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M']);
+    const allowed = new Set([
+      '1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M'
+    ]);
     if (!allowed.has(tf)) {
       const map = {
         '5min': '5m',
@@ -57,6 +100,7 @@ export default class BinanceService {
         '240min': '4h',
         'D': '1d',
         'H4': '4h',
+        '1min': '1m',
       };
       return map[tf] || '1h';
     }
@@ -95,7 +139,7 @@ export default class BinanceService {
 
   async getServerTime() {
     try {
-      const t = await this.exchange.fetchTime();
+      const t = await this.binance.fetchTime();
       return String(t ?? Date.now());
     } catch (err) {
       console.warn('[BinanceService] fetchTime falhou, usando Date.now():', err.message);
@@ -104,19 +148,55 @@ export default class BinanceService {
   }
 
   /**
-   * Busca OHLCV (com retry/backoff em 429/500/timeout).
+   * Busca OHLCV (com retry/backoff) na Binance e cai para Bybit se necessário.
    * Retorna em formato de séries {timestamp[], open[], high[], low[], close[], volume[]}
    */
   async getOHLCVData(symbol, timeframe = '1h', limit = 200) {
+    await this._ensureMarkets();
+
     const tf = this._normalizeTimeframe(timeframe);
     const requestedLimit = Number(limit) || 200;
-    const safeLimit = Math.min(Math.max(50, requestedLimit), this.maxOhlcvLimit);
-    const cacheKey = this._key(symbol, tf);
+    const safeLimit = clamp(requestedLimit, 50, this.maxOhlcvLimit);
 
-    // usa cache dos últimos 30s pra aliviar chamadas
-    const cached = this.ohlcvCache.get(cacheKey);
+    // 1) Tenta Binance (primário)
+    try {
+      const data = await this._fetchOHLCVWithRetry(this.binance, symbol, tf, safeLimit, 'primary');
+      if (data?.close?.length >= Math.min(50, safeLimit)) return data;
+      throw new Error('Dados insuficientes da Binance');
+    } catch (err1) {
+      console.warn(`[BinanceService] OHLCV Binance falhou (${symbol} ${tf}): ${err1.message}`);
+    }
+
+    // 2) Fallback Bybit (swap linear USDT)
+    try {
+      const bybitSymbol = toBybitLinear(symbol);
+      const data = await this._fetchOHLCVWithRetry(this.bybit, bybitSymbol, tf, safeLimit, 'bybit');
+      if (data?.close?.length) return data;
+      throw new Error('Dados insuficientes da Bybit');
+    } catch (err2) {
+      console.warn(`[BinanceService] OHLCV Bybit falhou (${symbol} ${tf}): ${err2.message}`);
+    }
+
+    // 3) Último recurso: cache de qualquer venue
+    const cached =
+      this.ohlcvCache.get(this._key(symbol, tf, 'primary'))?.data ||
+      this.ohlcvCache.get(this._key(symbol, tf, 'bybit'))?.data;
+
+    if (cached?.close?.length) {
+      console.warn('[BinanceService] Usando OHLCV em cache como último recurso.');
+      return cached;
+    }
+
+    throw new Error(`Falha em OHLCV para ${symbol} ${tf}`);
+  }
+
+  async _fetchOHLCVWithRetry(exchange, symbol, tf, limit, venue) {
+    const cacheKey = this._key(symbol, tf, venue);
     const now = Date.now();
-    if (cached && now - cached.ts < 30_000 && cached.data?.close?.length >= Math.min(50, safeLimit)) {
+
+    // cache 30s para aliviar chamadas
+    const cached = this.ohlcvCache.get(cacheKey);
+    if (cached && now - cached.ts < 30_000 && cached.data?.close?.length >= Math.min(50, limit)) {
       return cached.data;
     }
 
@@ -127,7 +207,7 @@ export default class BinanceService {
       while (attempts < 4) {
         attempts++;
         try {
-          const ohlcv = await this.exchange.fetchOHLCV(symbol, tf, undefined, lim);
+          const ohlcv = await exchange.fetchOHLCV(symbol, tf, undefined, lim);
           const data = this._toSeries(ohlcv);
           this.ohlcvCache.set(cacheKey, { ts: Date.now(), data });
           return data;
@@ -141,9 +221,10 @@ export default class BinanceService {
             http === 429 ||
             msg.includes('429');
 
-          const is500 =
-            http === 500 ||
-            /500 Internal Server Error/i.test(msg);
+          const is5xx =
+            http >= 500 ||
+            /5\d{2}/.test(String(http)) ||
+            /Internal Server Error|Service Unavailable/i.test(msg);
 
           const isNetwork =
             err instanceof ccxt.NetworkError ||
@@ -151,10 +232,10 @@ export default class BinanceService {
             err instanceof ccxt.RequestTimeout ||
             /ETIMEDOUT|ECONNRESET|ENETUNREACH|EAI_AGAIN/i.test(msg);
 
-          if (is429 || is500 || isNetwork) {
-            const backoff = 600 * attempts; // 0.6s, 1.2s, 1.8s, 2.4s
+          if (is429 || is5xx || isNetwork) {
+            const backoff = 700 * attempts; // 0.7s, 1.4s, 2.1s, 2.8s
             console.warn(
-              `[BinanceService] ${http || 'ERR'} em OHLCV ${symbol} ${tf} (tentativa ${attempts}) — aguardando ${backoff}ms`
+              `[BinanceService] ${venue} ${http || 'ERR'} em OHLCV ${symbol} ${tf} (tentativa ${attempts}) — aguardando ${backoff}ms`
             );
             await sleep(backoff);
             continue;
@@ -166,23 +247,23 @@ export default class BinanceService {
       }
 
       // falhou após tentativas
-      throw lastErr || new Error(`Falha em fetchOHLCV ${symbol} ${tf} (limit=${lim})`);
+      throw lastErr || new Error(`Falha em fetchOHLCV ${venue} ${symbol} ${tf} (limit=${lim})`);
     };
 
     // 1) tenta com o limit solicitado
     try {
-      return await tryFetch(safeLimit);
+      return await tryFetch(limit);
     } catch (err1) {
-      // 2) fallback: tenta com metade do limit (alguns 500 somem com payload menor)
-      const smaller = Math.max(50, Math.floor(safeLimit / 2));
-      if (smaller < safeLimit) {
-        console.warn(`[BinanceService] Fallback OHLCV com limit reduzido: ${symbol} ${tf} ${smaller}`);
+      // 2) fallback: tenta com metade do limit
+      const smaller = Math.max(50, Math.floor(limit / 2));
+      if (smaller < limit) {
+        console.warn(`[BinanceService] Fallback OHLCV (${venue}) com limit reduzido: ${symbol} ${tf} ${smaller}`);
         try {
           return await tryFetch(smaller);
         } catch (err2) {
-          // 3) último fallback: retorna cache (se existir) para não quebrar a análise
+          // 3) último fallback: retorna cache (se existir)
           const cached2 = this.ohlcvCache.get(cacheKey)?.data;
-          if (cached2 && cached2.close?.length) {
+          if (cached2?.close?.length) {
             console.warn('[BinanceService] Usando OHLCV em cache como último recurso.');
             return cached2;
           }
@@ -194,25 +275,84 @@ export default class BinanceService {
   }
 
   /**
-   * Preço atual simples (número). Se falhar, retorna 0 para não quebrar.
+   * Preço atual simples (número) com fallback:
+   * 1) Binance ticker.last (future)
+   * 2) Bybit ticker.last (swap linear)
+   * 3) Último close (1m) de quem responder primeiro
    */
-  async getCurrentPrice(symbol) {
+  async getLastPrice(symbol) {
+    await this._ensureMarkets();
+    // 1) Binance
     try {
-      const ticker = await this.exchange.fetchTicker(symbol);
-      return Number(ticker?.last ?? ticker?.close ?? 0);
+      const t = await this.binance.fetchTicker(symbol);
+      const last = Number(t?.last ?? t?.close ?? 0);
+      if (isFinite(last) && last > 0) return last;
     } catch (err) {
-      console.warn(`[BinanceService] getCurrentPrice falhou para ${symbol}:`, err.message);
-      return 0;
+      console.warn(`[BinanceService] getLastPrice Binance falhou ${symbol}:`, err.message);
     }
+
+    // 2) Bybit
+    try {
+      const bybitSymbol = toBybitLinear(symbol);
+      const t = await this.bybit.fetchTicker(bybitSymbol);
+      const last = Number(t?.last ?? t?.close ?? 0);
+      if (isFinite(last) && last > 0) return last;
+    } catch (err) {
+      console.warn(`[BinanceService] getLastPrice Bybit falhou ${symbol}:`, err.message);
+    }
+
+    // 3) Último close 1m (quem vier primeiro)
+    try {
+      const [p] = await Promise.race([
+        this.getOHLCVCloseSafe(symbol, '1m'),
+        sleep(1200).then(() => [null]), // timeout leve
+      ]);
+      if (isFinite(p) && p > 0) return p;
+    } catch (_) {}
+
+    return 0;
+  }
+
+  // Compat aliases usados pelo monitor
+  async fetchTickerPrice(symbol) {
+    return this.getLastPrice(symbol);
+  }
+  async getPrice(symbol) {
+    return this.getLastPrice(symbol);
+  }
+
+  async getOHLCV(symbol, timeframe = '1m', limit = 1) {
+    const d = await this.getOHLCVData(symbol, timeframe, limit);
+    // para compat: retorna array ccxt-like quando limit pequeno
+    const out = [];
+    for (let i = 0; i < d.timestamp.length; i++) {
+      out.push([d.timestamp[i], d.open[i], d.high[i], d.low[i], d.close[i], d.volume[i]]);
+    }
+    return out;
+  }
+
+  async fetchOHLCV(symbol, timeframe = '1m', limit = 1) {
+    return this.getOHLCV(symbol, timeframe, limit);
+  }
+
+  async getOHLCVCloseSafe(symbol, timeframe = '1m') {
+    try {
+      const arr = await this.getOHLCV(symbol, timeframe, 2);
+      const last = arr[arr.length - 1];
+      if (Array.isArray(last)) return [Number(last[4])];
+    } catch (e) {}
+    return [null];
   }
 
   /**
-   * Ticker completo (objeto padronizado). Se falhar, retorna null.
-   * Corrige os logs “getCurrentTicker is not a function”.
+   * Ticker completo (objeto padronizado). Se falhar, tenta Bybit. Se tudo falhar, null.
    */
   async getCurrentTicker(symbol) {
+    await this._ensureMarkets();
+
+    // Binance
     try {
-      const t = await this.exchange.fetchTicker(symbol);
+      const t = await this.binance.fetchTicker(symbol);
       return {
         symbol,
         last: Number(t.last ?? t.close ?? 0),
@@ -226,11 +366,36 @@ export default class BinanceService {
         percentage: Number(t.percentage ?? 0),
         ts: t.timestamp ?? Date.now(),
         info: t.info,
+        venue: 'binance',
       };
     } catch (err) {
-      console.warn(`[BinanceService] getCurrentTicker falhou para ${symbol}:`, err.message);
-      return null;
+      console.warn(`[BinanceService] getCurrentTicker Binance falhou para ${symbol}:`, err.message);
     }
+
+    // Bybit (fallback)
+    try {
+      const bybitSymbol = toBybitLinear(symbol);
+      const t = await this.bybit.fetchTicker(bybitSymbol);
+      return {
+        symbol: bybitSymbol,
+        last: Number(t.last ?? t.close ?? 0),
+        bid: Number(t.bid ?? 0),
+        ask: Number(t.ask ?? 0),
+        high: Number(t.high ?? 0),
+        low: Number(t.low ?? 0),
+        baseVolume: Number(t.baseVolume ?? 0),
+        quoteVolume: Number(t.quoteVolume ?? 0),
+        change: Number(t.change ?? 0),
+        percentage: Number(t.percentage ?? 0),
+        ts: t.timestamp ?? Date.now(),
+        info: t.info,
+        venue: 'bybit',
+      };
+    } catch (err) {
+      console.warn(`[BinanceService] getCurrentTicker Bybit falhou para ${symbol}:`, err.message);
+    }
+
+    return null;
   }
 
   // Alias por compatibilidade com possíveis chamadas antigas
@@ -241,7 +406,7 @@ export default class BinanceService {
   // ===== WS (opcional) =====
 
   /**
-   * Conecta WS de kline e repassa candles fechados via callback.
+   * Conecta WS de kline (mercado correto) e repassa candles fechados via callback.
    * Se WS não estiver habilitado ou faltar 'ws', retorna false e não quebra.
    */
   async connectWebSocket(symbol, interval = '1m', onCandleClosed) {
@@ -260,13 +425,13 @@ export default class BinanceService {
     }
 
     const tf = this._normalizeTimeframe(interval);
-    const key = this._key(symbol, tf);
+    const key = `${symbol}|${tf}`;
     if (this.wsClients.has(key)) {
       return true;
     }
 
     const stream = this._streamName(symbol, tf);
-    const url = `${WS_ENDPOINT}/${stream}`;
+    const url = `${this.wsEndpoint}/${stream}`;
     const ws = new WS(url);
 
     this.wsClients.set(key, ws);
@@ -276,7 +441,7 @@ export default class BinanceService {
 
     ws.on('open', () => {
       this.wsLastSeen.set(key, Date.now());
-      console.log(`[BinanceService][WS] Conectado ${symbol} ${tf}`);
+      console.log(`[BinanceService][WS] Conectado ${symbol} ${tf} (${this.wsEndpoint.includes('fstream') ? 'futures' : 'spot'})`);
     });
 
     ws.on('message', (raw) => {
@@ -323,7 +488,7 @@ export default class BinanceService {
 
   stopWebSocketForSymbol(symbol, interval = '1m') {
     const tf = this._normalizeTimeframe(interval);
-    const key = this._key(symbol, tf);
+    const key = `${symbol}|${tf}`;
     const ws = this.wsClients.get(key);
     if (ws) {
       try {
