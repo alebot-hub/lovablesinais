@@ -20,7 +20,7 @@
  *  - Guarda de emissão contra-tendência
  *
  * Robustez de envio:
- *  - Timeout configurável, fila, fallback Markdown→MarkdownV2→texto puro e circuit breaker
+ *  - Timeout configurável, fila, fallback HTML→MarkdownV2→texto puro e circuit breaker
  */
 
 import TelegramBot from 'node-telegram-bot-api';
@@ -122,15 +122,28 @@ class TelegramBotService {
       console.error('⛔ Circuito aberto: envio pausado; mensagens apenas logadas até um sucesso futuro.');
     }
   }
+
+  // Escapes
   _stripAllMarkdown(t) {
     return !t ? t : String(t).replace(/[\\_*[\]()~`>#+\-=|{}!]/g, '');
   }
   _escapeMarkdownV2(t) {
     return !t ? t : String(t).replace(/([_*[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
   }
-  async _sendRawMarkdown(t) {
+  _escapeHtml(t) {
+    if (t == null) return '';
+    return String(t)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+  _stripHtml(t) {
+    return !t ? t : String(t).replace(/<[^>]*>/g, '');
+  }
+
+  async _sendRawHtml(t) {
     return this._withTimeout(
-      this.bot.sendMessage(this.chatId, t, { parse_mode: 'Markdown', disable_web_page_preview: true })
+      this.bot.sendMessage(this.chatId, t, { parse_mode: 'HTML', disable_web_page_preview: true })
     );
   }
   async _sendRawMarkdownV2(t) {
@@ -143,7 +156,7 @@ class TelegramBotService {
   }
   async _sendRawPlain(t) {
     return this._withTimeout(
-      this.bot.sendMessage(this.chatId, this._stripAllMarkdown(t), { disable_web_page_preview: true })
+      this.bot.sendMessage(this.chatId, this._stripAllMarkdown(this._stripHtml(t)), { disable_web_page_preview: true })
     );
   }
 
@@ -154,15 +167,17 @@ class TelegramBotService {
     }
     return this._enqueue(async () => {
       try {
+        // 1) Tenta HTML (principal)
         try {
-          await this._sendRawMarkdown(text);
+          await this._sendRawHtml(text);
           this._resetCircuit();
           return true;
-        } catch (err1) {
-          const m = String(err1?.message || '');
+        } catch (errHtml) {
+          const m = String(errHtml?.message || '');
           if (m.includes('429')) await this._delay(350);
-          if (!(m.includes("can't parse entities") || m.includes('parse entities'))) throw err1;
+          // segue para fallback
         }
+        // 2) Fallback MarkdownV2
         try {
           await this._sendRawMarkdownV2(text);
           this._resetCircuit();
@@ -171,6 +186,7 @@ class TelegramBotService {
           const m = String(err2?.message || '');
           if (m.includes('429')) await this._delay(450);
         }
+        // 3) Fallback texto puro
         await this._sendRawPlain(text);
         this._resetCircuit();
         return true;
@@ -264,6 +280,7 @@ class TelegramBotService {
 
   _resolveBtcAlignment(signal, isLong) {
     const corr = signal?.btcCorrelation || {};
+    the:
     const trendRaw = String(corr.btcTrend || '').toUpperCase();
     const rawAlignment = String(corr.alignment || '').toUpperCase();
     const tfSignal = this._tfLabel(signal);
@@ -360,26 +377,21 @@ class TelegramBotService {
 
       const step = PRECHECK.TP1_STEP; // 0.008
       const advMax = PRECHECK.ADV_SLIPPAGE_MAX; // 0.003
-      const remainOk = PRECHECK.TP1_PROXIMITY_OK_REMAINING; // 0.002
 
-      // distância até TP1 (sempre positiva)
-      const distToTp1 = isLong ? (tp1 - live) / entry : (live - tp1) / entry;
       const alreadyBeyondTp1 = isLong ? live >= tp1 : live <= tp1;
-
       if (alreadyBeyondTp1) {
         return { ok: false, reason: 'TP1_ALREADY_HIT', details: { live, tp1 } };
       }
 
-      // Quanto do caminho (entry→TP1) já foi feito? (progresso ∈ [0,1])
+      // progresso (entry→TP1)
       const totalStep = step * entry;
       const progressed = isLong ? (live - entry) / totalStep : (entry - live) / totalStep;
 
-      // Muito tarde se já percorreu >= 80% (resta <= 20% do caminho).
       if (progressed >= 0.8) {
         return { ok: false, reason: 'TOO_CLOSE_TO_TP1', details: { live, tp1, progressed } };
       }
 
-      // Desvio adverso: preço contra a entrada mais que 0.30%
+      // Desvio adverso
       const adverse = isLong ? (entry - live) / entry : (live - entry) / entry;
       if (adverse >= advMax) {
         return { ok: false, reason: 'ADVERSE_SLIPPAGE', details: { live, entry, adverse } };
@@ -473,13 +485,14 @@ class TelegramBotService {
     const parts = [];
 
     if (s?.overall) {
-      const label = String(s.overall).toUpperCase();
-      const fgi = isFinite(s.fearGreedIndex) ? ` (F&G: ${s.fearGreedIndex})` : '';
-      parts.push(`📣 *Sentimento de Mercado:* ${label}${fgi}`);
+      const label = this._escapeHtml(String(s.overall).toUpperCase());
+      const fgi = isFinite(s.fearGreedIndex) ? ` (F&amp;G: ${s.fearGreedIndex})` : '';
+      parts.push(`📣 <b>Sentimento de Mercado:</b> ${label}${fgi}`);
     }
     if (regime?.label) {
+      const lbl = this._escapeHtml(regime.label);
       const vol = isFinite(regime.volatility) ? ` — vol: ${regime.volatility}` : '';
-      parts.push(`🌊 *Regime Atual:* ${regime.label}${vol}`);
+      parts.push(`🌊 <b>Regime Atual:</b> ${lbl}${vol}`);
     }
     if (parts.length === 0) return '';
     return parts.join('\n') + '\n';
@@ -490,6 +503,7 @@ class TelegramBotService {
     const direction = isLong ? 'COMPRA' : 'VENDA';
     const emoji = isLong ? '🟢' : '🔴';
     const animal = isLong ? '🐂' : '🐻';
+    const base = this._escapeHtml(signal.symbol.split('/')[0]);
 
     const displayProbability = this.calculateDisplayProbability(signal.probability ?? signal.totalScore ?? 0);
 
@@ -497,45 +511,44 @@ class TelegramBotService {
     const isCounterTrend = btc.confident && btc.alignment === 'AGAINST';
 
     const factors = this.generateSpecificFactors(signal, isLong, btc);
-    const factorsText = factors.map((f) => `   • ${f}`).join('\n');
+    const factorsText = factors.map((f) => `   • ${this._escapeHtml(f)}`).join('\n');
 
     const targets = (signal.targets || [])
       .map((target, index) => {
         const targetNum = index + 1;
         const tEmoji = targetNum === 6 ? '🌕' : `${targetNum}️⃣`;
         const label = targetNum === 6 ? (isLong ? 'Alvo 6 - Lua!' : 'Alvo 6 - Queda Infinita!') : `Alvo ${targetNum}`;
-        return `${tEmoji} *${label}:* ${this.formatPrice(target).replace('.', '․')}`;
+        return `${tEmoji} <b>${this._escapeHtml(label)}:</b> ${this._escapeHtml(this.formatPrice(target))}`;
       })
       .join('\n');
 
     const counterTrendWarning = isCounterTrend ? `\n${this.getCounterTrendWarning(signal, isLong, btc)}\n` : '';
     const sentimentBlock = this._renderSentimentBlock(signal);
 
-    // 👇 Novo espaçador garantido abaixo do STOP para não encavalar com o rodapé
+    // Espaçador garantido abaixo do Stop
     const spacerAfterStop = '\n';
 
-    // 🔁 Branding + mensagem de SCALPING
-    return `🚨 *LOBO SCALPING #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*${isCounterTrend ? ' ⚡️' : ''}
+    return `🚨 <b>LOBO SCALPING #${base} ${emoji} ${direction} ${animal}</b>${isCounterTrend ? ' ⚡️' : ''}
 
-⚡️ *SCALPING — operação rápida (1m/5m).* Execução ágil e *gestão de risco obrigatória*.
+⚡️ <b>SCALPING — operação rápida (1m/5m).</b> Execução ágil e <b>gestão de risco obrigatória</b>.
 
-${sentimentBlock}💰 *#${signal.symbol.split('/')[0]} Futures*
-📊 *Tempo gráfico:* ${signal.timeframe || '1h'}
-📈 *Alavancagem sugerida:* 15x
-🎯 *Probabilidade:* ${displayProbability.toFixed(1)}%
+${sentimentBlock}💰 <b>#${base} Futures</b>
+📊 <b>Tempo gráfico:</b> ${this._escapeHtml(signal.timeframe || '1h')}
+📈 <b>Alavancagem sugerida:</b> 15x
+🎯 <b>Probabilidade:</b> ${this._escapeHtml(displayProbability.toFixed(1))}%
 
-💡 *Interpretação:* ${this.getInterpretation(signal, isLong, btc)}
-🔍 *Fatores-chave:*
+💡 <b>Interpretação:</b> ${this._escapeHtml(this.getInterpretation(signal, isLong, btc))}
+🔍 <b>Fatores-chave:</b>
 ${factorsText}
 
-⚡️ *Entrada:* ${this.formatPrice(signal.entry).replace('.', '․')}
+⚡️ <b>Entrada:</b> ${this._escapeHtml(this.formatPrice(signal.entry))}
 
-🎯 *ALVOS (15x):*
+🎯 <b>ALVOS (15x):</b>
 ${targets}
 
-🛑 *Stop Loss:* ${this.formatPrice(signal.stopLoss).replace('.', '․')}
-${spacerAfterStop}${counterTrendWarning}👑 *Sinais Lobo Scalping*
-⏰ ${this.formatNowSP()}`;
+🛑 <b>Stop Loss:</b> ${this._escapeHtml(this.formatPrice(signal.stopLoss))}
+${spacerAfterStop}${counterTrendWarning}👑 <b>Sinais Lobo Scalping</b>
+⏰ ${this._escapeHtml(this.formatNowSP())}`;
   }
 
   getCounterTrendWarning(signal, isLong, btc) {
@@ -562,18 +575,28 @@ ${spacerAfterStop}${counterTrendWarning}👑 *Sinais Lobo Scalping*
 
     const header = !btc.confident
       ? base === 'BTC'
-        ? `₿ *Tendência:* indefinida neste tempo gráfico (${tf}) (força: ${strengthLine})\n🎯 *Operação:* ${operationType} com Bitcoin indefinido`
-        : `₿ *Bitcoin:* Tendência *indefinida* neste tempo gráfico (${tf}) (força: ${strengthLine})\n🎯 *Operação:* ${operationType} com Bitcoin indefinido`
+        ? `₿ <b>Tendência:</b> indefinida neste tempo gráfico (${this._escapeHtml(tf)}) (força: ${this._escapeHtml(
+            strengthLine
+          )})\n🎯 <b>Operação:</b> ${operationType} com Bitcoin indefinido`
+        : `₿ <b>Bitcoin:</b> Tendência <b>indefinida</b> neste tempo gráfico (${this._escapeHtml(
+            tf
+          )}) (força: ${this._escapeHtml(strengthLine)})\n🎯 <b>Operação:</b> ${operationType} com Bitcoin indefinido`
       : base === 'BTC'
-      ? `₿ *Tendência:* ${btcTrendWord} neste tempo gráfico (${tf}) (força: ${strengthLine})\n🎯 *Operação:* ${operationType} contra a tendência ${base === 'BTC' ? 'neste tempo gráfico' : 'do BTC'}`
-      : `₿ *Bitcoin:* Tendência de *${btcTrendWord}* neste tempo gráfico (${tf})\n🎯 *Operação:* ${operationType} contra a tendência do BTC`;
+      ? `₿ <b>Tendência:</b> ${this._escapeHtml(btcTrendWord)} neste tempo gráfico (${this._escapeHtml(
+          tf
+        )}) (força: ${this._escapeHtml(strengthLine)})\n🎯 <b>Operação:</b> ${operationType} contra a tendência ${
+          base === 'BTC' ? 'neste tempo gráfico' : 'do BTC'
+        }`
+      : `₿ <b>Bitcoin:</b> Tendência de <b>${this._escapeHtml(btcTrendWord)}</b> neste tempo gráfico (${this._escapeHtml(
+          tf
+        )})\n🎯 <b>Operação:</b> ${operationType} contra a tendência do BTC`;
 
-    return `${icon} *SINAL CONTRA-TENDÊNCIA*
+    return `${icon} <b>SINAL CONTRA-TENDÊNCIA</b>
 ${header}
-⚖️ *Risco:* ${risk}
-💡 *Estratégia:* ${recommendation}
+⚖️ <b>Risco:</b> ${risk}
+💡 <b>Estratégia:</b> ${this._escapeHtml(recommendation)}
 
-🛡️ *GESTÃO DE RISCO REFORÇADA:*
+🛡️ <b>GESTÃO DE RISCO REFORÇADA:</b>
 • Monitore de perto os primeiros alvos
 • Realize lucros parciais rapidamente
 • Mantenha stop loss rigoroso
@@ -594,7 +617,6 @@ ${header}
     const ma21 = indicators.ma21;
     const ma200 = indicators.ma200;
 
-    // MACD: só quando favorece a direção
     if (macd && macd.histogram !== undefined) {
       if (isLong && macd.histogram > 0) {
         factors.push('MACD com momentum bullish confirmado');
@@ -634,7 +656,6 @@ ${header}
       else factors.push('Volume moderado sustentando o movimento');
     }
 
-    // BTC apenas quando confiável
     if (btc.confident) {
       if (btc.alignment === 'ALIGNED') {
         const word = btc.btcTrend === 'BULLISH' ? 'bullish' : 'bearish';
@@ -955,22 +976,22 @@ ${header}
       const leveragedTotalPnL = totalRealizedPnL * 15;
       const realizationBreakdown = this.getRealizationBreakdown(monitor.targetsHit);
 
-      const message = `🛡️ *STOP MÓVEL ATIVADO #${symbol.split('/')[0]} ${direction}*
+      const message = `🛡️ <b>STOP MÓVEL ATIVADO #${this._escapeHtml(symbol.split('/')[0])} ${direction}</b>
 
-✅ *Stop loss movido para ${stopDescription}*
-💰 *Lucro parcial realizado:* +${leveragedTotalPnL.toFixed(1)}% (${realizationBreakdown})
-📈 *Alvos atingidos:* ${monitor.targetsHit}/6
-📊 *Entrada:* ${this.formatPrice(monitor.entry).replace('.', '․')}
-🛡️ *Novo stop:* ${this.formatPrice(newStopPrice).replace('.', '․')}
-⏱️ *Duração:* ${duration}
+✅ <b>Stop loss movido para ${this._escapeHtml(stopDescription)}</b>
+💰 <b>Lucro parcial realizado:</b> +${this._escapeHtml(leveragedTotalPnL.toFixed(1))}% (${this._escapeHtml(realizationBreakdown)})
+📈 <b>Alvos atingidos:</b> ${monitor.targetsHit}/6
+📊 <b>Entrada:</b> ${this._escapeHtml(this.formatPrice(monitor.entry))}
+🛡️ <b>Novo stop:</b> ${this._escapeHtml(this.formatPrice(newStopPrice))}
+⏱️ <b>Duração:</b> ${this._escapeHtml(duration)}
 
-💡 *PROTEÇÃO ATIVADA (SCALPING):*
+💡 <b>PROTEÇÃO ATIVADA (SCALPING):</b>
 • Stop móvel protegendo lucros parciais
 • Operação rápida — preservando ganhos
 • Gestão de risco funcionando perfeitamente
 • Continue seguindo a estratégia!
 
-👑 *Sinais Lobo Scalping*`;
+👑 <b>Sinais Lobo Scalping</b>`;
 
       await this._sendMessageSafe(message);
     } catch (error) {
@@ -1003,20 +1024,20 @@ ${header}
     }
   }
 
-  async handleAllTargetsHit(symbol, monitor, totalPnlPercent) {
+  async handleAllTargetsHit(symbol, monitor, app) {
     try {
       const finalTarget = monitor.originalTargets[monitor.originalTargets.length - 1];
       const isLong = monitor.trend === 'BULLISH';
-      const totalPnl = isLong
+      const totalPnlPercent = isLong
         ? ((finalTarget - monitor.entry) / monitor.entry) * 100
         : ((monitor.entry - finalTarget) / monitor.entry) * 100;
 
       if (app?.performanceTracker)
-        app.performanceTracker.updateSignalResult(symbol, 6, totalPnl, 'ALL_TARGETS', totalPnl);
+        app.performanceTracker.updateSignalResult(symbol, 6, totalPnlPercent, 'ALL_TARGETS', totalPnlPercent);
       if (app?.adaptiveScoring)
-        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, true, totalPnl);
+        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, true, totalPnlPercent);
 
-      await this.sendAllTargetsHitNotification(symbol, monitor, totalPnl);
+      await this.sendAllTargetsHitNotification(symbol, monitor, totalPnlPercent);
 
       this.removeMonitor(symbol, 'ALL_TARGETS');
       if (app?.binanceService?.stopWebSocketForSymbol) app.binanceService.stopWebSocketForSymbol(symbol, '1m');
@@ -1034,19 +1055,21 @@ ${header}
       const leveragedPnL = pnlPercent * 15;
       const timeElapsed = this.calculateDuration(monitor.startTime);
 
-      const message = `✅ *ALVO ${targetNumber} ATINGIDO #${symbol.split('/')[0]} ${direction}*
+      const message = `✅ <b>ALVO ${this._escapeHtml(String(targetNumber))} ATINGIDO #${this._escapeHtml(
+        symbol.split('/')[0]
+      )} ${direction}</b>
 
-🔍 *Alvo ${targetNumber} atingido no par #${symbol.split('/')[0]}*
-💰 *Lucro atual:* +${leveragedPnL.toFixed(1)}% (Alv. 15×)
-⚡️ *SCALPING:* operação rápida — realize parcial conforme plano
-📊 *Entrada:* ${this.formatPrice(monitor.entry).replace('.', '․')}
-💵 *Preço do alvo:* ${this.formatPrice(targetPrice).replace('.', '․')}
-⏱️ *Tempo até o alvo:* ${timeElapsed}
-🛡️ *Stop ativado:* ${this.getStopStatus(targetNumber)}
+🔍 <b>Alvo ${this._escapeHtml(String(targetNumber))} atingido no par #${this._escapeHtml(symbol.split('/')[0])}</b>
+💰 <b>Lucro atual:</b> +${this._escapeHtml(leveragedPnL.toFixed(1))}% (Alv. 15×)
+⚡️ <b>SCALPING:</b> operação rápida — realize parcial conforme plano
+📊 <b>Entrada:</b> ${this._escapeHtml(this.formatPrice(monitor.entry))}
+💵 <b>Preço do alvo:</b> ${this._escapeHtml(this.formatPrice(targetPrice))}
+⏱️ <b>Tempo até o alvo:</b> ${this._escapeHtml(timeElapsed)}
+🛡️ <b>Stop ativado:</b> ${this._escapeHtml(this.getStopStatus(targetNumber))}
 
-💰 *Recomendação:* ${this.getTargetRecommendation(targetNumber)}
+💰 <b>Recomendação:</b> ${this._escapeHtml(this.getTargetRecommendation(targetNumber))}
 
-👑 *Sinais Lobo Scalping*`;
+👑 <b>Sinais Lobo Scalping</b>`;
 
       await this._sendMessageSafe(message);
     } catch (error) {
@@ -1058,49 +1081,49 @@ ${header}
     try {
       const leveragedPnL = pnlPercent * 15;
       const duration = this.calculateDuration(monitor.startTime);
-      const publishedStop = this.formatPrice(monitor.stopLossOriginal).replace('.', '․');
+      const publishedStop = this.formatPrice(monitor.stopLossOriginal);
 
       let message;
 
       if (monitor.targetsHit === 0) {
-        message = `❌ *#${symbol.split('/')[0]} - OPERAÇÃO FINALIZADA* ❌
+        message = `❌ <b>#${this._escapeHtml(symbol.split('/')[0])} - OPERAÇÃO FINALIZADA</b> ❌
 
-📊 *Resultado:* 🔴
-⚡ *Alavancado (15x):* 🔴 ${leveragedPnL.toFixed(1)}%
+📊 <b>Resultado:</b> 🔴
+⚡ <b>Alavancado (15x):</b> 🔴 ${this._escapeHtml(leveragedPnL.toFixed(1))}%
 
-📌 *Motivo:* STOP LOSS ATIVADO
+📌 <b>Motivo:</b> STOP LOSS ATIVADO
 
-📈 *Alvos atingidos:* Nenhum
-🛑 *Stop loss:* ${publishedStop}
-📅 *Duração:* ${duration}
+📈 <b>Alvos atingidos:</b> Nenhum
+🛑 <b>Stop loss:</b> ${this._escapeHtml(publishedStop)}
+📅 <b>Duração:</b> ${this._escapeHtml(duration)}
 
-💡 *GERENCIAMENTO (SCALPING):*
+💡 <b>GERENCIAMENTO (SCALPING):</b>
 - Stop loss ativado sem alvos atingidos
 - Perda limitada conforme estratégia
 - Execução rápida preservou capital
 - Aguarde próxima oportunidade
 
 👑 Sinais Lobo Scalping
-⏰ ${this.formatNowSP()}`;
+⏰ ${this._escapeHtml(this.formatNowSP())}`;
       } else {
-        message = `❌ *#${symbol.split('/')[0]} - OPERAÇÃO FINALIZADA* ❌
+        message = `❌ <b>#${this._escapeHtml(symbol.split('/')[0])} - OPERAÇÃO FINALIZADA</b> ❌
 
-📊 *Resultado:* 🔴
-⚡ *Alavancado (15x):* 🔴 ${leveragedPnL.toFixed(1)}%
+📊 <b>Resultado:</b> 🔴
+⚡ <b>Alavancado (15x):</b> 🔴 ${this._escapeHtml(leveragedPnL.toFixed(1))}%
 
-📌 *Motivo:* STOP LOSS ATIVADO APÓS ALVO ${monitor.targetsHit}
+📌 <b>Motivo:</b> STOP LOSS ATIVADO APÓS ALVO ${this._escapeHtml(String(monitor.targetsHit))}
 
-📈 *Alvos atingidos:* ${monitor.targetsHit}
-🛑 *Stop loss:* ${publishedStop}
-📅 *Duração:* ${duration}
+📈 <b>Alvos atingidos:</b> ${this._escapeHtml(String(monitor.targetsHit))}
+🛑 <b>Stop loss:</b> ${this._escapeHtml(publishedStop)}
+📅 <b>Duração:</b> ${this._escapeHtml(duration)}
 
-💡 *GERENCIAMENTO (SCALPING):*
+💡 <b>GERENCIAMENTO (SCALPING):</b>
 - Stop ativado após realização parcial
 - Perda reduzida na posição restante
 - Estratégia de proteção funcionou
 
 👑 Sinais Lobo Scalping
-⏰ ${this.formatNowSP()}`;
+⏰ ${this._escapeHtml(this.formatNowSP())}`;
       }
 
       await this._sendMessageSafe(message);
@@ -1114,19 +1137,19 @@ ${header}
       const leveragedPnL = totalPnlPercent * 15;
       const duration = this.calculateDuration(monitor.startTime);
 
-      const message = `🌕 *#${symbol.split('/')[0]} - OPERAÇÃO FINALIZADA* 🌕
+      const message = `🌕 <b>#${this._escapeHtml(symbol.split('/')[0])} - OPERAÇÃO FINALIZADA</b> 🌕
 
-📊 *Resultado:* 🟢 +${totalPnlPercent.toFixed(1)}%
-⚡ *Alavancado (15x):* 🟢 +${leveragedPnL.toFixed(1)}%
+📊 <b>Resultado:</b> 🟢 +${this._escapeHtml(totalPnlPercent.toFixed(1))}%
+⚡ <b>Alavancado (15x):</b> 🟢 +${this._escapeHtml(leveragedPnL.toFixed(1))}%
 
-📌 *Motivo:* TODOS OS ALVOS ATINGIDOS - LUA!
+📌 <b>Motivo:</b> TODOS OS ALVOS ATINGIDOS - LUA!
 
-📈 *Alvos atingidos:* 6/6
+📈 <b>Alvos atingidos:</b> 6/6
 👑 Aí é Loucura!!
-📅 *Duração:* ${duration}
+📅 <b>Duração:</b> ${this._escapeHtml(duration)}
 
-👑 *Sinais Lobo Scalping*
-⏰ ${this.formatNowSP()}`;
+👑 <b>Sinais Lobo Scalping</b>
+⏰ ${this._escapeHtml(this.formatNowSP())}`;
 
       await this._sendMessageSafe(message);
     } catch (error) {
@@ -1143,21 +1166,23 @@ ${header}
       const totalRealizedPnL = this.calculateTotalRealizedPnL(monitor, monitor.targetsHit);
       const leveragedTotalPnL = totalRealizedPnL * 15;
 
-      const message = `✅ *STOP DE LUCRO ATIVADO #${symbol.split('/')[0]} ${direction}*
+      const message = `✅ <b>STOP DE LUCRO ATIVADO #${this._escapeHtml(symbol.split('/')[0])} ${direction}</b>
 
-🔍 *Preço retornou ao ${monitor.mobileStopLevel || 'ponto de proteção'}*
-💰 *Lucro realizado:* +${leveragedTotalPnL.toFixed(1)}% (${this.getRealizationBreakdown(monitor.targetsHit)})
-📈 *Alvos atingidos:* ${monitor.targetsHit}/6
-📊 *Entrada:* ${this.formatPrice(monitor.entry).replace('.', '․')}
-💵 *Preço atual:* ${this.formatPrice(currentPrice).replace('.', '․')}
-⏱️ *Duração:* ${duration}
+🔍 <b>Preço retornou ao ${this._escapeHtml(monitor.mobileStopLevel || 'ponto de proteção')}</b>
+💰 <b>Lucro realizado:</b> +${this._escapeHtml(leveragedTotalPnL.toFixed(1))}% (${this._escapeHtml(
+        this.getRealizationBreakdown(monitor.targetsHit)
+      )})
+📈 <b>Alvos atingidos:</b> ${monitor.targetsHit}/6
+📊 <b>Entrada:</b> ${this._escapeHtml(this.formatPrice(monitor.entry))}
+💵 <b>Preço atual:</b> ${this._escapeHtml(this.formatPrice(currentPrice))}
+⏱️ <b>Duração:</b> ${this._escapeHtml(duration)}
 
-🎉 *SCALPING BEM-SUCEDIDO!*
+🎉 <b>SCALPING BEM-SUCEDIDO!</b>
 • Operação finalizada sem perdas
 • Stop de lucro protegeu os ganhos
 • Gestão de risco funcionou perfeitamente
 
-👑 *Sinais Lobo Scalping*`;
+👑 <b>Sinais Lobo Scalping</b>`;
 
       await this._sendMessageSafe(message);
 
