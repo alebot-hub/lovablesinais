@@ -66,9 +66,9 @@ const BTC_TREND_GUARD = {
 
 // 🔎 Pré-check (limiares)
 const PRECHECK = {
-  TP1_PROXIMITY_OK_REMAINING: 0.002, // 0.20% restante até o TP1 (ou menos) → evita chase (0.2% ≈ 25% do step? Aqui 0.16% seria 20% de 0.8%; usamos 0.20% conservador)
+  TP1_PROXIMITY_OK_REMAINING: 0.002, // 0.20% restante até o TP1
   TP1_STEP: LEVELS.TARGET_STEP,      // 0.80%
-  ADV_SLIPPAGE_MAX: 0.003,           // 0.30% adverso máximo tolerado na entrada
+  ADV_SLIPPAGE_MAX: 0.003,           // 0.30% adverso máx.
 };
 
 class TelegramBotService {
@@ -264,8 +264,8 @@ class TelegramBotService {
 
   _resolveBtcAlignment(signal, isLong) {
     const corr = signal?.btcCorrelation || {};
-    const trendRaw = String(corr.btcTrend || '').toUpperCase(); // 'BULLISH' | 'BEARISH' | ''
-    const rawAlignment = String(corr.alignment || '').toUpperCase(); // 'ALIGNED' | 'AGAINST' | ''
+    const trendRaw = String(corr.btcTrend || '').toUpperCase();
+    const rawAlignment = String(corr.alignment || '').toUpperCase();
     const tfSignal = this._tfLabel(signal);
     const tfCorr = corr.timeframe || null;
 
@@ -511,6 +511,9 @@ class TelegramBotService {
     const counterTrendWarning = isCounterTrend ? `\n${this.getCounterTrendWarning(signal, isLong, btc)}\n` : '';
     const sentimentBlock = this._renderSentimentBlock(signal);
 
+    // 👇 Novo espaçador garantido abaixo do STOP para não encavalar com o rodapé
+    const spacerAfterStop = '\n';
+
     // 🔁 Branding + mensagem de SCALPING
     return `🚨 *LOBO SCALPING #${signal.symbol.split('/')[0]} ${emoji} ${direction} ${animal}*${isCounterTrend ? ' ⚡️' : ''}
 
@@ -531,7 +534,7 @@ ${factorsText}
 ${targets}
 
 🛑 *Stop Loss:* ${this.formatPrice(signal.stopLoss).replace('.', '․')}
-${counterTrendWarning}👑 *Sinais Lobo Scalping*
+${spacerAfterStop}${counterTrendWarning}👑 *Sinais Lobo Scalping*
 ⏰ ${this.formatNowSP()}`;
   }
 
@@ -1000,20 +1003,20 @@ ${header}
     }
   }
 
-  async handleAllTargetsHit(symbol, monitor, app) {
+  async handleAllTargetsHit(symbol, monitor, totalPnlPercent) {
     try {
       const finalTarget = monitor.originalTargets[monitor.originalTargets.length - 1];
       const isLong = monitor.trend === 'BULLISH';
-      const totalPnlPercent = isLong
+      const totalPnl = isLong
         ? ((finalTarget - monitor.entry) / monitor.entry) * 100
         : ((monitor.entry - finalTarget) / monitor.entry) * 100;
 
       if (app?.performanceTracker)
-        app.performanceTracker.updateSignalResult(symbol, 6, totalPnlPercent, 'ALL_TARGETS', totalPnlPercent);
+        app.performanceTracker.updateSignalResult(symbol, 6, totalPnl, 'ALL_TARGETS', totalPnl);
       if (app?.adaptiveScoring)
-        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, true, totalPnlPercent);
+        app.adaptiveScoring.recordTradeResult(symbol, monitor.indicators || {}, true, totalPnl);
 
-      await this.sendAllTargetsHitNotification(symbol, monitor, totalPnlPercent);
+      await this.sendAllTargetsHitNotification(symbol, monitor, totalPnl);
 
       this.removeMonitor(symbol, 'ALL_TARGETS');
       if (app?.binanceService?.stopWebSocketForSymbol) app.binanceService.stopWebSocketForSymbol(symbol, '1m');
