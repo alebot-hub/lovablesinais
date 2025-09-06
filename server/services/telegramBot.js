@@ -71,6 +71,11 @@ const PRECHECK = {
   ADV_SLIPPAGE_MAX: 0.003,           // 0.30% adverso máx.
 };
 
+// ⚖️ Exibição da linha de risco
+const RISK = {
+  SHOW_ALWAYS: envBool('RISK_SHOW_ALWAYS', 'false'), // se true, sempre mostra; se false, oculta quando BAIXO
+};
+
 class TelegramBotService {
   constructor() {
     this.token = process.env.TELEGRAM_TOKEN;
@@ -498,22 +503,42 @@ class TelegramBotService {
     return parts.join('\n') + '\n';
   }
 
-  // ➕ NOVO: tag concisa de risco (quando contra-tendência)
-  getRiskTag(signal, isLong, btc) {
-    const alignedAgainst = btc?.confident && btc.alignment === 'AGAINST';
-    if (!alignedAgainst) return '';
-    const reversalType = String(signal?.details?.counterTrendAdjustments?.reversalType || 'MODERATE').toUpperCase();
-    let risk = 'ELEVADO';
-    if (reversalType === 'STRONG') risk = 'MODERADO';
-    if (reversalType === 'EXTREME') risk = 'CONTROLADO';
-    const reason =
-      btc?.btcTrend === 'BULLISH'
-        ? 'contra a tendência do BTC (alta)'
-        : btc?.btcTrend === 'BEARISH'
-        ? 'contra a tendência do BTC (baixa)'
-        : 'contra a tendência do BTC';
-    return `⚖️ <b>Risco:</b> ${this._escapeHtml(risk)} — ${this._escapeHtml(reason)}`;
+  // ---------- NOVO: Avaliação de Risco (BAIXO/MODERADO/ALTO) ----------
+  assessRisk(signal, isLong, btc) {
+    // Contra-tendência: ALTO, mas suaviza por reversão forte/extrema
+    if (btc?.confident && btc.alignment === 'AGAINST') {
+      const reversalType = String(signal?.details?.counterTrendAdjustments?.reversalType || 'MODERATE').toUpperCase();
+      if (reversalType === 'EXTREME') return { level: 'CONTROLADO', reason: 'Reversão extrema contra o BTC' };
+      if (reversalType === 'STRONG') return { level: 'MODERADO', reason: 'Forte reversão contra o BTC' };
+      const side = btc.btcTrend === 'BULLISH' ? 'alta' : 'baixa';
+      return { level: 'ALTO', reason: `Contra a tendência do BTC (${side})` };
+    }
+
+    // Alinhado com BTC: BAIXO
+    if (btc?.confident && btc.alignment === 'ALIGNED') {
+      const side = btc.btcTrend === 'BULLISH' ? 'alta' : 'baixa';
+      return { level: 'BAIXO', reason: `Alinhado com a tendência do BTC (${side})` };
+    }
+
+    // BTC indefinido ⇒ olhar momentum
+    const h = Number(signal?.indicators?.macd?.histogram);
+    if (isFinite(h) && Math.abs(h) >= EMIT_GUARD.MIN_MACD_ABS_FOR_REVERSAL) {
+      return { level: 'MODERADO', reason: 'Momentum forte com BTC indefinido' };
+    }
+
+    // RSI extremos também ajudam a reduzir incerteza
+    const rsi = Number(signal?.indicators?.rsi);
+    if (isLong && isFinite(rsi) && rsi < 25) {
+      return { level: 'MODERADO', reason: 'RSI em sobrevenda com BTC indefinido' };
+    }
+    if (!isLong && isFinite(rsi) && rsi > 75) {
+      return { level: 'MODERADO', reason: 'RSI em sobrecompra com BTC indefinido' };
+    }
+
+    return { level: 'MODERADO', reason: 'BTC indefinido e momentum moderado' };
   }
+
+  // (REMOVIDO) getRiskTag antigo — substituído por assessRisk + linha no cabeçalho
 
   formatTradingSignal(signal) {
     const isLong = signal.trend === 'BULLISH';
@@ -541,7 +566,15 @@ class TelegramBotService {
 
     const counterTrendWarning = isCounterTrend ? `\n${this.getCounterTrendWarning(signal, isLong, btc)}\n` : '';
     const sentimentBlock = this._renderSentimentBlock(signal);
-    const riskTagLine = this.getRiskTag(signal, isLong, btc);
+
+    // NOVO: calcular risco e injetar no cabeçalho
+    const riskInfo = this.assessRisk(signal, isLong, btc);
+    const showRisk =
+      RISK.SHOW_ALWAYS ||
+      (riskInfo && String(riskInfo.level || '').toUpperCase() !== 'BAIXO');
+    const riskLine = showRisk
+      ? `\n⚖️ <b>Risco:</b> ${this._escapeHtml(riskInfo.level)} — ${this._escapeHtml(riskInfo.reason)}`
+      : '';
 
     // Espaçador garantido abaixo do Stop
     const spacerAfterStop = '\n';
@@ -553,8 +586,9 @@ class TelegramBotService {
 ${sentimentBlock}💰 <b>#${base} Futures</b>
 📊 <b>Tempo gráfico:</b> ${this._escapeHtml(signal.timeframe || '1h')}
 📈 <b>Alavancagem sugerida:</b> 15x
-🎯 <b>Probabilidade:</b> ${this._escapeHtml(displayProbability.toFixed(1))}%
-${riskTagLine ? riskTagLine + '\n' : ''}💡 <b>Interpretação:</b> ${this._escapeHtml(this.getInterpretation(signal, isLong, btc))}
+🎯 <b>Probabilidade:</b> ${this._escapeHtml(displayProbability.toFixed(1))}%${riskLine}
+
+💡 <b>Interpretação:</b> ${this._escapeHtml(this.getInterpretation(signal, isLong, btc))}
 🔍 <b>Fatores-chave:</b>
 ${factorsText}
 
