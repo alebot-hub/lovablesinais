@@ -29,7 +29,7 @@ import SocialSentimentService from './services/socialSentimentService.js';
 import BitcoinCorrelationService from './services/bitcoinCorrelationService.js';
 import MarketRegimeService from './services/marketRegimeService.js';
 
-import { CRYPTO_SYMBOLS, TIMEFRAMES, TRADING_CONFIG, SCHEDULE_CONFIG } from './config/constants.js';
+import { CRYPTO_SYMBOLS, TIMEFRAMES, TRADING_CONFIG, SCHEDULE_CONFIG, RATE_LIMITING } from './config/constants.js';
 
 import binanceRoutes from './routes/binance.js';
 import signalRoutes from './routes/signals.js';
@@ -91,8 +91,9 @@ app.marketRegimeService = marketRegimeService;
 let isAnalyzing = false;
 let lastAnalysisTime = null;
 let analysisCount = 0;
+
+// Controle de emissão (1 sinal / janela de 2h)
 let lastSignalTime = null;
-let signalsThisHour = 0;
 
 export async function analyzeSignals() {
   if (isAnalyzing) {
@@ -150,7 +151,7 @@ export async function analyzeSignals() {
           if (result && result.isValid) {
             validSignals++;
             
-            if (result.totalScore > 70 && result.totalScore > bestSignal.score) {
+            if (result.totalScore > TRADING_CONFIG.MIN_SIGNAL_PROBABILITY && result.totalScore > bestSignal.score) {
               bestSignal = {
                 score: result.totalScore,
                 symbol,
@@ -179,10 +180,19 @@ export async function analyzeSignals() {
     console.log(`❌ ${errors.length} erros`);
 
     if (bestSignal.symbol) {
-      console.log(`\n🏆 MELHOR SINAL: ${bestSignal.symbol} ${bestSignal.timeframe} (${bestSignal.score.toFixed(1)}%)`);
-      await processBestSignal(bestSignal);
+      // ⛔️ Rate limit: no máximo 1 sinal por janela definida
+      const now = Date.now();
+      const windowMs = RATE_LIMITING?.GLOBAL_SIGNAL_COOLDOWN_MS ?? (2 * 60 * 60 * 1000);
+      if (lastSignalTime && now - lastSignalTime < windowMs) {
+        const remainingMin = Math.ceil((windowMs - (now - lastSignalTime)) / 60000);
+        console.log(`🚫 Rate-limit: sinal não enviado (aguarde ${remainingMin} min para próxima janela).`);
+      } else {
+        console.log(`\n🏆 MELHOR SINAL: ${bestSignal.symbol} ${bestSignal.timeframe} (${bestSignal.score.toFixed(1)}%)`);
+        await processBestSignal(bestSignal);
+        lastSignalTime = Date.now();
+      }
     } else {
-      console.log(`\n⚠️ Nenhum sinal encontrado acima de 70%`);
+      console.log(`\n⚠️ Nenhum sinal encontrado acima de ${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY}%`);
     }
 
   } catch (error) {
@@ -260,6 +270,7 @@ async function processBestSignal(signal) {
   try {
     console.log(`\n🎯 ===== PROCESSANDO SINAL ${signal.symbol} =====`);
     
+    // Os níveis internos podem seguir tua lógica; o Telegram normaliza para o padrão SCALPING (0.8% step, SL 1.3%)
     const levels = signalScoring.calculateTradingLevels(signal.entryPrice, signal.trend);
     
     console.log(`💰 NÍVEIS CALCULADOS:`);
@@ -471,18 +482,24 @@ app.post('/api/telegram/test', async (req, res) => {
       return res.status(400).json({ error: 'Telegram não configurado' });
     }
 
+    // Exemplo de SCALPING (0.8% por alvo, SL 1.3%) com timeframe 5m
+    const entry = 95000;
+    const tStep = 0.008;
+    const targets = [1,2,3,4,5,6].map(i => entry * (1 + tStep * i)); // long
+    const stopLoss = entry * (1 - 0.013);
+
     const testSignal = {
       symbol: 'BTC/USDT',
-      entry: 95000,
-      targets: [96425, 97850, 99275, 100700, 102125, 103550],
-      stopLoss: 90725,
+      entry,
+      targets,
+      stopLoss,
       probability: 85,
       trend: 'BULLISH',
-      timeframe: '1h'
+      timeframe: '5m'
     };
 
     await telegramBot.sendTradingSignal(testSignal);
-    res.json({ success: true, message: 'Sinal de teste enviado' });
+    res.json({ success: true, message: 'Sinal de teste (scalping) enviado' });
   } catch (error) {
     console.error('Erro no teste do Telegram:', error.message);
     res.status(500).json({ error: error.message });
@@ -498,6 +515,7 @@ app.use('/api/signals', signalRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/notifications', notificationRoutes);
 
+// Agendamentos (respeitam SCHEDULE_CONFIG, mas mantive explícito)
 schedule.scheduleJob('0 */2 * * *', () => {
   console.log('\n⏰ Agendamento: Iniciando análise de sinais...');
   analyzeSignals();
@@ -508,7 +526,7 @@ schedule.scheduleJob('0 11,23 * * *', () => {
   analyzeMarketSentiment();
 });
 
-// Relatório semanal - Todo domingo às 20h (horário de Brasília)
+// Relatório semanal - Todo domingo (veja TZ do host). Aqui está 23h do host.
 schedule.scheduleJob('0 23 * * 0', async () => {
   console.log('\n⏰ Agendamento: Gerando relatório semanal...');
   try {
@@ -535,7 +553,7 @@ schedule.scheduleJob('0 23 * * 0', async () => {
 function formatWeeklyReportMessage(report) {
   const { summary, performance, insights } = report;
   
-  return `📊 *RELATÓRIO SEMANAL SINAIS LOBO PREMIUM*
+  return `📊 *RELATÓRIO SEMANAL SINAIS LOBO SCALPING*
 
 📅 *Período:* ${new Date(report.period.start).toLocaleDateString('pt-BR')} - ${new Date(report.period.end).toLocaleDateString('pt-BR')}
 
@@ -557,7 +575,7 @@ ${performance.bestTrade ? `• ${performance.bestTrade.symbol}: ${performance.be
 💡 *INSIGHTS:*
 ${insights.map(insight => `• ${insight}`).join('\n')}
 
-👑 *Sinais Lobo Cripto - Relatório Automático*
+👑 *Sinais Lobo Scalping*
 ⏰ ${new Date().toLocaleString('pt-BR')}`;
 }
 
@@ -591,7 +609,7 @@ async function startBot() {
     }
     
     console.log(`📊 Monitorando ${CRYPTO_SYMBOLS.length} símbolos`);
-    console.log(`⏰ Análise automática a cada 1 hora`);
+    console.log(`⏰ Análise automática a cada 2 horas`);
     console.log(`🎯 Threshold mínimo: ${TRADING_CONFIG.MIN_SIGNAL_PROBABILITY}%`);
     
     setTimeout(() => {
@@ -641,7 +659,7 @@ const server = createServer(app);
 server.on('error', (error) => {
   if (error.code === 'EADDRINUSE') {
     console.error(`❌ Porta ${PORT} já está em uso. Tentando porta alternativa...`);
-    const alternativePort = PORT + 1;
+    const alternativePort = Number(PORT) + 1;
     server.listen(alternativePort, () => {
       console.log(`🌐 Servidor rodando na porta alternativa ${alternativePort}`);
       startBot();
