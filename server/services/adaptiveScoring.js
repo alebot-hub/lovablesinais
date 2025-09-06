@@ -42,7 +42,9 @@ class AdaptiveScoringService {
       PATTERN_BREAKOUT: 25,
       PATTERN_REVERSAL: 20,
       VOLUME_CONFIRMATION: 20,
-      ML_WEIGHT: 0.25
+      ML_WEIGHT: 0.25,
+      // evita undefined em relatórios/track de correlação BTC
+      BITCOIN_CORRELATION: 0
     };
 
     // Tracking
@@ -250,6 +252,7 @@ class AdaptiveScoringService {
 
     // Contra-tendência (usa TRADING_CONFIG.COUNTER_TREND)
     const counterTrendAdjustments = this.applyCounterTrendLogic(
+      data, // ✅ passa os dados para cálculo de volume spike corretamente
       regimeAdjustments,
       symbol,
       indicators,
@@ -675,8 +678,9 @@ class AdaptiveScoringService {
 
   /**
    * Lógica para sinais contra-tendência (usa TRADING_CONFIG.COUNTER_TREND)
+   * (assinatura ajustada para receber `data` e calcular corretamente o volume spike)
    */
-  applyCounterTrendLogic(scoreData, symbol, indicators, patterns, bitcoinCorrelation) {
+  applyCounterTrendLogic(data, scoreData, symbol, indicators, patterns, bitcoinCorrelation) {
     let adjustedScore = scoreData.adjustedScore;
     let bonus = 0;
     let isCounterTrend = false;
