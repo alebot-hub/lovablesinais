@@ -374,7 +374,7 @@ class PatternDetectionService {
         ? data.volume
         : Array(data.close.length).fill(1);
     const v = volArr[n - 1];
-    const vAvg = volArr.reduce((a, b) => a + b, 0) / volArr.length;
+    const vAvg = volArr.reduce((a, b) => a + b, 0) / (volArr.length || 1);
 
     if (c > resistance && p <= resistance && v > vAvg * this.config.breakoutVolumeThreshold) {
       return { type: 'BULLISH_BREAKOUT', level: resistance, strength: 'HIGH', confidence: 85, volumeConfirmation: true };
