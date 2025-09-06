@@ -313,6 +313,11 @@ export default class BinanceService {
     return 0;
   }
 
+  // 👉 Alias para compatibilidade com app.js e outros módulos
+  async getCurrentPrice(symbol) {
+    return this.getLastPrice(symbol);
+  }
+
   // Compat aliases usados pelo monitor
   async fetchTickerPrice(symbol) {
     return this.getLastPrice(symbol);
