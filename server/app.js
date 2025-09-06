@@ -266,17 +266,40 @@ async function analyzeSymbolTimeframe(symbol, timeframe, logPrefix) {
   }
 }
 
+/**
+ * Faz a montagem do signalData, passa livePrice/priceProvider para o pré-check
+ * e SOMENTE cria o monitor após o envio ser confirmado.
+ */
 async function processBestSignal(signal) {
   try {
     console.log(`\n🎯 ===== PROCESSANDO SINAL ${signal.symbol} =====`);
     
-    // Os níveis internos podem seguir tua lógica; o Telegram normaliza para o padrão SCALPING (0.8% step, SL 1.3%)
+    // Níveis internos (o emissor normaliza para o padrão SCALPING ao publicar)
     const levels = signalScoring.calculateTradingLevels(signal.entryPrice, signal.trend);
     
     console.log(`💰 NÍVEIS CALCULADOS:`);
     console.log(`   🎯 Entrada: $${levels.entry.toFixed(8)}`);
     console.log(`   🎯 Alvos: ${levels.targets.map(t => '$' + t.toFixed(8)).join(', ')}`);
     console.log(`   🛑 Stop: $${levels.stopLoss.toFixed(8)}`);
+
+    // Enriquecimento opcional: sentimento e regime (com timeout curto para não travar emissão)
+    const [sentiment, marketRegime] = await Promise.all([
+      Promise.race([
+        marketAnalysis.analyzeMarketSentiment().catch(() => null),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout sentiment')), 8000))
+      ]).catch(() => null),
+      Promise.resolve().then(() => marketRegimeService.getCurrentRegime()).catch(() => null)
+    ]);
+
+    // Preço ao vivo e provider (para o pré-check do emissor)
+    const livePrice = await binanceService.getCurrentPrice(signal.symbol).catch(() => 0);
+    const priceProvider = async () => {
+      try {
+        return await binanceService.getCurrentPrice(signal.symbol);
+      } catch {
+        return 0;
+      }
+    };
 
     const signalData = {
       symbol: signal.symbol,
@@ -287,31 +310,38 @@ async function processBestSignal(signal) {
       indicators: signal.indicators,
       patterns: signal.patterns,
       btcCorrelation: signal.btcCorrelation,
+      sentiment: sentiment || undefined,
+      marketRegime: marketRegime || undefined,
+      livePrice: isFinite(livePrice) ? Number(livePrice) : undefined,
+      priceProvider,
       ...levels,
       timestamp: new Date().toISOString()
     };
 
+    // Registra o sinal (id) antes do envio — caso barrado, fica registrado como tentado
     const signalId = performanceTracker.recordSignal(signalData);
     signalData.signalId = signalId;
 
-    const monitor = telegramBot.createMonitor(
-      signal.symbol, 
-      levels.entry, 
-      levels.targets, 
-      levels.stopLoss, 
-      signalId,
-      signal.trend
-    );
-
-    if (!monitor) {
-      console.error(`❌ Falha ao criar monitor para ${signal.symbol}`);
-      return;
-    }
-
+    // 🔎 Emissão (faz o pré-check internamente). Só cria monitor se enviar com sucesso.
     const sendResult = await telegramBot.sendTradingSignal(signalData);
-    console.log(`📤 Resultado do envio para ${signal.symbol}: ${sendResult ? 'SUCESSO' : 'FALHA'}`);
+    console.log(`📤 Resultado do envio para ${signal.symbol}: ${sendResult ? 'SUCESSO' : 'FALHA/BARRADO'}`);
 
     if (sendResult) {
+      // Criar monitor APÓS emitir, usando os mesmos níveis publicados
+      const monitor = telegramBot.createMonitor(
+        signal.symbol, 
+        levels.entry, 
+        levels.targets, 
+        levels.stopLoss, 
+        signalId,
+        signal.trend
+      );
+
+      if (!monitor) {
+        console.error(`❌ Falha ao criar monitor para ${signal.symbol}`);
+        return;
+      }
+
       console.log(`✅ Sinal processado com sucesso para ${signal.symbol}`);
       
       await telegramBot.startPriceMonitoring(
@@ -327,8 +357,7 @@ async function processBestSignal(signal) {
       
       console.log(`✅ Sinal enviado: ${signal.symbol} ${signal.timeframe} (${signal.score.toFixed(1)}%)`);
     } else {
-      telegramBot.removeMonitor(signal.symbol, 'SEND_FAILED');
-      console.error(`❌ Falha no envio - monitor removido para ${signal.symbol}`);
+      console.log(`ℹ️ Emissão não confirmada/barrada pelo pré-check — nenhum monitor criado para ${signal.symbol}`);
     }
 
   } catch (error) {
@@ -495,11 +524,14 @@ app.post('/api/telegram/test', async (req, res) => {
       stopLoss,
       probability: 85,
       trend: 'BULLISH',
-      timeframe: '5m'
+      timeframe: '5m',
+      // 👉 alimenta o pré-check
+      livePrice: await binanceService.getCurrentPrice('BTC/USDT').catch(() => 0),
+      priceProvider: () => binanceService.getCurrentPrice('BTC/USDT')
     };
 
-    await telegramBot.sendTradingSignal(testSignal);
-    res.json({ success: true, message: 'Sinal de teste (scalping) enviado' });
+    const ok = await telegramBot.sendTradingSignal(testSignal);
+    res.json({ success: ok, message: ok ? 'Sinal de teste (scalping) enviado' : 'Pré-check barrou o sinal' });
   } catch (error) {
     console.error('Erro no teste do Telegram:', error.message);
     res.status(500).json({ error: error.message });
