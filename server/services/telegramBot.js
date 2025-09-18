@@ -56,7 +56,7 @@ const EMIT_GUARD = {
   MIN_MACD_ABS_FOR_REVERSAL: envNum('COUNTERTREND_MIN_MACD_ABS', 0.0015),
 };
 
-// ✅ Gate de confiança p/ falar de “tendência do BTC”
+// ✅ Gate de confiança p/ falar de "tendência do BTC"
 const BTC_TREND_GUARD = {
   MIN_STRENGTH: envNum('BTC_TREND_MIN_STRENGTH', 70),
   ENFORCE_TF_MATCH: envBool('BTC_TREND_ENFORCE_TF', 'true'),
@@ -442,7 +442,7 @@ class TelegramBotService {
       }
 
       const isLong = signalData.trend === 'BULLISH';
-      const chartBuffer = await this.generateSignalChart(signalData);
+      const chartBuffer2 = await this.generateSignalChart(signalData);
 
       const entry = Number(signalData.entry);
 
@@ -487,6 +487,8 @@ class TelegramBotService {
       this.lastSignalById.set(signalId, published);
       this.lastSignalBySymbol.set(signalData.symbol, { ...published, signalId });
 
+      const message = this.formatTradingSignal(signalData);
+
       if (chartBuffer) {
         // Envia gráfico + mensagem
         await this.bot.sendPhoto(this.chatId, chartBuffer, {
@@ -496,15 +498,19 @@ class TelegramBotService {
       } else {
         // Fallback: apenas mensagem
         await this.bot.sendMessage(this.chatId, message, { 
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true
+        });
+      }
       // Envia com gráfico se disponível
-      if (chartBuffer) {
+      if (chartBuffer2) {
         const caption = this.chartGenerator.formatChartCaption(
           signalData.symbol,
           signalData,
           signalData.indicators
         );
         
-        await this.bot.sendPhoto(this.chatId, chartBuffer, {
+        await this.bot.sendPhoto(this.chatId, chartBuffer2, {
           caption: caption,
           parse_mode: 'Markdown'
         });
