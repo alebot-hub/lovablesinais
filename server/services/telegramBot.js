@@ -418,6 +418,8 @@ class TelegramBotService {
       }
 
       const isLong = signalData.trend === 'BULLISH';
+      const chartBuffer = await this.generateSignalChart(signalData);
+
       const entry = Number(signalData.entry);
 
       const normalization = this._enforceFixedLevels(entry, isLong, signalData.targets, signalData.stopLoss);
@@ -461,10 +463,19 @@ class TelegramBotService {
       this.lastSignalById.set(signalId, published);
       this.lastSignalBySymbol.set(signalData.symbol, { ...published, signalId });
 
-      console.log(`🧩 [TelegramBot] Níveis publicados (${signalId}) hash=${published.levelsHash}`);
-      console.log(`    Entry=${entry}  Stop=${stopLoss}  Targets=${targets.join(', ')}`);
-
-      const message = this.formatTradingSignal({ ...signalData, entry, targets, stopLoss });
+      if (chartBuffer) {
+        // Envia gráfico + mensagem
+        await this.bot.sendPhoto(this.chatId, chartBuffer, {
+          caption: message,
+          parse_mode: 'Markdown'
+        });
+      } else {
+        // Fallback: apenas mensagem
+        await this.bot.sendMessage(this.chatId, message, { 
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true 
+        });
+      }
       await this._sendMessageSafe(message);
       console.log(`✅ Sinal enviado via Telegram: ${signalData.symbol}`);
       return true;
@@ -474,6 +485,37 @@ class TelegramBotService {
     }
   }
 
+  /**
+   * Gera gráfico para o sinal
+   */
+  async generateSignalChart(signalData) {
+    try {
+      // Obtém dados históricos para o gráfico
+      const data = await this.binanceService.getOHLCVData(
+        signalData.symbol, 
+        signalData.timeframe || '5m', 
+        100
+      );
+      
+      if (!data || !data.close) {
+        console.warn(`⚠️ Dados insuficientes para gráfico de ${signalData.symbol}`);
+        return null;
+      }
+
+      // Usa o ChartGeneratorService
+      const chartGenerator = new (await import('./chartGenerator.js')).default();
+      
+      return await chartGenerator.generateTelegramChart(
+        signalData.symbol,
+        data,
+        signalData.indicators || {},
+        signalData
+      );
+    } catch (error) {
+      console.error(`❌ Erro ao gerar gráfico para ${signalData.symbol}:`, error.message);
+      return null;
+    }
+  }
   // =================== FORMATAÇÃO ===================
   formatPrice(price) {
     if (!price || isNaN(price)) return '0.00';
