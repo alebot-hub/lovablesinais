@@ -1,5 +1,4 @@
-import React from 'react';
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, Target, DollarSign, Clock } from 'lucide-react';
 import RealTimeChart from './RealTimeChart';
 
@@ -16,7 +15,7 @@ interface SignalCardProps {
 }
 
 const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
-  const [showChart, setShowChart] = useState(false);
+  const [showChart, setShowChart] = useState<boolean>(false);
   
   // Garante que score é um número válido
   const safeScore = typeof signal.score === 'number' && !isNaN(signal.score) ? signal.score : 0;
@@ -31,7 +30,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
     trend: signal.trend
   });
   
-  const getTrendIcon = (trend: string) => {
+  const getTrendIcon = (trend: string): JSX.Element => {
     switch (trend) {
       case 'BULLISH':
         return <TrendingUp className="w-5 h-5 text-green-600" />;
@@ -42,7 +41,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
     }
   };
 
-  const getTrendColor = (trend: string) => {
+  const getTrendColor = (trend: string): string => {
     switch (trend) {
       case 'BULLISH':
         return 'text-green-600 bg-green-50 border-green-200';
@@ -53,19 +52,23 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
     }
   };
 
-  const getScoreColor = (score: number) => {
-    if (safeScore >= 80) return 'text-green-600 bg-green-50';
-    if (safeScore >= 70) return 'text-yellow-600 bg-yellow-50';
+  const getScoreColor = (score: number): string => {
+    if (score >= 80) return 'text-green-600 bg-green-50';
+    if (score >= 70) return 'text-yellow-600 bg-yellow-50';
     return 'text-red-600 bg-red-50';
   };
 
-  const formatTimestamp = (timestamp: string) => {
+  const formatTimestamp = (timestamp: string): string => {
     return new Date(timestamp).toLocaleString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const handleChartToggle = (): void => {
+    setShowChart(!showChart);
   };
 
   return (
@@ -88,7 +91,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
           </div>
         </div>
 
-        <div className={`px-3 py-1 rounded-full text-sm font-medium ${getScoreColor(signal.score)}`}>
+        <div className={`px-3 py-1 rounded-full text-sm font-medium ${getScoreColor(safeScore)}`}>
           {safeScore.toFixed(1)}%
         </div>
       </div>
@@ -134,7 +137,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
         
         <div className="mt-3 pt-3 border-t border-gray-100">
           <button
-            onClick={() => setShowChart(!showChart)}
+            onClick={handleChartToggle}
             className="w-full flex items-center justify-center space-x-2 py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-sm"
           >
             <TrendingUp className="w-4 h-4" />

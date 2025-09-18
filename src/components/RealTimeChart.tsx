@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TrendingUp, TrendingDown, Activity, Maximize2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
 
 interface PriceData {
   symbol: string;
@@ -43,19 +43,19 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     }
   }, [priceData]);
 
-  const connectWebSocket = () => {
+  const connectWebSocket = (): void => {
     try {
       const binanceSymbol = symbol.replace('/', '').toLowerCase();
       const wsUrl = `wss://fstream.binance.com/ws/${binanceSymbol}@ticker`;
       
       wsRef.current = new WebSocket(wsUrl);
       
-      wsRef.current.onopen = () => {
+      wsRef.current.onopen = (): void => {
         console.log(`WebSocket conectado para ${symbol}`);
         setIsConnected(true);
       };
       
-      wsRef.current.onmessage = (event: MessageEvent) => {
+      wsRef.current.onmessage = (event: MessageEvent<string>): void => {
         try {
           const data: BinanceTickerData = JSON.parse(event.data);
           
@@ -78,7 +78,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
         }
       };
       
-      wsRef.current.onclose = () => {
+      wsRef.current.onclose = (): void => {
         console.log(`WebSocket fechado para ${symbol}`);
         setIsConnected(false);
         
@@ -86,7 +86,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
         setTimeout(connectWebSocket, 5000);
       };
       
-      wsRef.current.onerror = (error: Event) => {
+      wsRef.current.onerror = (error: Event): void => {
         console.error(`Erro WebSocket ${symbol}:`, error);
         setIsConnected(false);
       };
@@ -95,7 +95,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     }
   };
 
-  const drawChart = () => {
+  const drawChart = (): void => {
     const canvas = chartRef.current;
     if (!canvas || priceData.length < 2) return;
     
@@ -138,7 +138,8 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     }
     
     // Desenha linha de preço
-    ctx.strokeStyle = priceData[priceData.length - 1].change24h >= 0 ? '#10b981' : '#ef4444';
+    const lastData = priceData[priceData.length - 1];
+    ctx.strokeStyle = lastData && lastData.change24h >= 0 ? '#10b981' : '#ef4444';
     ctx.lineWidth = 2;
     ctx.beginPath();
     
@@ -156,7 +157,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     ctx.stroke();
     
     // Desenha pontos
-    ctx.fillStyle = priceData[priceData.length - 1].change24h >= 0 ? '#10b981' : '#ef4444';
+    ctx.fillStyle = lastData && lastData.change24h >= 0 ? '#10b981' : '#ef4444';
     priceData.forEach((data, index) => {
       const x = (width / (priceData.length - 1)) * index;
       const y = canvasHeight - ((data.price - minPrice) / priceRange) * canvasHeight;
