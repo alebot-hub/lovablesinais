@@ -30,7 +30,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
     trend: signal.trend
   });
   
-  const getTrendIcon = (trend: string): JSX.Element => {
+  const getTrendIcon = (trend: string): React.ReactElement => {
     switch (trend) {
       case 'BULLISH':
         return <TrendingUp className="w-5 h-5 text-green-600" />;

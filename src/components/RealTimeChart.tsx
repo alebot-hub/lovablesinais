@@ -26,7 +26,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
   const [currentPrice, setCurrentPrice] = useState<PriceData | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const wsRef = useRef<WebSocket | null>(null);
-  const chartRef = useRef<HTMLCanvasElement>(null);
+  const chartRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     connectWebSocket();
@@ -55,9 +55,9 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
         setIsConnected(true);
       };
       
-      wsRef.current.onmessage = (event: MessageEvent<string>): void => {
+      wsRef.current.onmessage = (event: MessageEvent): void => {
         try {
-          const data: BinanceTickerData = JSON.parse(event.data);
+          const data: BinanceTickerData = JSON.parse(event.data as string);
           
           const newPrice: PriceData = {
             symbol: data.s,
@@ -86,8 +86,8 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
         setTimeout(connectWebSocket, 5000);
       };
       
-      wsRef.current.onerror = (error: Event): void => {
-        console.error(`Erro WebSocket ${symbol}:`, error);
+      wsRef.current.onerror = (): void => {
+        console.error(`Erro WebSocket ${symbol}`);
         setIsConnected(false);
       };
     } catch (error) {
