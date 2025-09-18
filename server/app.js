@@ -91,6 +91,10 @@ app.socialSentiment = socialSentiment;
 app.bitcoinCorrelation = bitcoinCorrelation;
 app.marketRegimeService = marketRegimeService;
 
+// Integra chartGenerator no telegramBot
+telegramBot.chartGenerator = chartGenerator;
+telegramBot.binanceService = binanceService;
+
 let isAnalyzing = false;
 let lastAnalysisTime = null;
 let analysisCount = 0;

@@ -417,6 +417,30 @@ class TelegramBotService {
         return true;
       }
 
+      // Gera gráfico para o sinal
+      let chartBuffer = null;
+      if (this.chartGenerator) {
+        try {
+          // Obtém dados recentes para o gráfico
+          const chartData = await this.binanceService.getOHLCVData(
+            signalData.symbol, 
+            signalData.timeframe, 
+            50
+          );
+          
+          if (chartData?.close?.length) {
+            chartBuffer = await this.chartGenerator.generateScalpingChart(
+              signalData.symbol,
+              chartData,
+              signalData.indicators,
+              signalData
+            );
+          }
+        } catch (chartError) {
+          console.warn(`⚠️ Erro ao gerar gráfico para ${signalData.symbol}:`, chartError.message);
+        }
+      }
+
       const isLong = signalData.trend === 'BULLISH';
       const chartBuffer = await this.generateSignalChart(signalData);
 
@@ -472,8 +496,23 @@ class TelegramBotService {
       } else {
         // Fallback: apenas mensagem
         await this.bot.sendMessage(this.chatId, message, { 
+      // Envia com gráfico se disponível
+      if (chartBuffer) {
+        const caption = this.chartGenerator.formatChartCaption(
+          signalData.symbol,
+          signalData,
+          signalData.indicators
+        );
+        
+        await this.bot.sendPhoto(this.chatId, chartBuffer, {
+          caption: caption,
+          parse_mode: 'Markdown'
+        });
+      } else {
+        // Fallback: envia apenas texto
+        await this.bot.sendMessage(this.chatId, message, {
           parse_mode: 'Markdown',
-          disable_web_page_preview: true 
+          disable_web_page_preview: true
         });
       }
       await this._sendMessageSafe(message);
