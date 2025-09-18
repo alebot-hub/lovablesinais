@@ -1,13 +1,9 @@
 /// <reference types="vite/client" />
-/// <reference types="react" />
-/// <reference types="react-dom" />
 
 declare module 'react' {
-  namespace JSX {
-    interface IntrinsicElements {
-      [elemName: string]: any;
-    }
-  }
+  import * as React from 'react';
+  export = React;
+  export as namespace React;
 }
 
 declare module 'lucide-react' {
@@ -17,6 +13,7 @@ declare module 'lucide-react' {
     size?: string | number;
     color?: string;
     strokeWidth?: string | number;
+    className?: string;
   }
   
   export const TrendingUp: FC<IconProps>;
