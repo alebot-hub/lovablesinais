@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { TrendingUp, TrendingDown, Target, DollarSign, Clock } from 'lucide-react';
 import RealTimeChart from './RealTimeChart';
 
