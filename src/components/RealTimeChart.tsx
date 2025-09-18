@@ -21,7 +21,7 @@ interface BinanceTickerData {
   v: string;
 }
 
-const RealTimeChart = ({ symbol, height = 300 }: ChartProps) => {
+const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
   const [priceData, setPriceData] = useState<PriceData[]>([]);
   const [currentPrice, setCurrentPrice] = useState<PriceData | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -43,19 +43,19 @@ const RealTimeChart = ({ symbol, height = 300 }: ChartProps) => {
     }
   }, [priceData]);
 
-  const connectWebSocket = () => {
+  const connectWebSocket = (): void => {
     try {
       const binanceSymbol = symbol.replace('/', '').toLowerCase();
       const wsUrl = `wss://fstream.binance.com/ws/${binanceSymbol}@ticker`;
       
       wsRef.current = new WebSocket(wsUrl);
       
-      wsRef.current.onopen = () => {
+      wsRef.current.onopen = (): void => {
         console.log(`WebSocket conectado para ${symbol}`);
         setIsConnected(true);
       };
       
-      wsRef.current.onmessage = (event) => {
+      wsRef.current.onmessage = (event: MessageEvent<string>): void => {
         try {
           const data: BinanceTickerData = JSON.parse(event.data);
           
@@ -69,7 +69,7 @@ const RealTimeChart = ({ symbol, height = 300 }: ChartProps) => {
           
           setCurrentPrice(newPrice);
           
-          setPriceData((prev) => {
+          setPriceData((prev: PriceData[]) => {
             const updated = [...prev, newPrice];
             return updated.slice(-100);
           });
@@ -78,13 +78,13 @@ const RealTimeChart = ({ symbol, height = 300 }: ChartProps) => {
         }
       };
       
-      wsRef.current.onclose = () => {
+      wsRef.current.onclose = (): void => {
         console.log(`WebSocket fechado para ${symbol}`);
         setIsConnected(false);
         setTimeout(connectWebSocket, 5000);
       };
       
-      wsRef.current.onerror = () => {
+      wsRef.current.onerror = (): void => {
         console.error(`Erro WebSocket ${symbol}`);
         setIsConnected(false);
       };
@@ -93,7 +93,7 @@ const RealTimeChart = ({ symbol, height = 300 }: ChartProps) => {
     }
   };
 
-  const drawChart = () => {
+  const drawChart = (): void => {
     const canvas = chartRef.current;
     if (!canvas || priceData.length < 2) return;
     
@@ -104,13 +104,14 @@ const RealTimeChart = ({ symbol, height = 300 }: ChartProps) => {
     
     ctx.clearRect(0, 0, width, canvasHeight);
     
-    const prices = priceData.map((d) => d.price);
+    const prices = priceData.map((d: PriceData) => d.price);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
     const priceRange = maxPrice - minPrice;
     
     if (priceRange === 0) return;
     
+    // Grid lines
     ctx.strokeStyle = '#f3f4f6';
     ctx.lineWidth = 1;
     
@@ -130,12 +131,13 @@ const RealTimeChart = ({ symbol, height = 300 }: ChartProps) => {
       ctx.stroke();
     }
     
+    // Price line
     const lastData = priceData[priceData.length - 1];
     ctx.strokeStyle = lastData && lastData.change24h >= 0 ? '#10b981' : '#ef4444';
     ctx.lineWidth = 2;
     ctx.beginPath();
     
-    priceData.forEach((data, index) => {
+    priceData.forEach((data: PriceData, index: number) => {
       const x = (width / (priceData.length - 1)) * index;
       const y = canvasHeight - ((data.price - minPrice) / priceRange) * canvasHeight;
       
@@ -148,8 +150,9 @@ const RealTimeChart = ({ symbol, height = 300 }: ChartProps) => {
     
     ctx.stroke();
     
+    // Price points
     ctx.fillStyle = lastData && lastData.change24h >= 0 ? '#10b981' : '#ef4444';
-    priceData.forEach((data, index) => {
+    priceData.forEach((data: PriceData, index: number) => {
       const x = (width / (priceData.length - 1)) * index;
       const y = canvasHeight - ((data.price - minPrice) / priceRange) * canvasHeight;
       
@@ -158,6 +161,7 @@ const RealTimeChart = ({ symbol, height = 300 }: ChartProps) => {
       ctx.fill();
     });
     
+    // Price labels
     ctx.fillStyle = '#6b7280';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'right';
