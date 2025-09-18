@@ -24,7 +24,7 @@ interface BinanceTickerData {
 const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
   const [priceData, setPriceData] = useState<PriceData[]>([]);
   const [currentPrice, setCurrentPrice] = useState<PriceData | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState<boolean>(false);
   const wsRef = useRef<WebSocket | null>(null);
   const chartRef = useRef<HTMLCanvasElement>(null);
 
@@ -69,7 +69,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
           
           setCurrentPrice(newPrice);
           
-          setPriceData(prev => {
+          setPriceData((prev: PriceData[]) => {
             const updated = [...prev, newPrice];
             return updated.slice(-100); // Mantém últimos 100 pontos
           });
@@ -108,7 +108,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     ctx.clearRect(0, 0, width, canvasHeight);
     
     // Calcula escala
-    const prices = priceData.map(d => d.price);
+    const prices = priceData.map((d: PriceData) => d.price);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
     const priceRange = maxPrice - minPrice;
@@ -143,7 +143,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     ctx.lineWidth = 2;
     ctx.beginPath();
     
-    priceData.forEach((data, index) => {
+    priceData.forEach((data: PriceData, index: number) => {
       const x = (width / (priceData.length - 1)) * index;
       const y = canvasHeight - ((data.price - minPrice) / priceRange) * canvasHeight;
       
@@ -158,7 +158,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     
     // Desenha pontos
     ctx.fillStyle = lastData && lastData.change24h >= 0 ? '#10b981' : '#ef4444';
-    priceData.forEach((data, index) => {
+    priceData.forEach((data: PriceData, index: number) => {
       const x = (width / (priceData.length - 1)) * index;
       const y = canvasHeight - ((data.price - minPrice) / priceRange) * canvasHeight;
       

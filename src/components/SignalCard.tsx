@@ -18,8 +18,8 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal }) => {
   const [showChart, setShowChart] = useState<boolean>(false);
   
   // Garante que score é um número válido
-  const safeScore = typeof signal.score === 'number' && !isNaN(signal.score) ? signal.score : 0;
-  const safeEntry = typeof signal.entry === 'number' && !isNaN(signal.entry) ? signal.entry : 0;
+  const safeScore: number = typeof signal.score === 'number' && !isNaN(signal.score) ? signal.score : 0;
+  const safeEntry: number = typeof signal.entry === 'number' && !isNaN(signal.entry) ? signal.entry : 0;
   
   console.log('🎯 SignalCard renderizando:', {
     symbol: signal.symbol,
