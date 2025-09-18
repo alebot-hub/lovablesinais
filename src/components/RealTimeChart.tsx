@@ -14,6 +14,13 @@ interface ChartProps {
   height?: number;
 }
 
+interface BinanceTickerData {
+  s: string;  // symbol
+  c: string;  // close price
+  P: string;  // price change percent
+  v: string;  // volume
+}
+
 const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
   const [priceData, setPriceData] = useState<PriceData[]>([]);
   const [currentPrice, setCurrentPrice] = useState<PriceData | null>(null);
@@ -48,9 +55,9 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
         setIsConnected(true);
       };
       
-      wsRef.current.onmessage = (event) => {
+      wsRef.current.onmessage = (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
+          const data: BinanceTickerData = JSON.parse(event.data);
           
           const newPrice: PriceData = {
             symbol: data.s,
@@ -79,7 +86,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
         setTimeout(connectWebSocket, 5000);
       };
       
-      wsRef.current.onerror = (error) => {
+      wsRef.current.onerror = (error: Event) => {
         console.error(`Erro WebSocket ${symbol}:`, error);
         setIsConnected(false);
       };
@@ -95,10 +102,10 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    const { width, height } = canvas;
+    const { width, height: canvasHeight } = canvas;
     
     // Limpa canvas
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, width, canvasHeight);
     
     // Calcula escala
     const prices = priceData.map(d => d.price);
@@ -114,7 +121,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     
     // Linhas horizontais
     for (let i = 0; i <= 5; i++) {
-      const y = (height / 5) * i;
+      const y = (canvasHeight / 5) * i;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(width, y);
@@ -126,7 +133,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
       const x = (width / 10) * i;
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
+      ctx.lineTo(x, canvasHeight);
       ctx.stroke();
     }
     
@@ -137,7 +144,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     
     priceData.forEach((data, index) => {
       const x = (width / (priceData.length - 1)) * index;
-      const y = height - ((data.price - minPrice) / priceRange) * height;
+      const y = canvasHeight - ((data.price - minPrice) / priceRange) * canvasHeight;
       
       if (index === 0) {
         ctx.moveTo(x, y);
@@ -152,7 +159,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     ctx.fillStyle = priceData[priceData.length - 1].change24h >= 0 ? '#10b981' : '#ef4444';
     priceData.forEach((data, index) => {
       const x = (width / (priceData.length - 1)) * index;
-      const y = height - ((data.price - minPrice) / priceRange) * height;
+      const y = canvasHeight - ((data.price - minPrice) / priceRange) * canvasHeight;
       
       ctx.beginPath();
       ctx.arc(x, y, 2, 0, 2 * Math.PI);
@@ -166,12 +173,12 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     
     for (let i = 0; i <= 5; i++) {
       const price = minPrice + (priceRange / 5) * (5 - i);
-      const y = (height / 5) * i + 4;
+      const y = (canvasHeight / 5) * i + 4;
       ctx.fillText(price.toFixed(4), width - 5, y);
     }
   };
 
-  const formatPrice = (price: number) => {
+  const formatPrice = (price: number): string => {
     if (price >= 1) return price.toFixed(4);
     if (price >= 0.01) return price.toFixed(6);
     return price.toFixed(8);
