@@ -15,13 +15,13 @@ interface ChartProps {
 }
 
 interface BinanceTickerData {
-  s: string;  // symbol
-  c: string;  // close price
-  P: string;  // price change percent
-  v: string;  // volume
+  s: string;
+  c: string;
+  P: string;
+  v: string;
 }
 
-const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
+const RealTimeChart = ({ symbol, height = 300 }: ChartProps) => {
   const [priceData, setPriceData] = useState<PriceData[]>([]);
   const [currentPrice, setCurrentPrice] = useState<PriceData | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -43,21 +43,21 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     }
   }, [priceData]);
 
-  const connectWebSocket = (): void => {
+  const connectWebSocket = () => {
     try {
       const binanceSymbol = symbol.replace('/', '').toLowerCase();
       const wsUrl = `wss://fstream.binance.com/ws/${binanceSymbol}@ticker`;
       
       wsRef.current = new WebSocket(wsUrl);
       
-      wsRef.current.onopen = (): void => {
+      wsRef.current.onopen = () => {
         console.log(`WebSocket conectado para ${symbol}`);
         setIsConnected(true);
       };
       
-      wsRef.current.onmessage = (event: MessageEvent): void => {
+      wsRef.current.onmessage = (event) => {
         try {
-          const data: BinanceTickerData = JSON.parse(event.data as string);
+          const data: BinanceTickerData = JSON.parse(event.data);
           
           const newPrice: PriceData = {
             symbol: data.s,
@@ -69,24 +69,22 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
           
           setCurrentPrice(newPrice);
           
-          setPriceData((prev: PriceData[]) => {
+          setPriceData((prev) => {
             const updated = [...prev, newPrice];
-            return updated.slice(-100); // Mantém últimos 100 pontos
+            return updated.slice(-100);
           });
         } catch (error) {
           console.error('Erro ao processar dados WebSocket:', error);
         }
       };
       
-      wsRef.current.onclose = (): void => {
+      wsRef.current.onclose = () => {
         console.log(`WebSocket fechado para ${symbol}`);
         setIsConnected(false);
-        
-        // Reconecta após 5 segundos
         setTimeout(connectWebSocket, 5000);
       };
       
-      wsRef.current.onerror = (): void => {
+      wsRef.current.onerror = () => {
         console.error(`Erro WebSocket ${symbol}`);
         setIsConnected(false);
       };
@@ -95,7 +93,7 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     }
   };
 
-  const drawChart = (): void => {
+  const drawChart = () => {
     const canvas = chartRef.current;
     if (!canvas || priceData.length < 2) return;
     
@@ -104,22 +102,18 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     
     const { width, height: canvasHeight } = canvas;
     
-    // Limpa canvas
     ctx.clearRect(0, 0, width, canvasHeight);
     
-    // Calcula escala
-    const prices = priceData.map((d: PriceData) => d.price);
+    const prices = priceData.map((d) => d.price);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
     const priceRange = maxPrice - minPrice;
     
     if (priceRange === 0) return;
     
-    // Desenha grid
     ctx.strokeStyle = '#f3f4f6';
     ctx.lineWidth = 1;
     
-    // Linhas horizontais
     for (let i = 0; i <= 5; i++) {
       const y = (canvasHeight / 5) * i;
       ctx.beginPath();
@@ -128,7 +122,6 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
       ctx.stroke();
     }
     
-    // Linhas verticais
     for (let i = 0; i <= 10; i++) {
       const x = (width / 10) * i;
       ctx.beginPath();
@@ -137,13 +130,12 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
       ctx.stroke();
     }
     
-    // Desenha linha de preço
     const lastData = priceData[priceData.length - 1];
     ctx.strokeStyle = lastData && lastData.change24h >= 0 ? '#10b981' : '#ef4444';
     ctx.lineWidth = 2;
     ctx.beginPath();
     
-    priceData.forEach((data: PriceData, index: number) => {
+    priceData.forEach((data, index) => {
       const x = (width / (priceData.length - 1)) * index;
       const y = canvasHeight - ((data.price - minPrice) / priceRange) * canvasHeight;
       
@@ -156,9 +148,8 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
     
     ctx.stroke();
     
-    // Desenha pontos
     ctx.fillStyle = lastData && lastData.change24h >= 0 ? '#10b981' : '#ef4444';
-    priceData.forEach((data: PriceData, index: number) => {
+    priceData.forEach((data, index) => {
       const x = (width / (priceData.length - 1)) * index;
       const y = canvasHeight - ((data.price - minPrice) / priceRange) * canvasHeight;
       
@@ -167,7 +158,6 @@ const RealTimeChart: React.FC<ChartProps> = ({ symbol, height = 300 }) => {
       ctx.fill();
     });
     
-    // Labels de preço
     ctx.fillStyle = '#6b7280';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'right';
